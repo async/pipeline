@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { existsSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { buildGraph, tasksForJob } from "@async/pipeline-core";
+import { buildGraph, composePipelines, tasksForJob } from "@async/pipeline-core";
 import { runDoctor } from "./doctor.js";
 import { loadPipeline } from "./loader.js";
 import { runJob, runSingleTask } from "./runner.js";
+import { createStore } from "./store.js";
+import { matrixForJob, readPipelineMetadata, resolveSources, sourceContext } from "./sources.js";
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
@@ -41,13 +43,21 @@ async function main(): Promise<void> {
     for (const taskId of Object.keys(pipeline.tasks).sort()) {
       console.log(`  ${taskId}`);
     }
+    if (Object.keys(pipeline.sources).length > 0) {
+      console.log("Sources:");
+      for (const sourceId of Object.keys(pipeline.sources).sort()) {
+        console.log(`  ${sourceId}`);
+      }
+    }
     return;
   }
 
   if (command === "graph") {
     const formatIndex = args.indexOf("--format");
     const format = formatIndex >= 0 ? args[formatIndex + 1] : "json";
-    const graph = buildGraph(pipeline);
+    const store = virtualStore(cwd);
+    const graphPipeline = await loadAvailableSourceGraph(pipeline, cwd, store);
+    const graph = buildGraph(graphPipeline);
     if (format === "json") {
       console.log(JSON.stringify(graph, null, 2));
       return;
@@ -69,9 +79,56 @@ async function main(): Promise<void> {
   if (command === "explain") {
     const taskId = args[0];
     if (!taskId) throw new Error(`Usage: ${program} explain <task>`);
-    const task = pipeline.tasks[taskId];
+    const store = virtualStore(cwd);
+    const explainPipeline = await loadAvailableSourceGraph(pipeline, cwd, store);
+    const task = explainPipeline.tasks[taskId];
     if (!task) throw new Error(`Unknown task "${taskId}".`);
     console.log(JSON.stringify(task, jsonReplacer, 2));
+    return;
+  }
+
+  if (command === "sources") {
+    const subcommand = args[0] ?? "list";
+    if (subcommand === "list") {
+      const store = virtualStore(cwd);
+      const sources = await resolveSources(pipeline, cwd, store, { sync: false, loadPipelines: false });
+      for (const source of Object.values(sources)) {
+        const detail = source.definition.type === "git"
+          ? `${source.definition.url}#${source.definition.ref}`
+          : source.definition.path;
+        console.log(`${source.id}\t${source.definition.type}\t${detail}\t${source.dir}`);
+      }
+      return;
+    }
+    if (subcommand === "sync") {
+      const store = await createStore(cwd);
+      const sources = await resolveSources(pipeline, cwd, store, { sync: true, loadPipelines: true });
+      for (const source of Object.values(sources)) {
+        console.log(`${source.id}\t${source.record.commit ?? "unknown"}\t${source.dir}`);
+      }
+      return;
+    }
+    throw new Error(`Unknown sources command "${subcommand}".`);
+  }
+
+  if (command === "metadata") {
+    const formatIndex = args.indexOf("--format");
+    const format = formatIndex >= 0 ? args[formatIndex + 1] : "json";
+    if (format !== "json") throw new Error(`Unsupported metadata format "${format}".`);
+    const includeSources = args.includes("--include-sources");
+    const store = virtualStore(cwd);
+    const metadata = await readPipelineMetadata(configPath, { cwd, includeSources, store });
+    console.log(JSON.stringify(metadata, jsonReplacer, 2));
+    return;
+  }
+
+  if (command === "matrix") {
+    const jobId = args[0];
+    if (!jobId) throw new Error(`Usage: ${program} matrix <job> --format github`);
+    const formatIndex = args.indexOf("--format");
+    const format = formatIndex >= 0 ? args[formatIndex + 1] : "github";
+    if (format !== "github") throw new Error(`Unsupported matrix format "${format}".`);
+    console.log(JSON.stringify(matrixForJob(pipeline, jobId)));
     return;
   }
 
@@ -105,6 +162,10 @@ function printHelp(program: string): void {
   ${program} list
   ${program} graph --format json|dot
   ${program} explain <task>
+  ${program} sources list
+  ${program} sources sync
+  ${program} metadata --format json [--include-sources]
+  ${program} matrix <job> --format github
   ${program} doctor`);
 }
 
@@ -122,7 +183,31 @@ function programName(): string {
 }
 
 function jsonReplacer(_key: string, value: unknown): unknown {
-  return typeof value === "function" ? "[function]" : value;
+  if (typeof value === "function") return "[function]";
+  return value;
+}
+
+async function loadAvailableSourceGraph(pipeline: Awaited<ReturnType<typeof loadPipeline>>, cwd: string, store: Awaited<ReturnType<typeof createStore>>) {
+  const sources = await resolveSources(pipeline, cwd, store, { sync: false, loadPipelines: true });
+  const sourcePipelines: Parameters<typeof composePipelines>[1] = {};
+  for (const [sourceId, resolved] of Object.entries(sources)) {
+    if (!resolved.pipeline) continue;
+    sourcePipelines[sourceId] = {
+      pipeline: resolved.pipeline,
+      context: sourceContext(resolved)
+    };
+  }
+  return composePipelines(pipeline, sourcePipelines);
+}
+
+function virtualStore(root: string): Awaited<ReturnType<typeof createStore>> {
+  return {
+    root,
+    asyncDir: resolve(root, ".async"),
+    runsDir: resolve(root, ".async", "runs"),
+    cacheDir: resolve(root, ".async", "cache", "tasks"),
+    sourcesDir: resolve(root, ".async", "sources")
+  };
 }
 
 main().catch((error: unknown) => {
