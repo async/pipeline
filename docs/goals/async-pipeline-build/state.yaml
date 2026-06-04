@@ -1,0 +1,251 @@
+version: 2
+
+goal:
+  title: "Build @async/pipeline"
+  slug: "async-pipeline-build"
+  kind: existing_plan
+  tranche: "Implement the first local-first TypeScript workflow engine tranche in the async-pipeline repo."
+  status: done
+  oracle:
+    signal: "pnpm release:check completes and pnpm async-pipeline doctor reports host and Lima readiness."
+    cadence: "after Worker implementation and final Judge audit"
+    final_proof: "Release gate commands pass, self pipeline creates a passing execution record, and packages pack cleanly."
+  intake:
+    original_request: "Implement the provided @async/pipeline plan in async-pipeline as a pnpm monorepo and dogfood it."
+    interpreted_outcome: "Create a local-first @async/pipeline monorepo with core task/job/pipeline APIs, scheduler/store/cache, CLI, host and Lima runners, self pipeline, and pinned GitHub Actions invocation."
+    input_shape: existing_plan
+    audience: frontend developers building local-first task workflows
+    authority: requested
+    proof_type: test
+    completion_proof: "pnpm release:check passes locally and the GoalBuddy Judge receipt marks the tranche complete."
+    likely_misfire: "Shipping only docs or a skeleton without a runnable self-hosted pipeline and cache-backed execution store."
+    blind_spots_considered:
+      - "Package name should be @async/pipeline rather than the narrower @async/task."
+      - "GitHub Actions should stay a thin invocation layer."
+      - "Task primitives should stay in the same monorepo for now."
+      - "Local cache must hash real input files, including common glob patterns."
+    existing_plan_facts:
+      - "Repo path: /Users/patrickjs/code/async-framework/async-pipeline"
+      - "Use pnpm, Node ESM, TypeScript, and Node >=20."
+      - "Packages: @async/pipeline-core, @async/pipeline-node, @async/pipeline-adapter-lima, @async/pipeline."
+      - "CLI commands: run, run-task, list, graph, explain, doctor."
+      - "Execution records live under .async/runs and local cache under .async/cache/tasks."
+
+rules:
+  pm_owns_state: true
+  one_active_task: true
+  max_write_workers: 1
+  no_implementation_without_worker_or_pm_task: true
+  no_completion_without_judge_or_pm_audit: true
+  planning_is_not_completion: true
+  queued_required_worker_blocks_completion: true
+  continuous_until_full_outcome: true
+  missing_input_or_credentials_do_not_stop_goal: true
+  preserve_and_validate_existing_plan: true
+  intake_misfire_must_be_audited: true
+  goal_pressure_requires_oracle: true
+  no_completion_on_weak_proof: true
+  slice_policy:
+    max_consecutive_tiny_tasks: 2
+    prefer_vertical_slices: true
+    judge_picks_largest_safe_slice: true
+    worker_completes_whole_slice: true
+
+agents:
+  scout: unknown
+  worker: unknown
+  judge: unknown
+
+visual_board:
+  selected: local
+  local:
+    status: generated
+    url: null
+    command: "npx goalbuddy board docs/goals/async-pipeline-build"
+
+active_task: null
+
+tasks:
+  - id: T001
+    type: judge
+    assignee: Judge
+    status: done
+    reasoning_hint: default
+    objective: "Validate the implementation plan and package split before scaffolding."
+    inputs:
+      - "User-provided implementation plan"
+    constraints:
+      - "Preserve the existing plan facts."
+    expected_output:
+      - "Decision"
+      - "First Worker scope"
+    receipt:
+      result: done
+      decision: "approved"
+      full_outcome_complete: false
+      rationale: "The requested package split and first tranche are coherent for a local-first Node ESM pnpm monorepo."
+  - id: T002
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: default
+    objective: "Implement the first usable @async/pipeline monorepo tranche and verify self-dogfood behavior."
+    inputs:
+      - "docs/goals/async-pipeline-build/goal.md"
+    constraints:
+      - "Keep runtime dependencies minimal."
+      - "Use pnpm and Node ESM."
+      - "Do not create a separate @async/task package."
+    expected_output:
+      - "Scaffolded packages"
+      - "Core API and scheduler"
+      - "Node CLI and host runner"
+      - "Lima adapter"
+      - "Self pipeline and GitHub workflow"
+      - "Verification receipt"
+    allowed_files:
+      - ".github/workflows/ci.yml"
+      - ".gitignore"
+      - "README.md"
+      - "docs/goals/async-pipeline-build/goal.md"
+      - "docs/goals/async-pipeline-build/state.yaml"
+      - "package.json"
+      - "pipeline.ts"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "packages/pipeline-core/package.json"
+      - "packages/pipeline-core/tsconfig.build.json"
+      - "packages/pipeline-core/src/index.ts"
+      - "packages/pipeline-node/package.json"
+      - "packages/pipeline-node/tsconfig.build.json"
+      - "packages/pipeline-node/src/index.ts"
+      - "packages/pipeline-node/src/loader.ts"
+      - "packages/pipeline-node/src/store.ts"
+      - "packages/pipeline-node/src/runner.ts"
+      - "packages/pipeline-node/src/doctor.ts"
+      - "packages/pipeline-node/src/cli.ts"
+      - "packages/pipeline-adapter-lima/package.json"
+      - "packages/pipeline-adapter-lima/tsconfig.build.json"
+      - "packages/pipeline-adapter-lima/src/index.ts"
+      - "packages/pipeline/package.json"
+      - "packages/pipeline/tsconfig.build.json"
+      - "packages/pipeline/src/cli.ts"
+      - "packages/pipeline/src/core.ts"
+      - "packages/pipeline/src/index.ts"
+      - "packages/pipeline/src/lima.ts"
+      - "packages/pipeline/src/node.ts"
+      - "tests/core.test.js"
+      - "tests/cli.test.js"
+      - "tests/runner.test.js"
+      - "tests/store.test.js"
+      - "tsconfig.base.json"
+    verify:
+      - "pnpm install --frozen-lockfile"
+      - "pnpm typecheck"
+      - "pnpm test"
+      - "pnpm build"
+      - "pnpm async-pipeline run verify"
+      - "pnpm pack:check"
+      - "pnpm async-pipeline doctor"
+      - "GoalBuddy state checker"
+    stop_if:
+      - "Need files outside allowed_files."
+      - "Package-manager install fails due to unavailable registry or cooldown policy."
+      - "Verification fails twice for the same unresolved reason."
+    receipt:
+      result: done
+      changed_files:
+        - ".github/workflows/ci.yml"
+        - ".gitignore"
+        - "README.md"
+        - "docs/goals/async-pipeline-build/goal.md"
+        - "docs/goals/async-pipeline-build/state.yaml"
+        - "package.json"
+        - "packages/pipeline-core/package.json"
+        - "packages/pipeline-core/tsconfig.build.json"
+        - "packages/pipeline-core/src/index.ts"
+        - "packages/pipeline-node/package.json"
+        - "packages/pipeline-node/tsconfig.build.json"
+        - "packages/pipeline-node/src/cli.ts"
+        - "packages/pipeline-node/src/doctor.ts"
+        - "packages/pipeline-node/src/index.ts"
+        - "packages/pipeline-node/src/loader.ts"
+        - "packages/pipeline-node/src/runner.ts"
+        - "packages/pipeline-node/src/store.ts"
+        - "packages/pipeline-adapter-lima/package.json"
+        - "packages/pipeline-adapter-lima/tsconfig.build.json"
+        - "packages/pipeline-adapter-lima/src/index.ts"
+        - "packages/pipeline/package.json"
+        - "packages/pipeline/tsconfig.build.json"
+        - "packages/pipeline/src/cli.ts"
+        - "packages/pipeline/src/core.ts"
+        - "packages/pipeline/src/index.ts"
+        - "packages/pipeline/src/lima.ts"
+        - "packages/pipeline/src/node.ts"
+        - "pipeline.ts"
+        - "pnpm-lock.yaml"
+        - "pnpm-workspace.yaml"
+        - "tests/cli.test.js"
+        - "tests/core.test.js"
+        - "tests/runner.test.js"
+        - "tests/store.test.js"
+        - "tsconfig.base.json"
+      commands:
+        - cmd: "pnpm install --frozen-lockfile"
+          status: pass
+        - cmd: "pnpm typecheck"
+          status: pass
+        - cmd: "pnpm test"
+          status: pass
+        - cmd: "pnpm build"
+          status: pass
+        - cmd: "pnpm async-pipeline run verify"
+          status: pass
+        - cmd: "pnpm async-pipeline doctor"
+          status: pass
+        - cmd: "pnpm release:check"
+          status: pass
+      summary: "Implemented the @async/pipeline monorepo, core task/job/pipeline API, local run/cache store, host runner, Lima adapter, CLI, self pipeline, pinned thin GitHub workflow, publish-safe public exports, glob-aware cache hashing, timeout enforcement, explicit async-pipeline-only bin, @async/run boundary docs, and GoalBuddy board. Latest self execution passed as 2026-06-04T18-20-14-343Z-1a56558f."
+  - id: T999
+    type: judge
+    assignee: Judge
+    status: done
+    reasoning_hint: default
+    objective: "Audit whether the current tranche satisfies the original @async/pipeline implementation outcome."
+    inputs:
+      - "All done task receipts"
+      - "Last verification output"
+      - "Current git diff"
+    constraints:
+      - "Do not call the goal complete if self-dogfood verification has not passed."
+    expected_output:
+      - "complete | not_complete"
+      - "full_outcome_complete: true | false"
+      - "missing evidence"
+      - "next task if not complete"
+    receipt:
+      result: done
+      decision: "complete"
+      full_outcome_complete: true
+      rationale: "The requested first tranche exists and is verified: package split is present, public API is @async/pipeline, CLI commands exist, .async run/cache paths are used, GitHub Actions is a thin pinned workflow, and release:check passed."
+      evidence:
+        - "packages/pipeline-core/src/index.ts"
+        - "packages/pipeline-node/src/cli.ts"
+        - "packages/pipeline-node/src/store.ts"
+        - "packages/pipeline-node/src/runner.ts"
+        - "packages/pipeline-adapter-lima/src/index.ts"
+        - "packages/pipeline/src/index.ts"
+        - "pipeline.ts"
+        - ".github/workflows/ci.yml"
+        - ".async/runs/2026-06-04T18-20-14-343Z-1a56558f/execution.json"
+
+checks:
+  dirty_fingerprint: unknown
+  last_verification:
+    result: pass
+    task: T999
+    commands:
+      - "pnpm install --frozen-lockfile"
+      - "pnpm release:check"
+      - "pnpm async-pipeline doctor"
+      - "node /Users/patrickjs/.codex/plugins/cache/goalbuddy/goalbuddy/0.3.8/skills/goalbuddy/scripts/check-goal-state.mjs docs/goals/async-pipeline-build/state.yaml"
