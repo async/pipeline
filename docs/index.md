@@ -1,8 +1,13 @@
+---
+title: "@async/pipeline"
+description: "Local-first TypeScript pipelines with one task graph for laptops and GitHub Actions."
+---
+
 # @async/pipeline
 
 Write the workflow in TypeScript, run it locally, and generate the thin GitHub Actions bootloader from the same `pipeline.ts`.
 
-`@async/pipeline` is a small TypeScript pipeline engine for projects that want their everyday verification flow to be local-first instead of CI-only. Put the task graph in `pipeline.ts`, run it on your laptop with `async-pipeline`, and let GitHub Actions call the same graph with a thin workflow.
+`@async/pipeline` is a small TypeScript pipeline engine for projects that want everyday verification to be local-first instead of CI-only. Put the task graph in `pipeline.ts`, run it on your laptop with `async-pipeline`, and let GitHub Actions call the same graph with a generated workflow.
 
 ## Why Use It
 
@@ -21,7 +26,8 @@ Write the workflow in TypeScript, run it locally, and generate the thin GitHub A
 Try the repo's own pipeline:
 
 ```sh
-cd /Users/patrickjs/code/async-framework/async-pipeline
+git clone https://github.com/async-framework/async-pipeline.git
+cd async-pipeline
 pnpm install --frozen-lockfile
 pnpm build
 pnpm async-pipeline run verify
@@ -35,7 +41,7 @@ cat .async/runs/<run-id>/summary.md
 cat .async/runs/<run-id>/execution.json
 ```
 
-The self pipeline lives in [pipeline.ts](pipeline.ts). It runs `typecheck`, `test`, `build`, and `pack` through the `verify` job, and it declares the GitHub triggers used to generate [.github/workflows/async-pipeline.yml](.github/workflows/async-pipeline.yml).
+The self pipeline lives in [`pipeline.ts`](https://github.com/async-framework/async-pipeline/blob/main/pipeline.ts). It runs `typecheck`, `test`, `build`, and `pack` through the `verify` job, and it declares the GitHub triggers used to generate the checked-in workflow.
 
 ## Add A Pipeline
 
@@ -170,8 +176,6 @@ async-pipeline github check
 async-pipeline github run
 ```
 
-The checked-in generated workflow is [.github/workflows/async-pipeline.yml](.github/workflows/async-pipeline.yml).
-
 ## Cache Registry
 
 The default pipeline cache registry includes `file` and `memory`. `cache: true` uses the pipeline default, and explicit refs make task behavior easy to read:
@@ -262,7 +266,7 @@ How it works:
 - Automatic CLI routing to Lima. The Lima adapter is available programmatically, and `doctor` checks for `limactl`.
 - Deno or Ollama runtime integration. They can be declared as optional tool requirements, but they are not package dependencies.
 
-## Workspace Layout
+## Package Shape
 
 Only `@async/pipeline` is published to npm. The other workspace packages are private implementation packages that are bundled into the public package during build.
 
@@ -273,19 +277,57 @@ Only `@async/pipeline` is published to npm. The other workspace packages are pri
 | `@async/pipeline-node` | Private CLI, filesystem store, scheduler, host runner, source sync, and doctor checks. |
 | `@async/pipeline-adapter-lima` | Private programmatic Lima runner adapter using `limactl`. |
 
-## Docs
+## More Docs
 
-- [Docs home](docs/index.md)
-- [Getting started](docs/getting-started.md)
-- [How it works](docs/how-it-works.md)
-- [Running locally](docs/local-runs.md)
-- [GitHub Actions setup](docs/github-actions.md)
-- [API reference](docs/api.md)
-- [Many-repo impact runs](docs/many-repo-impact-runs.md)
+- [Getting started](getting-started.md)
+- [How it works](how-it-works.md)
+- [Running locally](local-runs.md)
+- [GitHub Actions setup](github-actions.md)
+- [API reference](api.md)
+- [Many-repo impact runs](many-repo-impact-runs.md)
+- [Changelog](https://github.com/async-framework/async-pipeline/blob/main/CHANGELOG.md)
 
-## Runtime Primitives
+## Extra Details
 
-The MVP remains `pipeline.ts`, local runs, and generated GitHub Actions. The package also exposes additive runtime primitives under `@async/pipeline/runtime` for embeddable workflows:
+These notes go deeper than the README so the GitHub Pages page can stand alone.
+
+### Metadata Safety
+
+`definePipeline(...)` is declarative. Importing a pipeline, running `metadata`, rendering `graph`, or checking generated GitHub files does not:
+
+- run shell commands
+- evaluate deferred shell callbacks
+- clone sources
+- run `prepare`
+- start cron jobs
+- open remote cache connections
+
+This is what lets tools and agents inspect a repo safely before deciding what to run.
+
+### Cache Defaults
+
+Pipeline tasks default to the `file:cache-first` registry when `cache: true` is used. The built-in file cache lives under:
+
+```txt
+.async/cache/tasks
+```
+
+Runtime primitives default to `memory:cache-first` because embeddable workflows should not write to disk unless the caller opts in.
+
+### GitHub Generation Files
+
+The generated workflow and lock are source-controlled by design:
+
+```txt
+.github/workflows/async-pipeline.yml
+.github/async-pipeline.lock.json
+```
+
+The workflow is the GitHub trigger bootloader. The lock records the generator version, config path, workflow path, rendered triggers, rendered jobs, package-manager choice, and generation hash. `async-pipeline github check` recomputes that state and fails when either file is stale.
+
+### Runtime Primitives
+
+The MVP is still `pipeline.ts`, local runs, and generated GitHub Actions. The package also exposes additive runtime primitives under `@async/pipeline/runtime` for embeddable workflows:
 
 ```ts
 import { cache, createRuntime, defineRuntime, task } from "@async/pipeline/runtime";
@@ -303,3 +345,30 @@ const work = defineRuntime([
 const runtime = createRuntime(work);
 await runtime.run();
 ```
+
+Use runtime primitives when you need an in-process async work stack. Use `definePipeline(...)` when you need an inspectable project workflow, GitHub Actions generation, run records, and task graph metadata.
+
+### Release Checklist
+
+Before cutting a release:
+
+```sh
+pnpm async-pipeline github check
+pnpm release:check
+npm view @async/pipeline version --json
+gh release view v0.1.0 --repo async-framework/async-pipeline
+```
+
+The current release gate builds the workspace, typechecks all packages, runs the test suite, dogfoods `async-pipeline run verify`, and dry-runs the publishable `@async/pipeline` tarball.
+
+### GitHub Pages Setup
+
+To publish this page with GitHub Pages:
+
+1. Open the repository settings on GitHub.
+2. Go to Pages.
+3. Choose deploy from a branch.
+4. Select `main` and the `/docs` folder.
+5. Save, then open the generated Pages URL after the first deployment finishes.
+
+No extra static-site build step is required for this basic Markdown page.
