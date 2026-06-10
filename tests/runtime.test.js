@@ -128,7 +128,7 @@ test("runtime task accepts array flows with explicit parallel fan-out", async ()
         order.push("start");
         return next();
       },
-      parallel([
+      parallel({ concurrency: 2 }, [
         async () => {
           order.push("typecheck");
           return "typecheck";
@@ -137,7 +137,7 @@ test("runtime task accepts array flows with explicit parallel fan-out", async ()
           order.push("test");
           return "test";
         }
-      ], { concurrency: 2 }),
+      ]),
       async (ctx) => {
         order.push(`after:${ctx.output.join(",")}`);
         return "done";
@@ -177,6 +177,13 @@ test("runtime branch executes only the selected flow", async () => {
   assert.equal(result.output, "preview");
   assert.deepEqual(order, ["preview"]);
   assert.equal(result.nodes.some((node) => node.kind === "branch" && node.status === "passed"), true);
+});
+
+test("runtime rejects second-argument parallel options", () => {
+  assert.throws(
+    () => parallel([async () => "ok"], { concurrency: 1 }),
+    (error) => error.code === "ASYNC_PIPELINE_RUNTIME_PARALLEL_OPTIONS_ORDER"
+  );
 });
 
 test("runtime exposes branch predicate failures separately", async () => {

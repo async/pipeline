@@ -1,6 +1,6 @@
 {
   "name": "@async/pipeline",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Local-first TypeScript pipelines with one task graph for laptops and CI.",
   "type": "module",
   "repository": {

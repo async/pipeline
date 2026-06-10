@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 - 2026-06-10
+
+### API Changes
+
+- Change `parallel(...)` to optional config-first calling style: `parallel(items)` or `parallel(options, items)`.
+- Reject second-argument runtime parallel options so config placement stays consistent.
+
 ## 0.1.1 - 2026-06-10
 
 ### Features

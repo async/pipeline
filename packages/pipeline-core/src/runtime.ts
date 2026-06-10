@@ -40,6 +40,10 @@ export interface RuntimeParallelDefinition<Input = unknown> {
   concurrency?: number;
 }
 
+export interface RuntimeParallelOptions {
+  concurrency?: number;
+}
+
 export interface RuntimeBranchDefinition<Input = unknown> {
   kind: "async-pipeline.runtime.branch";
   predicate: RuntimeBranchPredicate<Input>;
@@ -135,10 +139,23 @@ export function series<Input = unknown>(items: RuntimeRunDefinition<Input>): Run
   };
 }
 
+export function parallel<Input = unknown>(items: readonly RuntimeRunDefinition<Input>[]): RuntimeParallelDefinition<Input>;
+export function parallel<Input = unknown>(options: RuntimeParallelOptions, items: readonly RuntimeRunDefinition<Input>[]): RuntimeParallelDefinition<Input>;
 export function parallel<Input = unknown>(
-  items: readonly RuntimeRunDefinition<Input>[],
-  options: { concurrency?: number } = {}
+  optionsOrItems: RuntimeParallelOptions | readonly RuntimeRunDefinition<Input>[],
+  maybeItems?: readonly RuntimeRunDefinition<Input>[]
 ): RuntimeParallelDefinition<Input> {
+  const itemsFirst = Array.isArray(optionsOrItems);
+  if (itemsFirst && maybeItems !== undefined) {
+    throw pipelineError("ASYNC_PIPELINE_RUNTIME_PARALLEL_OPTIONS_ORDER", "Pass runtime parallel options first: parallel(options, items).");
+  }
+
+  const options: RuntimeParallelOptions = itemsFirst ? {} : optionsOrItems as RuntimeParallelOptions;
+  const items = itemsFirst ? optionsOrItems as readonly RuntimeRunDefinition<Input>[] : maybeItems;
+  if (!items) {
+    throw pipelineError("ASYNC_PIPELINE_RUNTIME_PARALLEL_ITEMS_REQUIRED", "Runtime parallel requires an items array.");
+  }
+
   if (options.concurrency !== undefined && (!Number.isInteger(options.concurrency) || options.concurrency < 1)) {
     throw pipelineError("ASYNC_PIPELINE_RUNTIME_INVALID_CONCURRENCY", "Runtime parallel concurrency must be a positive integer.");
   }
