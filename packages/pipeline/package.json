@@ -39,7 +39,7 @@
   "scripts": {
     "build": "pnpm --filter @async/pipeline-core build && pnpm --filter @async/pipeline-node build && pnpm --filter @async/pipeline-adapter-lima build && tsc -p tsconfig.build.json && node scripts/bundle-internals.js && chmod +x dist/cli.js",
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
-    "pack:check": "npm pack --dry-run"
+    "pack:check": "npm --cache ../../.async/npm-cache pack --dry-run"
   },
   "files": [
     "dist"
