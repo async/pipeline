@@ -7,7 +7,7 @@ This is the first public API surface for `@async/pipeline`.
 Use the public package for normal authoring:
 
 ```ts
-import { definePipeline, job, sh, source, task, trigger } from "@async/pipeline";
+import { cache, defineCache, definePipeline, dependsOn, fileCache, job, memoryCache, redisCache, sh, source, task, trigger } from "@async/pipeline";
 ```
 
 Subpaths are available for advanced use:
@@ -16,6 +16,7 @@ Subpaths are available for advanced use:
 import { definePipeline } from "@async/pipeline/core";
 import { runJob } from "@async/pipeline/node";
 import { LimaRunnerAdapter } from "@async/pipeline/lima";
+import { createRuntime, defineRuntime } from "@async/pipeline/runtime";
 ```
 
 ## definePipeline
@@ -23,6 +24,7 @@ import { LimaRunnerAdapter } from "@async/pipeline/lima";
 ```ts
 definePipeline({
   name: "app",
+  cache: "file:cache-first",
   namedInputs: {},
   taskDefaults: {},
   triggers: {},
@@ -37,6 +39,7 @@ Fields:
 | Field | Purpose |
 | --- | --- |
 | `name` | Pipeline name written into execution records. |
+| `cache` | Optional cache registry or default cache ref. Built-in stores are `file` and `memory`. |
 | `namedInputs` | Reusable input groups referenced by task `inputs`. |
 | `taskDefaults` | Defaults applied by exact task id or task name segment. |
 | `triggers` | Named trigger declarations. |
@@ -44,7 +47,7 @@ Fields:
 | `tasks` | Task map. |
 | `jobs` | Job map. |
 
-Pipeline definitions are metadata. Importing a pipeline, calling `definePipeline`, or reading metadata does not execute tasks.
+Pipeline definitions are metadata. Importing a pipeline, calling `definePipeline`, using directives, or reading metadata does not execute tasks, open cache connections, start cron, clone repos, or evaluate function steps.
 
 ## task
 
@@ -54,7 +57,7 @@ task({
   dependsOn: ["typecheck"],
   inputs: ["src/**/*.ts", "package.json"],
   outputs: ["dist/**"],
-  cache: true,
+  cache: "file:cache-first",
   retry: { attempts: 2, delayMs: 500 },
   timeout: "2m",
   requires: { tools: ["node", "pnpm"] },
@@ -63,6 +66,16 @@ task({
 })
 ```
 
+Task overloads:
+
+```ts
+task(config);
+task(config, sh`pnpm test`);
+task(config, [cache.use("file:cache-first"), sh`pnpm test`]);
+```
+
+If `config.run` is set and a second argument is also passed, `task` throws `ASYNC_PIPELINE_TASK_ARGUMENT_CONFLICT`.
+
 Fields:
 
 | Field | Purpose |
@@ -70,15 +83,64 @@ Fields:
 | `dependsOn` | Task ids that must run first. Use `<source>:<task>` for declared source tasks. |
 | `inputs` | Files or named input groups that affect cache keys. |
 | `outputs` | Files produced by the task. Included in metadata and cache config. |
-| `cache` | `true`, `false`, or cache options. |
+| `cache` | `true`, `false`, a cache ref such as `"file:cache-first"`, or cache options. |
 | `retry` | Number of attempts or `{ attempts, delayMs }`. |
 | `timeout` | Milliseconds or a duration string such as `500ms`, `30s`, `5m`, `1h`. |
 | `requires` | Tool, secret, or runtime declarations. |
 | `environment` | Backend declaration such as host or Lima. CLI routing to Lima is not automatic today. |
-| `run` | One shell command or function step. |
-| `steps` | Multiple shell commands or function steps. |
+| `run` | One shell command/function step or an array of steps/directives. |
+| `steps` | Multiple shell commands, function steps, or static directives. |
 
 `dependsOn` is the author-facing dependency keyword.
+
+Directive form is available for reusable stacks:
+
+```ts
+task({}, [
+  dependsOn("build"),
+  cache.use("file:cache-first"),
+  sh`pnpm test`
+])
+```
+
+Normalization lifts directives into task metadata. Metadata readers inspect directives but never invoke user functions.
+
+## defineCache
+
+```ts
+const caches = defineCache({
+  default: "file:cache-first",
+  stores: {
+    memory: memoryCache(),
+    file: fileCache({ root: ".async/cache/tasks" }),
+    redis: redisCache({ url: { env: "REDIS_URL" } })
+  }
+});
+```
+
+Use the registry at pipeline level:
+
+```ts
+definePipeline({
+  name: "app",
+  cache: caches,
+  tasks: {
+    test: task({ cache: "file:cache-first", run: sh`pnpm test` })
+  },
+  jobs: {
+    verify: job({ target: "test" })
+  }
+});
+```
+
+Built-in runner support:
+
+| Store | Behavior |
+| --- | --- |
+| `file` | Persistent local task cache under `.async/cache/tasks` by default. |
+| `memory` | Process-local task cache. |
+
+Remote stores can be declared as adapter metadata, but `@async/pipeline` does not ship a Redis dependency.
 
 ## source
 
@@ -180,11 +242,49 @@ Fields:
 
 ```ts
 trigger.manual();
-trigger.github({ events: ["push", "pull_request"] });
-trigger.schedule("0 9 * * 1");
+trigger.github({ events: ["push", "pull_request"], branches: ["main"] });
+trigger.cron("0 9 * * 1");
+trigger.schedule("0 9 * * 1"); // compatibility alias
 ```
 
-Triggers are declarations today. GitHub Actions still invokes the CLI explicitly with `async-pipeline run <job>`.
+Triggers are declarations. Use `async-pipeline github generate` to render them into committed GitHub Actions YAML. GitHub cannot start a cron or push workflow from TypeScript alone.
+
+## GitHub Commands
+
+```sh
+async-pipeline github generate [--workflow <path>] [--lock <path>]
+async-pipeline github check [--workflow <path>] [--lock <path>]
+async-pipeline github run
+```
+
+`github generate` writes `.github/workflows/async-pipeline.yml` and `.github/async-pipeline.lock.json`.
+
+`github check` fails when generated files are stale.
+
+`github run` reads the GitHub event context and runs matching jobs.
+
+## Runtime Subpath
+
+The runtime API is additive and advanced. It is for embeddable workflows, not the primary `pipeline.ts` MVP path:
+
+```ts
+import { cache, createRuntime, defineRuntime, task } from "@async/pipeline/runtime";
+
+const work = defineRuntime([
+  task({ id: "sync" }, [
+    cache.use("memory:cache-first"),
+    async (ctx, next) => {
+      ctx.state.synced = true;
+      return next();
+    }
+  ])
+]);
+
+const runtime = createRuntime(work);
+await runtime.run();
+await runtime.start();
+await runtime.stop();
+```
 
 ## Execution Record Shape
 

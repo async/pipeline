@@ -1,175 +1,121 @@
 # GitHub Actions Setup
 
-GitHub Actions should be a thin invocation layer. It should install dependencies, build the CLI when needed, and run the same pipeline used locally.
+GitHub Actions is the bootloader. `pipeline.ts` owns the workflow logic.
 
-## Minimal Workflow
+GitHub decides whether to start a workflow from committed YAML before `@async/pipeline` code runs. That means `push`, `pull_request`, `schedule`, `release`, and `workflow_dispatch` must exist in `.github/workflows/*.yml`. The pipeline CLI generates that YAML from metadata-safe trigger declarations.
 
-```yaml
-name: CI
+## Author Triggers In TypeScript
 
-on:
-  pull_request:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+```ts
+import { definePipeline, job, sh, task, trigger } from "@async/pipeline";
 
-permissions:
-  contents: read
-
-jobs:
-  verify:
-    name: pipeline / verify
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@<pinned-sha>
-
-      - name: Setup Node
-        uses: actions/setup-node@<pinned-sha>
-        with:
-          node-version: 24
-
-      - name: Enable pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.20.0 --activate
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build CLI
-        run: pnpm build
-
-      - name: Run pipeline
-        run: pnpm async-pipeline run verify
-        env:
-          CI: true
-```
-
-The repo workflow uses this shape in [../.github/workflows/ci.yml](../.github/workflows/ci.yml).
-
-## Why Build Before Running
-
-This repo dogfoods the CLI from source:
-
-```json
-{
-  "scripts": {
-    "async-pipeline": "node packages/pipeline-node/dist/cli.js"
+export default definePipeline({
+  name: "app",
+  triggers: {
+    pr: trigger.github({ events: ["pull_request"] }),
+    main: trigger.github({ events: ["push"], branches: ["main"] }),
+    nightly: trigger.cron("17 2 * * *")
+  },
+  tasks: {
+    verify: task({ run: sh`pnpm test` })
+  },
+  jobs: {
+    verify: job({ target: "verify", trigger: ["pr", "main"] }),
+    nightly: job({ target: "verify", trigger: ["nightly"] })
   }
-}
+});
 ```
 
-That means CI must run:
+## Generate The Bootloader
 
 ```sh
-pnpm build
-pnpm async-pipeline run verify
+async-pipeline github generate
 ```
 
-In a consumer project that installs a published `@async/pipeline`, the bin already points at built package output, so a pre-build step may not be necessary.
+This writes:
 
-## Pin Actions
-
-Use full commit SHAs for Actions:
-
-```yaml
-uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+```txt
+.github/workflows/async-pipeline.yml
+.github/async-pipeline.lock.json
 ```
 
-Keep the version comment nearby if useful:
+The generated workflow is intentionally thin:
 
-```yaml
-uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+- checkout with a pinned action SHA
+- setup Node with a pinned action SHA
+- enable pnpm
+- install dependencies
+- build the CLI when the project dogfoods it from source
+- run `async-pipeline github check`
+- run `async-pipeline github run`
+
+The lock file records the generator version, config path, workflow path, hash, rendered triggers, rendered jobs, package manager, and bootloader options.
+
+For tests or scratch generation, override both generated paths:
+
+```sh
+async-pipeline github generate --workflow .tmp/async-pipeline.yml --lock .tmp/async-pipeline.lock.json
+async-pipeline github check --workflow .tmp/async-pipeline.yml --lock .tmp/async-pipeline.lock.json
 ```
 
-## Permissions
+## Check For Drift
 
-For a verify-only workflow, use:
+Use this locally and in CI:
 
-```yaml
-permissions:
-  contents: read
+```sh
+async-pipeline github check
 ```
 
-Add write permissions only when the pipeline publishes, comments, deploys, or uploads privileged artifacts.
+The command loads `pipeline.ts`, recomputes the GitHub-relevant metadata hash, renders the workflow again, and fails if either generated file is stale.
+
+Task command changes do not force workflow regeneration unless they affect jobs, triggers, package-manager bootstrapping, or the generated workflow shape.
+
+## Run In GitHub
+
+The generated workflow calls:
+
+```sh
+async-pipeline github run
+```
+
+`github run` reads GitHub event context from environment variables and the event payload, then runs matching pipeline jobs:
+
+- `push` and `pull_request` match `trigger.github(...)`.
+- `release` can match `trigger.github({ events: ["release"] })`.
+- `schedule` matches `trigger.cron(...)`.
+- `workflow_dispatch` runs the pipeline jobs manually.
+
+The execution records still go under `.async/runs` inside the runner workspace.
 
 ## Cache
 
-`@async/pipeline` task cache is local to the runner unless you explicitly persist `.async/cache`. Many-repo impact runs can also reuse warm source checkouts under `.async/sources` within the runner workspace.
+The generated workflow does not persist `.async/cache` by default. The built-in task cache is runner-local unless you explicitly add a separate GitHub cache step or a future remote cache adapter.
 
-If you enable package-manager caching, keep it separate from `@async/pipeline` task caching and verify the package manager is available before the cache integration runs.
+Keep package-manager caching separate from `@async/pipeline` task caching.
+
+## Permissions
+
+For verification-only pipelines, the generated workflow uses:
+
+```yaml
+permissions:
+  contents: read
+```
+
+Add write permissions only when a pipeline publishes, comments, deploys, or uploads privileged artifacts.
 
 ## Many-Repo Matrix
 
-For impact runs, keep one static workflow and let the CLI describe the source task matrix:
+GitHub triggers still come from YAML, but dynamic matrices can be produced after the workflow starts:
 
-```yaml
-jobs:
-  plan-impact:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.matrix.outputs.matrix }}
-    steps:
-      - uses: actions/checkout@<pinned-sha>
-      - uses: actions/setup-node@<pinned-sha>
-        with:
-          node-version: 24
-      - run: |
-          corepack enable
-          corepack prepare pnpm@10.20.0 --activate
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - id: matrix
-        run: echo "matrix=$(pnpm --silent async-pipeline matrix verifyImpact --format github)" >> "$GITHUB_OUTPUT"
-
-  impact:
-    needs: plan-impact
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJson(needs.plan-impact.outputs.matrix) }}
-    steps:
-      - uses: actions/checkout@<pinned-sha>
-      - uses: actions/setup-node@<pinned-sha>
-        with:
-          node-version: 24
-      - run: |
-          corepack enable
-          corepack prepare pnpm@10.20.0 --activate
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm async-pipeline run-task "${{ matrix.task }}"
-        env:
-          CI: true
+```sh
+async-pipeline matrix verifyImpact --format github
 ```
 
-This runs dependent repo tasks in the current repo's CI runner. v1 does not generate workflow files or dispatch workflows in consumer repos.
+Use that output in a planning job, then run namespaced tasks with:
 
-## CI Mode
-
-The CLI marks runs as `ci` when `CI` is set:
-
-```yaml
-env:
-  CI: true
+```sh
+async-pipeline run-task "$TASK"
 ```
 
-The execution record stores the mode:
-
-```json
-{
-  "mode": "ci"
-}
-```
-
-## Future Publishing
-
-Before publishing packages:
-
-- recheck npm availability for `@async/pipeline`
-- confirm package metadata
-- run `pnpm release:check`
-- run `npm pack --dry-run` for each publishable package
-- add release permissions only to the release workflow
+This keeps impact runs explicit and metadata-safe. v1 does not dispatch workflows in consumer repos.

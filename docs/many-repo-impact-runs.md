@@ -118,7 +118,7 @@ A workflow can use that matrix and run:
 async-pipeline run-task "$TASK"
 ```
 
-This runs dependent repo tasks in the current repo's CI runner. v1 does not dispatch workflows in consumer repos and does not generate workflow files.
+This runs dependent repo tasks in the current repo's CI runner. `async-pipeline github generate` can generate the bootloader workflow for the current repo, but v1 does not dispatch workflows in consumer repos.
 
 ## Why It Stays Explicit
 

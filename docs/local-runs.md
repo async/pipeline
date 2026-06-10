@@ -63,6 +63,15 @@ Generate a GitHub matrix for source tasks in a job:
 pnpm async-pipeline matrix verifyImpact --format github
 ```
 
+Generate or check the GitHub Actions bootloader:
+
+```sh
+pnpm async-pipeline github generate
+pnpm async-pipeline github check
+```
+
+Use `--workflow <path>` and `--lock <path>` when you want to render/check generated files outside `.github/`, such as in tests.
+
 Run environment checks:
 
 ```sh
@@ -104,10 +113,12 @@ Enable cache per task:
 task({
   inputs: ["src/**/*.ts", "package.json", "pnpm-lock.yaml"],
   outputs: ["dist/**"],
-  cache: true,
+  cache: "file:cache-first",
   run: sh`pnpm build`
 })
 ```
+
+`cache: true` uses the pipeline cache default. Explicit refs such as `file:cache-first` make task behavior clearer in examples and metadata.
 
 On the next run, the task can be skipped when:
 

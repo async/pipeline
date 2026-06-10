@@ -35,6 +35,12 @@ pnpm async-pipeline explain build
 pnpm async-pipeline doctor
 ```
 
+Check the generated GitHub bootloader:
+
+```sh
+pnpm async-pipeline github check
+```
+
 ## 2. Add A Pipeline To A Project
 
 After the package is published:
@@ -50,6 +56,7 @@ import { definePipeline, job, sh, task, trigger } from "@async/pipeline";
 
 export default definePipeline({
   name: "web-app",
+  cache: "file:cache-first",
   namedInputs: {
     source: [
       "src/**/*.ts",
@@ -60,19 +67,21 @@ export default definePipeline({
     ]
   },
   triggers: {
-    push: trigger.github({ events: ["push", "pull_request"] })
+    pr: trigger.github({ events: ["pull_request"] }),
+    main: trigger.github({ events: ["push"], branches: ["main"] }),
+    nightly: trigger.cron("17 2 * * *")
   },
   tasks: {
     typecheck: task({
       inputs: ["source"],
-      cache: true,
+      cache: "file:cache-first",
       timeout: "2m",
       run: sh`pnpm typecheck`
     }),
     test: task({
       dependsOn: ["typecheck"],
       inputs: ["source"],
-      cache: true,
+      cache: "file:cache-first",
       retry: { attempts: 2, delayMs: 500 },
       run: sh`pnpm test`
     }),
@@ -80,14 +89,18 @@ export default definePipeline({
       dependsOn: ["test"],
       inputs: ["source"],
       outputs: ["dist/**"],
-      cache: true,
+      cache: "file:cache-first",
       run: sh`pnpm build`
     })
   },
   jobs: {
     verify: job({
       target: "build",
-      trigger: ["push"]
+      trigger: ["pr", "main"]
+    }),
+    nightly: job({
+      target: "build",
+      trigger: ["nightly"]
     })
   }
 });
@@ -134,26 +147,44 @@ pnpm async-pipeline graph --format dot
 
 Metadata reads are safe for planning and automation: they do not clone sources, run `prepare`, execute tasks, or evaluate deferred shell callbacks.
 
-## 4. Wire CI
+## 4. Generate GitHub Actions
 
-Keep CI thin. It should install dependencies, build the CLI if needed, and invoke the same job:
+GitHub starts workflows from committed YAML, so generate the bootloader from `pipeline.ts`:
 
-```yaml
-- run: pnpm install --frozen-lockfile
-- run: pnpm build
-- run: pnpm async-pipeline run verify
-  env:
-    CI: true
+```sh
+pnpm async-pipeline github generate
 ```
 
-Use pinned GitHub Actions, `permissions: contents: read`, and add write permissions only for publishing, deployment, comments, or privileged artifact uploads.
+Commit the generated files:
+
+```txt
+.github/workflows/async-pipeline.yml
+.github/async-pipeline.lock.json
+```
+
+CI then runs:
+
+```sh
+pnpm async-pipeline github check
+pnpm async-pipeline github run
+```
+
+`github check` fails when the committed workflow or lock no longer matches the GitHub-relevant metadata in `pipeline.ts`.
+
+For tests, render to scratch paths:
+
+```sh
+pnpm async-pipeline github generate --workflow .tmp/workflow.yml --lock .tmp/lock.json
+pnpm async-pipeline github check --workflow .tmp/workflow.yml --lock .tmp/lock.json
+```
 
 ## What To Commit
 
 Commit:
 
 - `pipeline.ts`, `pipeline.mjs`, or `pipeline.js`
-- `.github/workflows/ci.yml`
+- `.github/workflows/async-pipeline.yml`
+- `.github/async-pipeline.lock.json`
 - package metadata and lockfile changes
 - docs that explain the project pipeline
 
@@ -176,3 +207,9 @@ pipeline.js
 If `pipeline.ts` fails to load on Node 20, use Node 24 or convert the config to `pipeline.mjs`.
 
 If a task keeps returning a cache hit, check its `inputs`. A task only becomes dirty when its task config or declared input files change.
+
+If `github check` fails, rerun:
+
+```sh
+pnpm async-pipeline github generate
+```

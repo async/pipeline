@@ -1,9 +1,9 @@
 # How It Works
 
-`@async/pipeline` keeps workflow logic local-first by separating four jobs:
+`@async/pipeline` keeps workflow logic local-first by separating five jobs:
 
 ```txt
-define -> resolve graph -> run tasks -> write records/cache
+define -> generate GitHub bootloader -> resolve graph -> run tasks -> write records/cache
 ```
 
 The pipeline definition is data. The runner decides what must run, executes it sequentially today, and writes durable local evidence under `.async/`.
@@ -34,9 +34,24 @@ export default definePipeline({
 });
 ```
 
-`definePipeline`, `task`, `job`, `trigger`, `source`, `sh`, and deferred `sh((ctx) => ...)` create metadata only. Importing a pipeline does not clone repos, run commands, or evaluate deferred shell callbacks.
+`definePipeline`, `task`, `job`, `trigger`, `source`, `sh`, cache directives, `dependsOn(...)`, and deferred `sh((ctx) => ...)` create metadata only. Importing a pipeline does not clone repos, run commands, open cache stores, start cron, or evaluate deferred shell callbacks.
 
-## 2. Resolve Graph
+## 2. Generate GitHub Bootloader
+
+GitHub Actions starts workflows from YAML, so TypeScript cannot dynamically register `push`, `pull_request`, or cron triggers after the fact.
+
+`async-pipeline github generate` renders trigger/job metadata into:
+
+```txt
+.github/workflows/async-pipeline.yml
+.github/async-pipeline.lock.json
+```
+
+`async-pipeline github check` recomputes the same metadata hash and fails if the generated workflow or lock is stale.
+
+The generated workflow is a pinned, low-permission bootloader. It installs dependencies, checks the generated files, and calls `async-pipeline github run`. The CLI then reads the GitHub event context and runs matching jobs from `pipeline.ts`.
+
+## 3. Resolve Graph
 
 Tasks name their dependencies with `dependsOn`:
 
@@ -62,7 +77,7 @@ the scheduler:
 
 Source tasks use namespaced refs such as `storefront:test`. The source map is explicit; `@async/pipeline` does not infer dependents from package manifests, lockfiles, npm metadata, or GitHub search.
 
-## 3. Run Tasks
+## 4. Run Tasks
 
 The Node runner creates a run plan, prepares declared sources when needed, then executes tasks in order.
 
@@ -70,14 +85,14 @@ For each task it:
 
 1. Resolves shell and function steps.
 2. Checks declared tools.
-3. Computes a cache key from task config, declared inputs, resolved commands, and source context.
+3. Computes a cache key from task config, cache ref, declared inputs, resolved commands, and source context.
 4. Replays a passing local cache result when the key matches.
 5. Runs dirty tasks with retry and timeout policy.
 6. Stops on the first failed task.
 
 Execution is sequential in this tranche. Parallel scheduling is planned later.
 
-## 4. Write Records And Cache
+## 5. Write Records And Cache
 
 Each run writes:
 
@@ -89,13 +104,21 @@ Each run writes:
 
 `execution.json` is the machine-readable record. `summary.md` is the quick human-readable view. Task logs keep command output for inspection.
 
-Task cache is local:
+The default file task cache is local:
 
 ```txt
 .async/cache/tasks/<cache-key>/result.json
 ```
 
 To make a task dirty when a file changes, include that file or glob in `inputs`.
+
+Cache refs are normalized during definition:
+
+```ts
+task({ cache: "file:cache-first", run: sh`pnpm test` })
+```
+
+`memory` and `file` are registered by default. Remote stores can be declared for future/runtime adapters without adding mandatory package dependencies.
 
 Many-repo impact runs can also reuse warm git checkouts under:
 
@@ -107,7 +130,7 @@ Many-repo impact runs can also reuse warm git checkouts under:
 
 | Object | Owns |
 | --- | --- |
-| Pipeline | Graph shape, named tasks, jobs, triggers, named inputs, sources, and defaults. |
+| Pipeline | Graph shape, named tasks, jobs, triggers, cache registry, named inputs, sources, and defaults. |
 | Task | Work unit, `dependsOn`, inputs, outputs, cache, retry, timeout, requirements, environment, and steps. |
 | Job | Named entrypoint, trigger binding, target task or tasks, and execution mode. |
 | Source | Explicit local or git repo with its own pipeline and optional `prepare` steps. |

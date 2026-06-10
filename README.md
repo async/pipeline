@@ -1,6 +1,6 @@
 # @async/pipeline
 
-Define one local workflow, run it anywhere, and inspect what happened.
+Write the workflow in TypeScript, run it locally, and generate the thin GitHub Actions bootloader from the same `pipeline.ts`.
 
 `@async/pipeline` is a small TypeScript pipeline engine for projects that want their everyday verification flow to be local-first instead of CI-only. Put the task graph in `pipeline.ts`, run it on your laptop with `async-pipeline`, and let GitHub Actions call the same graph with a thin workflow.
 
@@ -8,8 +8,9 @@ Define one local workflow, run it anywhere, and inspect what happened.
 
 - Replace duplicated local scripts and CI-only YAML logic with one typed `pipeline.ts`.
 - Run the same task graph on a laptop and in GitHub Actions.
+- Generate and check a pinned GitHub Actions workflow from `pipeline.ts`.
 - Keep run records, logs, summaries, source checkouts, and task cache under `.async/`.
-- Make cache behavior explicit through declared task inputs and task config.
+- Make cache behavior explicit through declared task inputs, cache refs, and task config.
 - Give people and agents inspectable commands: `list`, `graph`, `explain`, `metadata`, `matrix`, and `doctor`.
 - Run many-repo impact checks with explicit dependent repos and namespaced task refs such as `storefront:test`.
 - Read pipeline metadata without cloning sources, running `prepare`, executing tasks, or evaluating deferred shell callbacks.
@@ -34,7 +35,7 @@ cat .async/runs/<run-id>/summary.md
 cat .async/runs/<run-id>/execution.json
 ```
 
-The self pipeline lives in [pipeline.ts](pipeline.ts). It runs `typecheck`, `test`, `build`, and `pack` through the `verify` job.
+The self pipeline lives in [pipeline.ts](pipeline.ts). It runs `typecheck`, `test`, `build`, and `pack` through the `verify` job, and it declares the GitHub triggers used to generate [.github/workflows/async-pipeline.yml](.github/workflows/async-pipeline.yml).
 
 ## Add A Pipeline
 
@@ -47,35 +48,42 @@ pnpm add -D @async/pipeline
 Create `pipeline.ts`:
 
 ```ts
-import { definePipeline, job, sh, task } from "@async/pipeline";
+import { definePipeline, job, sh, task, trigger } from "@async/pipeline";
 
 export default definePipeline({
   name: "app",
+  cache: "file:cache-first",
+  triggers: {
+    pr: trigger.github({ events: ["pull_request"] }),
+    main: trigger.github({ events: ["push"], branches: ["main"] }),
+    nightly: trigger.cron("17 2 * * *")
+  },
   namedInputs: {
     source: ["src/**/*.ts", "package.json", "pnpm-lock.yaml", "tsconfig.json"]
   },
   tasks: {
     typecheck: task({
       inputs: ["source"],
-      cache: true,
+      cache: "file:cache-first",
       run: sh`pnpm typecheck`
     }),
     test: task({
       dependsOn: ["typecheck"],
       inputs: ["source"],
-      cache: true,
+      cache: "file:cache-first",
       run: sh`pnpm test`
     }),
     build: task({
       dependsOn: ["test"],
       inputs: ["source"],
       outputs: ["dist/**"],
-      cache: true,
+      cache: "file:cache-first",
       run: sh`pnpm build`
     })
   },
   jobs: {
-    verify: job({ target: "build" })
+    verify: job({ target: "build", trigger: ["pr", "main"] }),
+    nightly: job({ target: "build", trigger: ["nightly"] })
   }
 });
 ```
@@ -110,6 +118,9 @@ async-pipeline metadata --format json
 async-pipeline sources list
 async-pipeline sources sync
 async-pipeline matrix <job> --format github
+async-pipeline github generate [--workflow <path>] [--lock <path>]
+async-pipeline github check [--workflow <path>] [--lock <path>]
+async-pipeline github run
 async-pipeline doctor
 ```
 
@@ -117,31 +128,68 @@ Use `async-pipeline` as the explicit command in docs and CI. Short aliases and s
 
 ## GitHub Actions
 
-GitHub Actions should install dependencies, build the CLI when working from source, and run the same pipeline command used locally.
+GitHub Actions requires committed YAML for `push`, `pull_request`, `schedule`, `release`, and `workflow_dispatch`. `@async/pipeline` keeps that YAML as a generated bootloader:
 
-```yaml
-permissions:
-  contents: read
-
-jobs:
-  verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@<pinned-sha>
-      - uses: actions/setup-node@<pinned-sha>
-        with:
-          node-version: 24
-      - run: |
-          corepack enable
-          corepack prepare pnpm@10.20.0 --activate
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm async-pipeline run verify
-        env:
-          CI: true
+```sh
+async-pipeline github generate
 ```
 
-The checked-in workflow is [.github/workflows/ci.yml](.github/workflows/ci.yml).
+That writes:
+
+```txt
+.github/workflows/async-pipeline.yml
+.github/async-pipeline.lock.json
+```
+
+For tests or local experiments, render somewhere else:
+
+```sh
+async-pipeline github generate --workflow .tmp/async-pipeline.yml --lock .tmp/async-pipeline.lock.json
+async-pipeline github check --workflow .tmp/async-pipeline.yml --lock .tmp/async-pipeline.lock.json
+```
+
+The generated workflow installs dependencies, checks that the YAML and lock still match `pipeline.ts`, and delegates job selection back to the CLI:
+
+```sh
+async-pipeline github check
+async-pipeline github run
+```
+
+The checked-in generated workflow is [.github/workflows/async-pipeline.yml](.github/workflows/async-pipeline.yml).
+
+## Cache Registry
+
+The default pipeline cache registry includes `file` and `memory`. `cache: true` uses the pipeline default, and explicit refs make task behavior easy to read:
+
+```ts
+task({ cache: "file:cache-first", run: sh`pnpm test` })
+```
+
+You can override the registry without adding Redis or remote cache dependencies to this package:
+
+```ts
+import { defineCache, definePipeline, fileCache, job, sh, task } from "@async/pipeline";
+
+const caches = defineCache({
+  default: "file:cache-first",
+  stores: {
+    file: fileCache({ root: ".async/cache/tasks" })
+  }
+});
+
+export default definePipeline({
+  name: "app",
+  cache: caches,
+  tasks: {
+    test: task({ cache: "file:cache-first", run: sh`pnpm test` })
+  },
+  jobs: {
+    verify: job({ target: "test" })
+  }
+});
+```
+
+Remote cache stores are adapter definitions for future/runtime use; the node runner executes the built-in `file` and `memory` stores today.
 
 ## Many-Repo Impact Runs
 
@@ -185,19 +233,21 @@ export default definePipeline({
 ## Not Yet For
 
 - Parallel task scheduling. Execution is deterministic and sequential today.
-- Shared or remote task cache. Cache is local-first only.
+- Built-in Redis or remote task cache execution. Remote stores can be declared, but no Redis dependency is shipped.
 - Automatic dependency discovery. Sources are explicit by design.
 - Automatic CLI routing to Lima. The Lima adapter is available programmatically, and `doctor` checks for `limactl`.
 - Deno or Ollama runtime integration. They can be declared as optional tool requirements, but they are not package dependencies.
 
-## Package Split
+## Workspace Layout
 
-| Package | Purpose |
+Only `@async/pipeline` is published to npm. The other workspace packages are private implementation packages that are bundled into the public package during build.
+
+| Workspace package | Purpose |
 | --- | --- |
-| `@async/pipeline` | Public convenience package and `async-pipeline` CLI bin. |
-| `@async/pipeline-core` | Pipeline, task, job, graph, source, and type contracts. |
-| `@async/pipeline-node` | CLI, filesystem store, scheduler, host runner, source sync, and doctor checks. |
-| `@async/pipeline-adapter-lima` | Programmatic Lima runner adapter using `limactl`. |
+| `@async/pipeline` | Public package, `async-pipeline` CLI bin, and bundled dist output. |
+| `@async/pipeline-core` | Private pipeline, runtime, cache, task, job, graph, source, and type contracts. |
+| `@async/pipeline-node` | Private CLI, filesystem store, scheduler, host runner, source sync, and doctor checks. |
+| `@async/pipeline-adapter-lima` | Private programmatic Lima runner adapter using `limactl`. |
 
 ## Docs
 
@@ -207,3 +257,24 @@ export default definePipeline({
 - [GitHub Actions setup](docs/github-actions.md)
 - [API reference](docs/api.md)
 - [Many-repo impact runs](docs/many-repo-impact-runs.md)
+
+## Runtime Primitives
+
+The MVP remains `pipeline.ts`, local runs, and generated GitHub Actions. The package also exposes additive runtime primitives under `@async/pipeline/runtime` for embeddable workflows:
+
+```ts
+import { cache, createRuntime, defineRuntime, task } from "@async/pipeline/runtime";
+
+const work = defineRuntime([
+  task({ id: "sync" }, [
+    cache.use("memory:cache-first"),
+    async (ctx, next) => {
+      ctx.state.synced = true;
+      return next();
+    }
+  ])
+]);
+
+const runtime = createRuntime(work);
+await runtime.run();
+```
