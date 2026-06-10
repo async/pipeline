@@ -122,6 +122,48 @@ test("pipeline and job env resolve into function task context", async () => {
   }
 });
 
+test("env secrets can resolve from rendered destination env", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-secret-destination-"));
+  try {
+    const previousSource = process.env.ASYNC_PIPELINE_TEST_SECRET_SOURCE;
+    const previousDestination = process.env.NODE_AUTH_TOKEN;
+    delete process.env.ASYNC_PIPELINE_TEST_SECRET_SOURCE;
+    process.env.NODE_AUTH_TOKEN = "rendered-secret";
+    try {
+      const pipeline = definePipeline({
+        name: "secret-destination-test",
+        tasks: {
+          check: task({
+            cache: false,
+            run(context) {
+              assert.equal(context.env.NODE_AUTH_TOKEN, "rendered-secret");
+            }
+          })
+        },
+        jobs: {
+          check: job({
+            target: "check",
+            env: {
+              NODE_AUTH_TOKEN: env.secret("ASYNC_PIPELINE_TEST_SECRET_SOURCE")
+            }
+          })
+        }
+      });
+
+      const record = await runJob(pipeline, { cwd: dir, jobId: "check" });
+
+      assert.equal(record.status, "passed");
+    } finally {
+      if (previousSource === undefined) delete process.env.ASYNC_PIPELINE_TEST_SECRET_SOURCE;
+      else process.env.ASYNC_PIPELINE_TEST_SECRET_SOURCE = previousSource;
+      if (previousDestination === undefined) delete process.env.NODE_AUTH_TOKEN;
+      else process.env.NODE_AUTH_TOKEN = previousDestination;
+    }
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test("mapped env vars fail before execution when unmapped", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-env-unmapped-"));
   try {

@@ -489,7 +489,7 @@ function resolveEnvDefinitions(definitions: Record<string, EnvValue>, baseEnv: N
       continue;
     }
     if (value.kind === "async-pipeline.env.secret") {
-      const secretValue = baseEnv[value.name];
+      const secretValue = baseEnv[value.name] ?? baseEnv[key];
       if (secretValue === undefined || secretValue === "") {
         throw new Error(`Required secret "${value.name}" for env "${key}" is not available for task "${taskId}".`);
       }
@@ -497,7 +497,7 @@ function resolveEnvDefinitions(definitions: Record<string, EnvValue>, baseEnv: N
       continue;
     }
     if (value.kind === "async-pipeline.env.var") {
-      const selector = baseEnv[value.name] ?? value.default;
+      const selector = baseEnv[value.name] ?? baseEnv[key] ?? value.default;
       if (selector === undefined || selector === "") {
         throw new Error(`Required variable "${value.name}" for env "${key}" is not available for task "${taskId}".`);
       }
