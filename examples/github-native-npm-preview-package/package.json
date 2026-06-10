@@ -1,0 +1,30 @@
+{
+  "name": "@async-framework/example-preview-package",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.20.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/async-framework/async-pipeline.git",
+    "directory": "examples/github-native-npm-preview-package"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "async-pipeline": "async-pipeline",
+    "build": "node -c src/index.js",
+    "pipeline:mainSnapshot": "async-pipeline run mainSnapshot",
+    "pipeline:prPreview": "async-pipeline run prPreview",
+    "pipeline:stableRelease": "async-pipeline run stableRelease",
+    "pipeline:sync:check": "async-pipeline sync check",
+    "test": "node -e \"import('./src/index.js').then((mod) => console.log(mod.previewLabel('ok')))\""
+  },
+  "devDependencies": {
+    "@async/pipeline": "workspace:*"
+  }
+}

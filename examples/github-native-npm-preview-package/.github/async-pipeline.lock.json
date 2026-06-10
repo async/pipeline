@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "generator": "@async/pipeline",
+  "config": "pipeline.mjs",
+  "workflow": ".github/workflows/async-pipeline.yml",
+  "hash": "sha256:cb55656764164130b72110c824b9903796ae5acb94addbc9f002fa1af525b507",
+  "generatedAt": "2026-06-10T10:33:42.720Z",
+  "triggers": {
+    "pull_request": {},
+    "push": {
+      "branches": [
+        "main"
+      ]
+    },
+    "release": {},
+    "workflow_dispatch": {}
+  },
+  "jobs": [
+    {
+      "id": "mainSnapshot",
+      "target": [
+        "mainSnapshotPlan"
+      ],
+      "trigger": [
+        "main",
+        "manual"
+      ]
+    },
+    {
+      "id": "prPreview",
+      "target": [
+        "prPreviewPlan"
+      ],
+      "trigger": [
+        "pr",
+        "manual"
+      ]
+    },
+    {
+      "id": "stableRelease",
+      "target": [
+        "stableReleasePlan"
+      ],
+      "trigger": [
+        "release",
+        "manual"
+      ]
+    }
+  ],
+  "packageManager": "pnpm"
+}

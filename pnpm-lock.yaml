@@ -18,6 +18,12 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  examples/github-native-npm-preview-package:
+    devDependencies:
+      '@async/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
+
   packages/pipeline: {}
 
   packages/pipeline-adapter-lima:

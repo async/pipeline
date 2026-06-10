@@ -43,6 +43,10 @@ cat .async/runs/<run-id>/execution.json
 
 The self pipeline lives in [`pipeline.ts`](https://github.com/async-framework/async-pipeline/blob/main/pipeline.ts). It runs `typecheck`, `test`, `build`, and `pack` through the `verify` job, and it declares the GitHub triggers used to generate the checked-in workflow.
 
+## Examples
+
+See [`examples`](https://github.com/async-framework/async-pipeline/tree/main/examples) for copyable pipeline shapes. The first complete example adapts a GitHub-native npm preview package workflow into `@async/pipeline`: [`examples/github-native-npm-preview-package`](https://github.com/async-framework/async-pipeline/tree/main/examples/github-native-npm-preview-package).
+
 ## Add A Pipeline
 
 After the package is published, install the public package:
