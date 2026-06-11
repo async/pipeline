@@ -577,11 +577,49 @@ export const source = {
   }
 };
 
+const PIPELINE_FIELDS = new Set(["name", "env", "commands", "sandboxes", "cache", "namedInputs", "taskDefaults", "triggers", "sync", "sources", "tasks", "jobs"]);
+const TASK_FIELDS = new Set(["description", "dependsOn", "inputs", "outputs", "cache", "retry", "timeout", "requires", "run", "steps"]);
+const JOB_FIELDS = new Set(["description", "target", "trigger", "environment", "env", "requires", "github"]);
+const GITHUB_JOB_FIELDS = new Set(["environment", "permissions", "runsOn", "runsOnMatrix"]);
+
+function rejectUnknownFields(known: Set<string>, value: object, where: string): void {
+  for (const key of Object.keys(value)) {
+    if (!known.has(key)) {
+      throw pipelineError(
+        "ASYNC_PIPELINE_UNKNOWN_FIELD",
+        `${where} has unknown field "${key}". Known fields: ${[...known].sort().join(", ")}. Unknown fields are rejected because a typo that is silently ignored changes behavior without warning.`
+      );
+    }
+  }
+}
+
+/**
+ * AGENTS.md rule 3, made executable: every config field is enforced or
+ * rejected. Unknown keys (typos, stale API) fail loudly at definePipeline
+ * time instead of silently changing behavior.
+ */
+function validateDefinitionShape(definition: PipelineDefinition): void {
+  rejectUnknownFields(PIPELINE_FIELDS, definition, "Pipeline");
+  for (const [id, taskDefinition] of Object.entries(definition.tasks ?? {})) {
+    rejectUnknownFields(TASK_FIELDS, taskDefinition, `Task "${id}"`);
+  }
+  for (const [id, defaults] of Object.entries(definition.taskDefaults ?? {})) {
+    rejectUnknownFields(TASK_FIELDS, defaults, `taskDefaults["${id}"]`);
+  }
+  for (const [id, jobDefinition] of Object.entries(definition.jobs ?? {})) {
+    rejectUnknownFields(JOB_FIELDS, jobDefinition, `Job "${id}"`);
+    if (jobDefinition.github) {
+      rejectUnknownFields(GITHUB_JOB_FIELDS, jobDefinition.github, `Job "${id}" github config`);
+    }
+  }
+}
+
 export function definePipeline(definition: PipelineDefinition): NormalizedPipeline {
   return normalizePipeline(definition);
 }
 
 export function normalizePipeline(definition: PipelineDefinition): NormalizedPipeline {
+  validateDefinitionShape(definition);
   const namedInputs = definition.namedInputs ?? {};
   const cacheRegistry = normalizeCacheRegistry(definition.cache);
   const sources: Record<SourceId, NormalizedSource> = {};

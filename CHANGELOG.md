@@ -13,6 +13,7 @@
 - Flatten the programmatic run API: `runJob`, `runSingleTask`, `planJob`, and `runPipelineCli` now take `cwd`, `env`, `commands`, and `sandbox` options directly. `hostWorkspace`, `dockerWorkspace`, `limaWorkspace`, and the `PipelineWorkspace` type are removed; select isolation with `sandbox: "<id>"` or an inline `sandbox.lima(...)`/`sandbox.docker(...)` definition (`resolveExecutionContext` exposes the resolved context).
 - Remove the inert task `environment` field (`PipelineEnvironment`, `EnvironmentBackend`, the `linux(...)` helper, and the per-task Lima `vm` override). Sandboxes are the isolation surface. Task cache keys no longer include the field, so existing cache entries invalidate once.
 - Remove the declared-only `memory`, `ssh`, and `github` sandbox kinds; a sandbox is `host`, `lima`, or `docker`. New kinds return when they can actually execute.
+- Reject unknown config fields in `definePipeline`, tasks, `taskDefaults`, jobs, and job `github` config with `ASYNC_PIPELINE_UNKNOWN_FIELD`, so typos like `timout` fail loudly instead of being silently ignored (found when async-webapps carried an inert `mode` field for its whole life).
 
 ### Features
 

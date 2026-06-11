@@ -53,6 +53,8 @@ Fields:
 
 Pipeline definitions are metadata. Importing a pipeline, calling `definePipeline`, using directives, or reading metadata does not execute tasks, open cache connections, start cron, clone repos, or evaluate function steps.
 
+Unknown fields in the pipeline, tasks, taskDefaults, jobs, or a job's `github` config are rejected with `ASYNC_PIPELINE_UNKNOWN_FIELD`, so a typo such as `timout` fails loudly instead of silently changing behavior. Fields that are accepted but only declare metadata are documented as such on this page.
+
 ## env
 
 `env` is the runtime process environment for a pipeline job. Pipeline-level env is inherited by every job. Job-level env overrides pipeline-level env by key.

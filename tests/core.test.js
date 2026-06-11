@@ -472,3 +472,34 @@ test("github runner config rejects invalid and conflicting settings", () => {
     jobs: { j: job({ target: "t", github: { runsOn: "ubuntu-latest", runsOnMatrix: ["ubuntu-latest"] } }) }
   }), /ASYNC_PIPELINE_RUNS_ON_CONFLICT|sets both github\.runsOn and github\.runsOnMatrix/);
 });
+
+test("rejects unknown config fields with the field name", () => {
+  const base = {
+    name: "strict",
+    tasks: { t: task({ cache: false, run: sh`true` }) },
+    jobs: { j: job({ target: "t" }) }
+  };
+
+  assert.throws(() => definePipeline({ ...base, sycn: { github: true } }),
+    /ASYNC_PIPELINE_UNKNOWN_FIELD|unknown field "sycn"/);
+
+  assert.throws(() => definePipeline({
+    ...base,
+    tasks: { t: { cache: false, timout: "2m", run: sh`true` } }
+  }), /unknown field "timout"/);
+
+  assert.throws(() => definePipeline({
+    ...base,
+    jobs: { j: { target: "t", mode: "ci" } }
+  }), /Job "j" has unknown field "mode"/);
+
+  assert.throws(() => definePipeline({
+    ...base,
+    jobs: { j: { target: "t", github: { runson: "ubuntu-latest" } } }
+  }), /github config has unknown field "runson"/);
+
+  assert.throws(() => definePipeline({
+    ...base,
+    taskDefaults: { t: { catch: true } }
+  }), /taskDefaults\["t"\] has unknown field "catch"/);
+});

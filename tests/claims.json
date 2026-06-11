@@ -172,6 +172,14 @@
       ]
     },
     {
+      "id": "api.unknown-fields-rejected",
+      "source": "docs/api.md",
+      "anchor": "Unknown fields in the pipeline, tasks, taskDefaults, jobs, or a job's `github` config are rejected with `ASYNC_PIPELINE_UNKNOWN_FIELD`",
+      "tests": [
+        "rejects unknown config fields with the field name"
+      ]
+    },
+    {
       "id": "api.workflow-dispatch-manual-only",
       "source": "docs/api.md",
       "anchor": "On `workflow_dispatch` only jobs with a `manual` trigger run implicitly",
