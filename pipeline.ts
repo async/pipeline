@@ -85,9 +85,9 @@ export default definePipeline({
     }),
     pack: task({
       dependsOn: ["test", "drift", "claims"],
-      inputs: ["production", "package.json", "packages/*/package.json"],
+      inputs: ["production", "package.json", "packages/*/package.json", "scripts/check-exports.mjs"],
       cache: false,
-      run: sh`pnpm pack:check`
+      run: [sh`pnpm exports:check`, sh`pnpm pack:check`]
     }),
     publish: task({
       dependsOn: ["pack"],

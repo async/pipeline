@@ -50,6 +50,11 @@
 - Add `.npmrc` with `engine-strict=true` so installs enforce the Node floor.
 - Pre-1.0 semver policy (see AGENTS.md): breaking changes bump the minor version; 0.1.5's breaking cache-ref rename in a patch is the counterexample this rule exists to prevent.
 
+### Operational Changes
+
+- License the repository and the published `@async/pipeline` package under MIT.
+- Verify packaging before pack/publish: `scripts/check-exports.mjs` (wired into `release:check` and the self pipeline's `pack` task) fails when exports, bin, types, license, or files targets are missing from the built package.
+
 ## 0.1.5 - 2026-06-10
 
 ### API Changes

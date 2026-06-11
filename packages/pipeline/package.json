@@ -2,8 +2,10 @@
   "name": "@async/pipeline",
   "version": "0.2.0",
   "description": "Local-first TypeScript pipelines with one task graph for laptops and CI.",
+  "license": "MIT",
   "type": "module",
   "repository": {
+    "directory": "packages/pipeline",
     "type": "git",
     "url": "git+https://github.com/async-framework/async-pipeline.git"
   },
