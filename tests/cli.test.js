@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { command, commandProxy, hostWorkspace, runPipelineCli } from "../packages/pipeline/dist/index.js";
+import { command, commandProxy, runPipelineCli } from "../packages/pipeline/dist/index.js";
 
 const repoRoot = new URL("..", import.meta.url);
 const packageUrl = pathToFileURL(join(repoRoot.pathname, "packages/pipeline/dist/index.js")).href;
@@ -49,7 +49,7 @@ test("runPipelineCli exposes CLI behavior without spawning a subprocess", async 
   let stderr = "";
   const result = await runPipelineCli({
     args: ["list"],
-    workspace: hostWorkspace({ cwd: repoRoot.pathname }),
+    ...({ cwd: repoRoot.pathname }),
     stdout(text) {
       stdout += text;
     },
@@ -78,7 +78,7 @@ test("runPipelineCli can mock a CLI command through workspace commands", async (
 
   const result = await runPipelineCli({
     args: ["github", "check"],
-    workspace: hostWorkspace({ cwd: repoRoot.pathname, commands }),
+    ...({ cwd: repoRoot.pathname, commands }),
     stdout(text) {
       stdout += text;
     },
@@ -111,7 +111,7 @@ export default definePipeline({
     let stderr = "";
     const result = await runPipelineCli({
       args: ["run", "verify", "--concurrency", "0"],
-      workspace: hostWorkspace({ cwd: dir }),
+      ...({ cwd: dir }),
       stdout() {},
       stderr(text) {
         stderr += text;
@@ -125,22 +125,22 @@ export default definePipeline({
   }
 });
 
-test("runPipelineCli validates named docker workspace before command-policy mock", async () => {
+test("runPipelineCli validates named docker sandbox before command-policy mock", async () => {
   const dir = mkdtempSync(join(tmpdir(), "async-pipeline-cli-workspace-"));
   try {
     writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module" }), "utf8");
     writeFileSync(join(dir, "pipeline.js"), `
-import { command, definePipeline, job, sh, task, workspace } from ${JSON.stringify(packageUrl)};
+import { command, definePipeline, job, sh, task, sandbox } from ${JSON.stringify(packageUrl)};
 
 export default definePipeline({
   name: "fixture",
-  workspaces: {
-    docker: workspace.docker({ image: "node:24" })
+  sandboxes: {
+    docker: sandbox.docker({ image: "node:24" })
   },
   commands: command.policy({
     rules: [
       command.rule({
-        exact: ["async-pipeline", "run", "verify", "--workspace", "docker"],
+        exact: ["async-pipeline", "run", "verify", "--sandbox", "docker"],
         action: command.mock({ code: 0, stdout: "mock docker run\\n" })
       })
     ],
@@ -157,8 +157,8 @@ export default definePipeline({
 
     let stdout = "";
     const result = await runPipelineCli({
-      args: ["run", "verify", "--workspace", "docker"],
-      workspace: hostWorkspace({ cwd: dir }),
+      args: ["run", "verify", "--sandbox", "docker"],
+      ...({ cwd: dir }),
       stdout(text) {
         stdout += text;
       },
@@ -176,7 +176,6 @@ test("cache clear and gc maintain local pipeline state", async () => {
   const { mkdtemp, mkdir, writeFile, readdir, rm, utimes } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  const { hostWorkspace } = await import("../packages/pipeline-node/dist/runner.js");
   const { runPipelineCli } = await import("../packages/pipeline-node/dist/cli.js");
 
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-cli-gc-"));
@@ -196,10 +195,10 @@ test("cache clear and gc maintain local pipeline state", async () => {
     for (const runId of ["2026-01-01T00-00-00-000Z-aaaaaaaa", "2026-01-02T00-00-00-000Z-bbbbbbbb", "2026-01-03T00-00-00-000Z-cccccccc"]) {
       await mkdir(join(dir, ".async", "runs", runId), { recursive: true });
     }
-    const workspace = hostWorkspace({ cwd: dir, env: { PATH: process.env.PATH } });
+    const target = ({ cwd: dir, env: { PATH: process.env.PATH } });
 
     let stdout = "";
-    const clear = await runPipelineCli({ args: ["cache", "clear"], workspace, stdout: (t) => { stdout += t; }, stderr: () => {} });
+    const clear = await runPipelineCli({ args: ["cache", "clear"], ...target, stdout: (t) => { stdout += t; }, stderr: () => {} });
     assert.equal(clear.code, 0, stdout);
     assert.match(stdout, /Cleared task cache/);
     assert.deepEqual(await readdir(join(dir, ".async", "cache")).catch(() => []), []);
@@ -211,7 +210,7 @@ test("cache clear and gc maintain local pipeline state", async () => {
     await utimes(staleCacheFile, old, old);
 
     stdout = "";
-    const gc = await runPipelineCli({ args: ["gc", "--keep", "1", "--cache-days", "30"], workspace, stdout: (t) => { stdout += t; }, stderr: () => {} });
+    const gc = await runPipelineCli({ args: ["gc", "--keep", "1", "--cache-days", "30"], ...target, stdout: (t) => { stdout += t; }, stderr: () => {} });
     assert.equal(gc.code, 0, stdout);
     assert.match(stdout, /Removed 2 run records; kept 1/);
     assert.match(stdout, /Removed 1 cache entry unused for 30\+ days/);
@@ -226,7 +225,6 @@ test("doctor warns about stale running run records", async () => {
   const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  const { hostWorkspace } = await import("../packages/pipeline-node/dist/runner.js");
   const { runPipelineCli } = await import("../packages/pipeline-node/dist/cli.js");
 
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-cli-doctor-"));
@@ -249,7 +247,7 @@ test("doctor warns about stale running run records", async () => {
     let stdout = "";
     const result = await runPipelineCli({
       args: ["doctor"],
-      workspace: hostWorkspace({ cwd: dir, env: { PATH: process.env.PATH } }),
+      ...({ cwd: dir, env: { PATH: process.env.PATH } }),
       stdout: (text) => { stdout += text; },
       stderr: () => {}
     });
@@ -266,7 +264,6 @@ test("run auto-prunes records, emits json, and finds config from subdirectories"
   const { mkdtemp, mkdir, writeFile, readdir, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  const { hostWorkspace } = await import("../packages/pipeline-node/dist/runner.js");
   const { runPipelineCli } = await import("../packages/pipeline-node/dist/cli.js");
 
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-cli-polish-"));
@@ -287,7 +284,7 @@ test("run auto-prunes records, emits json, and finds config from subdirectories"
     let stdout = "";
     const first = await runPipelineCli({
       args: ["run", "noop", "--format", "json"],
-      workspace: hostWorkspace({ cwd: join(dir, "nested", "deeper"), env }),
+      ...({ cwd: join(dir, "nested", "deeper"), env }),
       stdout: (t) => { stdout += t; },
       stderr: () => {}
     });
@@ -298,7 +295,7 @@ test("run auto-prunes records, emits json, and finds config from subdirectories"
 
     const second = await runPipelineCli({
       args: ["run", "noop"],
-      workspace: hostWorkspace({ cwd: join(dir, "nested", "deeper"), env }),
+      ...({ cwd: join(dir, "nested", "deeper"), env }),
       stdout: () => {},
       stderr: () => {}
     });

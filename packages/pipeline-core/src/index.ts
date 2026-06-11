@@ -21,15 +21,14 @@ export type TaskId = string;
 export type JobId = string;
 export type TriggerId = string;
 export type SourceId = string;
-export type WorkspaceId = string;
+export type SandboxId = string;
 export type SourceType = "git" | "path";
-export type EnvironmentBackend = "host" | "lima";
 export type ExecutionMode = "manual" | "ci";
 export type CacheSharing = "shared" | "private" | "locked";
 export type TaskStatus = "pending" | "running" | "passed" | "failed" | "skipped" | "cached";
 export type EnvVarMap = Record<string, string>;
 export type EnvValue = string | EnvSecretRef | EnvVarRef;
-export type WorkspaceKind = "host" | "lima" | "docker" | "memory" | "ssh" | "github";
+export type SandboxKind = "host" | "lima" | "docker";
 
 export interface ShellCommand {
   kind: "shell";
@@ -103,12 +102,6 @@ export interface TaskRequirements {
   runtime?: "node" | "deno" | "shell";
 }
 
-export interface PipelineEnvironment {
-  backend: EnvironmentBackend;
-  vm?: string;
-  image?: string;
-}
-
 export type JobEnvironment = string | {
   name: string;
   url?: string;
@@ -118,49 +111,32 @@ export interface JobRequirements {
   provenance?: boolean;
 }
 
-export interface WorkspaceVolume {
+export interface SandboxVolume {
   source: string;
   target: string;
   readonly?: boolean;
 }
 
-export interface HostWorkspaceDefinition {
+export interface HostSandboxDefinition {
   kind: "host";
 }
 
-export interface LimaWorkspaceDefinition {
+export interface LimaSandboxDefinition {
   kind: "lima";
   vm?: string;
 }
 
-export interface DockerWorkspaceDefinition {
+export interface DockerSandboxDefinition {
   kind: "docker";
   image: string;
   workdir?: string;
-  volumes?: WorkspaceVolume[];
+  volumes?: SandboxVolume[];
 }
 
-export interface MemoryWorkspaceDefinition {
-  kind: "memory";
-}
-
-export interface SshWorkspaceDefinition {
-  kind: "ssh";
-  host: string;
-  cwd?: string;
-}
-
-export interface GitHubWorkspaceDefinition {
-  kind: "github";
-}
-
-export type WorkspaceDefinition =
-  | HostWorkspaceDefinition
-  | LimaWorkspaceDefinition
-  | DockerWorkspaceDefinition
-  | MemoryWorkspaceDefinition
-  | SshWorkspaceDefinition
-  | GitHubWorkspaceDefinition;
+export type SandboxDefinition =
+  | HostSandboxDefinition
+  | LimaSandboxDefinition
+  | DockerSandboxDefinition;
 
 export interface CommandOutputPolicy {
   maxBytes?: number;
@@ -279,7 +255,6 @@ export interface TaskDefinition {
   retry?: number | RetryPolicy;
   timeout?: string | number;
   requires?: TaskRequirements;
-  environment?: PipelineEnvironment;
   run?: TaskRunDefinition;
   steps?: TaskRunItem[];
 }
@@ -371,7 +346,7 @@ export interface PipelineDefinition {
   name: string;
   env?: Record<string, EnvValue>;
   commands?: CommandPolicy;
-  workspaces?: Record<WorkspaceId, WorkspaceDefinition>;
+  sandboxes?: Record<SandboxId, SandboxDefinition>;
   cache?: CacheRef | CacheRegistryDefinition | CacheRegistryInput | false;
   namedInputs?: Record<string, string[]>;
   taskDefaults?: Record<string, Partial<TaskDefinition>>;
@@ -386,7 +361,7 @@ export interface NormalizedPipeline {
   name: string;
   env: Record<string, EnvValue>;
   commands?: CommandPolicy;
-  workspaces: Record<WorkspaceId, WorkspaceDefinition>;
+  sandboxes: Record<SandboxId, SandboxDefinition>;
   cache: CacheRegistryDefinition;
   namedInputs: Record<string, string[]>;
   triggers: Record<TriggerId, TriggerDefinition>;
@@ -515,29 +490,20 @@ export const env = {
   var: envVar
 };
 
-export const workspace = {
-  host(): HostWorkspaceDefinition {
+export const sandbox = {
+  host(): HostSandboxDefinition {
     return { kind: "host" };
   },
-  lima(options: Omit<LimaWorkspaceDefinition, "kind"> = {}): LimaWorkspaceDefinition {
+  lima(options: Omit<LimaSandboxDefinition, "kind"> = {}): LimaSandboxDefinition {
     return { kind: "lima", vm: options.vm };
   },
-  docker(options: Omit<DockerWorkspaceDefinition, "kind">): DockerWorkspaceDefinition {
+  docker(options: Omit<DockerSandboxDefinition, "kind">): DockerSandboxDefinition {
     return {
       kind: "docker",
       image: options.image,
       workdir: options.workdir,
       volumes: options.volumes ? options.volumes.map((volume) => ({ ...volume })) : undefined
     };
-  },
-  memory(): MemoryWorkspaceDefinition {
-    return { kind: "memory" };
-  },
-  ssh(options: Omit<SshWorkspaceDefinition, "kind">): SshWorkspaceDefinition {
-    return { kind: "ssh", host: options.host, cwd: options.cwd };
-  },
-  github(): GitHubWorkspaceDefinition {
-    return { kind: "github" };
   }
 };
 
@@ -611,10 +577,6 @@ export const source = {
   }
 };
 
-export function linux(environment: Omit<PipelineEnvironment, "backend"> & { backend?: EnvironmentBackend } = {}): PipelineEnvironment {
-  return { backend: environment.backend ?? "host", vm: environment.vm, image: environment.image };
-}
-
 export function definePipeline(definition: PipelineDefinition): NormalizedPipeline {
   return normalizePipeline(definition);
 }
@@ -672,7 +634,7 @@ export function normalizePipeline(definition: PipelineDefinition): NormalizedPip
     name: definition.name,
     env: { ...(definition.env ?? {}) },
     commands: definition.commands ? normalizeCommandPolicy(definition.commands) : undefined,
-    workspaces: normalizeWorkspaces(definition.workspaces),
+    sandboxes: normalizeSandboxes(definition.sandboxes),
     cache: cacheRegistry,
     namedInputs,
     triggers: definition.triggers ?? {},
@@ -690,10 +652,10 @@ function isDefaultOnlyEnvOptions(value: EnvVarMap | { default: string }): value 
   return typeof value.default === "string";
 }
 
-function normalizeWorkspaces(definitions: Record<WorkspaceId, WorkspaceDefinition> = {}): Record<WorkspaceId, WorkspaceDefinition> {
-  const normalized: Record<WorkspaceId, WorkspaceDefinition> = {};
+function normalizeSandboxes(definitions: Record<SandboxId, SandboxDefinition> = {}): Record<SandboxId, SandboxDefinition> {
+  const normalized: Record<SandboxId, SandboxDefinition> = {};
   for (const [id, definition] of Object.entries(definitions)) {
-    normalized[id] = cloneWorkspaceDefinition(definition);
+    normalized[id] = cloneSandboxDefinition(definition);
   }
   return normalized;
 }
@@ -702,7 +664,7 @@ function normalizeCommandPolicy(policy: CommandPolicy): CommandPolicy {
   return command.policy(policy);
 }
 
-function cloneWorkspaceDefinition(definition: WorkspaceDefinition): WorkspaceDefinition {
+function cloneSandboxDefinition(definition: SandboxDefinition): SandboxDefinition {
   if (definition.kind === "docker") {
     return {
       ...definition,

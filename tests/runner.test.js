@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { command, definePipeline, env, job, sh, task } from "../packages/pipeline-core/dist/index.js";
-import { commandProxy, hostWorkspace, planJob, runJob, runSingleTask } from "../packages/pipeline-node/dist/runner.js";
+import { commandProxy, planJob, runJob, runSingleTask } from "../packages/pipeline-node/dist/runner.js";
 
 test("commandProxy mocks matching commands and records bounded redacted output", async () => {
   const commands = commandProxy(command.policy({
@@ -102,7 +102,7 @@ test("task timeout fails the execution and records the error", async () => {
     });
 
     const record = await runSingleTask(pipeline, "slow", {
-      workspace: hostWorkspace({ cwd: dir })
+      ...({ cwd: dir })
     });
 
     assert.equal(record.status, "failed");
@@ -136,7 +136,7 @@ test("job env secrets fail before execution when missing", async () => {
 
     const record = await runJob(pipeline, {
       id: "publish",
-      workspace: hostWorkspace({
+      ...({
         cwd: dir,
         env: { PATH: process.env.PATH }
       })
@@ -188,7 +188,7 @@ test("pipeline and job env resolve into function task context", async () => {
 
     const record = await runJob(pipeline, {
       id: "check",
-      workspace: hostWorkspace({
+      ...({
         cwd: dir,
         env: { PATH: process.env.PATH }
       })
@@ -218,7 +218,7 @@ test("run records include schema version and owner pid", async () => {
 
     const record = await runJob(pipeline, {
       id: "check",
-      workspace: hostWorkspace({ cwd: dir })
+      ...({ cwd: dir })
     });
 
     assert.equal(record.status, "passed");
@@ -251,7 +251,7 @@ test("CI env records ci execution mode", async () => {
 
     const record = await runJob(pipeline, {
       id: "check",
-      workspace: hostWorkspace({ cwd: dir, env: { CI: "true" } })
+      ...({ cwd: dir, env: { CI: "true" } })
     });
 
     assert.equal(record.status, "passed");
@@ -286,7 +286,7 @@ test("env secrets can resolve from rendered destination env", async () => {
 
     const record = await runJob(pipeline, {
       id: "check",
-      workspace: hostWorkspace({
+      ...({
         cwd: dir,
         env: {
           PATH: process.env.PATH,
@@ -325,7 +325,7 @@ test("mapped env vars fail before execution when unmapped", async () => {
 
     const record = await runJob(pipeline, {
       id: "check",
-      workspace: hostWorkspace({
+      ...({
         cwd: dir,
         env: {
           PATH: process.env.PATH,
@@ -398,7 +398,7 @@ test("runJob schedules ready tasks in parallel up to concurrency", async () => {
     const run = runJob(pipeline, {
       id: "verify",
       concurrency: 2,
-      workspace: hostWorkspace({ cwd: dir })
+      ...({ cwd: dir })
     });
     await Promise.race([
       bothStartedPromise,
@@ -432,7 +432,7 @@ test("runJob rejects invalid concurrency", async () => {
     });
 
     await assert.rejects(
-      () => runJob(pipeline, { id: "verify", concurrency: 0, workspace: hostWorkspace({ cwd: dir }) }),
+      () => runJob(pipeline, { id: "verify", concurrency: 0, ...({ cwd: dir }) }),
       /Task concurrency must be a positive integer/
     );
   } finally {
@@ -462,14 +462,14 @@ test("file cache restores declared outputs on cache hit", async () => {
 
     const first = await runJob(pipeline, {
       id: "verify",
-      workspace: hostWorkspace({ cwd: dir })
+      ...({ cwd: dir })
     });
     assert.equal(first.tasks[0]?.status, "passed");
 
     await rm(join(dir, "dist"), { force: true, recursive: true });
     const second = await runJob(pipeline, {
       id: "verify",
-      workspace: hostWorkspace({ cwd: dir })
+      ...({ cwd: dir })
     });
 
     assert.equal(second.tasks[0]?.status, "cached");
@@ -503,7 +503,7 @@ test("result-only file cache entries for output tasks rerun and repopulate outpu
 
     const first = await runJob(pipeline, {
       id: "verify",
-      workspace: hostWorkspace({ cwd: dir })
+      ...({ cwd: dir })
     });
     const cacheKey = first.tasks[0]?.cacheKey;
     assert.equal(first.tasks[0]?.status, "passed");
@@ -515,7 +515,7 @@ test("result-only file cache entries for output tasks rerun and repopulate outpu
 
     const second = await runJob(pipeline, {
       id: "verify",
-      workspace: hostWorkspace({ cwd: dir })
+      ...({ cwd: dir })
     });
 
     assert.equal(second.tasks[0]?.status, "passed");
@@ -547,14 +547,14 @@ test("ttlMs expires otherwise valid cache entries", async () => {
 
     const first = await runJob(pipeline, {
       id: "verify",
-      workspace: hostWorkspace({ cwd: dir })
+      ...({ cwd: dir })
     });
     assert.equal(first.tasks[0]?.status, "passed");
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     const second = await runJob(pipeline, {
       id: "verify",
-      workspace: hostWorkspace({ cwd: dir })
+      ...({ cwd: dir })
     });
 
     assert.equal(second.tasks[0]?.status, "passed");
@@ -597,20 +597,20 @@ test("dependency cache keys invalidate direct dependents", async () => {
 
     const first = await runJob(pipeline, {
       id: "verify",
-      workspace: hostWorkspace({ cwd: dir })
+      ...({ cwd: dir })
     });
     assert.deepEqual(first.tasks.map((entry) => entry.status), ["passed", "passed"]);
 
     const second = await runJob(pipeline, {
       id: "verify",
-      workspace: hostWorkspace({ cwd: dir })
+      ...({ cwd: dir })
     });
     assert.deepEqual(second.tasks.map((entry) => entry.status), ["cached", "cached"]);
 
     await writeFile(join(dir, "build-input.txt"), "two\n", "utf8");
     const third = await runJob(pipeline, {
       id: "verify",
-      workspace: hostWorkspace({ cwd: dir })
+      ...({ cwd: dir })
     });
 
     assert.deepEqual(third.tasks.map((entry) => entry.status), ["passed", "passed"]);
@@ -645,16 +645,16 @@ test("memory cache only honors output task hits while outputs still exist", asyn
 
     const first = await runJob(pipeline, {
       id: "verify",
-      workspace: hostWorkspace({ cwd: dir })
+      ...({ cwd: dir })
     });
     const second = await runJob(pipeline, {
       id: "verify",
-      workspace: hostWorkspace({ cwd: dir })
+      ...({ cwd: dir })
     });
     await rm(join(dir, "dist"), { force: true, recursive: true });
     const third = await runJob(pipeline, {
       id: "verify",
-      workspace: hostWorkspace({ cwd: dir })
+      ...({ cwd: dir })
     });
 
     assert.equal(first.tasks[0]?.status, "passed");
@@ -690,7 +690,7 @@ test("resolved secret values are redacted from stored task logs", async () => {
 
     const record = await runJob(pipeline, {
       id: "leak",
-      workspace: hostWorkspace({
+      ...({
         cwd: dir,
         env: { PATH: process.env.PATH, ASYNC_PIPELINE_REDACT_SECRET: "super-secret-value" }
       })
@@ -721,15 +721,15 @@ test("force re-runs cached tasks and refreshes the cache entry", async () => {
       },
       jobs: { build: job({ target: "build" }) }
     });
-    const workspace = hostWorkspace({ cwd: dir, env: { PATH: process.env.PATH } });
+    const target = ({ cwd: dir, env: { PATH: process.env.PATH } });
 
-    const cold = await runJob(pipeline(), { id: "build", workspace });
+    const cold = await runJob(pipeline(), { id: "build", ...target });
     assert.equal(cold.tasks[0]?.status, "passed");
-    const warm = await runJob(pipeline(), { id: "build", workspace });
+    const warm = await runJob(pipeline(), { id: "build", ...target });
     assert.equal(warm.tasks[0]?.status, "cached");
-    const forced = await runJob(pipeline(), { id: "build", workspace, force: true });
+    const forced = await runJob(pipeline(), { id: "build", ...target, force: true });
     assert.equal(forced.tasks[0]?.status, "passed");
-    const warmAgain = await runJob(pipeline(), { id: "build", workspace });
+    const warmAgain = await runJob(pipeline(), { id: "build", ...target });
     assert.equal(warmAgain.tasks[0]?.status, "cached");
   } finally {
     await rm(dir, { force: true, recursive: true });
@@ -752,14 +752,14 @@ test("planJob predicts cache hits without executing tasks", async () => {
       },
       jobs: { build: job({ target: "build" }) }
     });
-    const workspace = hostWorkspace({ cwd: dir, env: { PATH: process.env.PATH } });
+    const target = ({ cwd: dir, env: { PATH: process.env.PATH } });
 
-    const coldPlan = await planJob(pipeline(), { id: "build", workspace });
+    const coldPlan = await planJob(pipeline(), { id: "build", ...target });
     assert.deepEqual(coldPlan.executionOrder, ["build"]);
     assert.equal(coldPlan.entries[0]?.predicted, "run");
 
-    await runJob(pipeline(), { id: "build", workspace });
-    const warmPlan = await planJob(pipeline(), { id: "build", workspace });
+    await runJob(pipeline(), { id: "build", ...target });
+    const warmPlan = await planJob(pipeline(), { id: "build", ...target });
     assert.equal(warmPlan.entries[0]?.predicted, "cached");
   } finally {
     await rm(dir, { force: true, recursive: true });
@@ -784,7 +784,7 @@ test("a throwing deferred step factory fails the task and finalizes the record",
 
     const record = await runJob(pipeline, {
       id: "boom",
-      workspace: hostWorkspace({ cwd: dir, env: { PATH: process.env.PATH } })
+      ...({ cwd: dir, env: { PATH: process.env.PATH } })
     });
 
     assert.equal(record.status, "failed");
@@ -855,7 +855,7 @@ test("task logs are capped by ASYNC_PIPELINE_MAX_LOG_BYTES with a truncation mar
 
     const record = await runJob(pipeline, {
       id: "noisy",
-      workspace: hostWorkspace({
+      ...({
         cwd: dir,
         env: { PATH: process.env.PATH, ASYNC_PIPELINE_MAX_LOG_BYTES: "4096" }
       })
@@ -878,12 +878,12 @@ test("concurrent runs in the same project fail fast with ASYNC_PIPELINE_RUN_ACTI
       tasks: { slow: task({ cache: false, run: sh`sleep 1` }) },
       jobs: { slow: job({ target: "slow" }) }
     });
-    const workspace = () => hostWorkspace({ cwd: dir, env: { PATH: process.env.PATH } });
+    const target = () => ({ cwd: dir, env: { PATH: process.env.PATH } });
 
-    const first = runJob(pipeline, { id: "slow", workspace: workspace() });
+    const first = runJob(pipeline, { id: "slow", ...target() });
     await delay(300);
     await assert.rejects(
-      runJob(pipeline, { id: "slow", workspace: workspace() }),
+      runJob(pipeline, { id: "slow", ...target() }),
       /Another async-pipeline run/
     );
 
@@ -905,7 +905,7 @@ test("execution records and cache entries carry schemaVersion 1", async () => {
     });
     const record = await runJob(pipeline, {
       id: "emit",
-      workspace: hostWorkspace({ cwd: dir, env: { PATH: process.env.PATH } })
+      ...({ cwd: dir, env: { PATH: process.env.PATH } })
     });
 
     assert.equal(record.schemaVersion, 1);

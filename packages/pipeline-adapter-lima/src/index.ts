@@ -1,1 +1,1 @@
-export { LimaCommandExecutor, limaWorkspace } from "@async/pipeline-node";
+export { LimaCommandExecutor } from "@async/pipeline-node";

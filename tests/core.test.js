@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildGraph, cache, command, composePipelines, defineCache, definePipeline, dependsOn, env, fileCache, job, sh, source, task, tasksForJob, trigger, workspace } from "../packages/pipeline-core/dist/index.js";
+import { buildGraph, cache, command, composePipelines, defineCache, definePipeline, dependsOn, env, fileCache, job, sh, source, task, tasksForJob, trigger, sandbox } from "../packages/pipeline-core/dist/index.js";
 
 test("orders tasks deterministically with dependencies before dependents", () => {
   const pipeline = definePipeline({
@@ -142,12 +142,12 @@ test("normalizes pipeline and job env definitions", () => {
   assert.equal(pipeline.jobs.verify.env?.NODE_AUTH_TOKEN.kind, "async-pipeline.env.secret");
 });
 
-test("normalizes workspace and command policy definitions", () => {
+test("normalizes sandbox and command policy definitions", () => {
   const pipeline = definePipeline({
     name: "test",
-    workspaces: {
-      lima: workspace.lima({ vm: "async-pipeline" }),
-      docker: workspace.docker({ image: "node:24", workdir: "/workspace" })
+    sandboxes: {
+      lima: sandbox.lima({ vm: "async-pipeline" }),
+      docker: sandbox.docker({ image: "node:24", workdir: "/workspace" })
     },
     commands: command.policy({
       rules: [
@@ -175,8 +175,8 @@ test("normalizes workspace and command policy definitions", () => {
     }
   });
 
-  assert.deepEqual(pipeline.workspaces.lima, { kind: "lima", vm: "async-pipeline" });
-  assert.equal(pipeline.workspaces.docker.kind, "docker");
+  assert.deepEqual(pipeline.sandboxes.lima, { kind: "lima", vm: "async-pipeline" });
+  assert.equal(pipeline.sandboxes.docker.kind, "docker");
   assert.equal(pipeline.commands?.rules[0]?.action.kind, "async-pipeline.command.deny");
   assert.equal(pipeline.commands?.rules[1]?.action.kind, "async-pipeline.command.mock");
   assert.equal(pipeline.commands?.fallback?.kind, "async-pipeline.command.allow");

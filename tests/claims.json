@@ -104,7 +104,7 @@
     {
       "id": "readme.platform-workflow",
       "source": "README.md",
-      "anchor": "The checked-in workflow targets Node `>= 24` on Linux (`ubuntu-latest`) and on a self-hosted Apple Silicon macOS runner labeled `self-hosted`, `macos`, and `tart`",
+      "anchor": "The checked-in workflow targets Node `>= 24` on GitHub-hosted Linux (`ubuntu-latest`) and macOS (`macos-latest`) runners",
       "tests": ["renders github job runner labels and runner matrices"]
     },
     {
@@ -294,7 +294,7 @@
     {
       "id": "changelog.docker-env-allowlist",
       "source": "CHANGELOG.md",
-      "anchor": "Docker workspaces now forward only pipeline-defined env",
+      "anchor": "Docker sandboxes now forward only pipeline-defined env",
       "tests": ["docker commands forward only allowlisted env keys"]
     },
     {

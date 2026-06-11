@@ -7,8 +7,12 @@
 - Require Node `>= 24`. `pipeline.ts` loads through native type stripping; the loader reports a clear error on older Node versions. (`engines` on 0.1.x incorrectly claimed `>=20`.)
 - Remove the inert task fields `with` and `continuous` from `TaskDefinition`.
 - `async-pipeline github run` on `workflow_dispatch` now runs only jobs with a `manual` trigger instead of every job. Select other jobs explicitly with `github run --job <id>`.
-- Docker workspaces now forward only pipeline-defined env, `ASYNC_PIPELINE_*` context, declared `requires.secrets`, and `CI` into containers instead of the entire host environment.
+- Docker sandboxes now forward only pipeline-defined env, `ASYNC_PIPELINE_*` context, declared `requires.secrets`, and `CI` into containers instead of the entire host environment.
 - `command.requireEnvironment(...)` is enforced: the command fails unless `ASYNC_PIPELINE_ENVIRONMENT` matches the required name. Previously it silently allowed.
+- Rename the local isolation concept from workspaces to sandboxes: `workspaces` config is now `sandboxes`, the `workspace.*` helpers are now `sandbox.*`, and `--workspace <id>` is now `--sandbox <id>` (the 0.1.4 names collided with pnpm workspaces and `GITHUB_WORKSPACE`).
+- Flatten the programmatic run API: `runJob`, `runSingleTask`, `planJob`, and `runPipelineCli` now take `cwd`, `env`, `commands`, and `sandbox` options directly. `hostWorkspace`, `dockerWorkspace`, `limaWorkspace`, and the `PipelineWorkspace` type are removed; select isolation with `sandbox: "<id>"` or an inline `sandbox.lima(...)`/`sandbox.docker(...)` definition (`resolveExecutionContext` exposes the resolved context).
+- Remove the inert task `environment` field (`PipelineEnvironment`, `EnvironmentBackend`, the `linux(...)` helper, and the per-task Lima `vm` override). Sandboxes are the isolation surface. Task cache keys no longer include the field, so existing cache entries invalidate once.
+- Remove the declared-only `memory`, `ssh`, and `github` sandbox kinds; a sandbox is `host`, `lima`, or `docker`. New kinds return when they can actually execute.
 
 ### Features
 
@@ -54,7 +58,7 @@
 
 - License the repository and the published `@async/pipeline` package under MIT.
 - Verify packaging before pack/publish: `scripts/check-exports.mjs` (wired into `release:check` and the self pipeline's `pack` task) fails when exports, bin, types, license, or files targets are missing from the built package.
-- Run the self pipeline's `verify` job on a runner matrix: GitHub-hosted `ubuntu-latest` plus a self-hosted Apple Silicon runner labeled `self-hosted, macos, tart` backed by Tart VMs (setup guide in docs/github-actions.md).
+- Run the self pipeline's `verify` job on a runner matrix of GitHub-hosted `ubuntu-latest` and `macos-latest`; self-hosted Tart-backed Apple Silicon runners remain supported via `runsOn`/`runsOnMatrix` (setup guide in docs/github-actions.md).
 - Document the exit-code contract, environment variables, run lock, execution record schema, platform support, source SHA pinning, and the path to 1.0.
 
 ## 0.1.5 - 2026-06-10

@@ -3,18 +3,20 @@ import { existsSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { buildGraph, composePipelines, tasksForJob, type NormalizedPipeline, type WorkspaceDefinition } from "@async/pipeline-core";
+import { buildGraph, composePipelines, tasksForJob, type NormalizedPipeline } from "@async/pipeline-core";
 import { runDoctor } from "./doctor.js";
 import { checkGitHubWorkflow, jobsForGitHubEvent, readGitHubEventContext, renderGitHubWorkflow, writeGitHubWorkflow } from "./github.js";
 import { loadPipeline } from "./loader.js";
-import { beginShutdown, commandProxy, dockerWorkspace, hostWorkspace, limaWorkspace, planJob, runJob, runSingleTask, shutdownExitCode, type CommandResult, type PipelineWorkspace } from "./runner.js";
+import { beginShutdown, commandProxy, planJob, runJob, runSingleTask, shutdownExitCode, type CommandResult, type PipelineCommands } from "./runner.js";
 import { createStore, pruneCacheEntries } from "./store.js";
 import { matrixForJob, readPipelineMetadata, resolveSources, sourceContext } from "./sources.js";
 import { checkTaskSync, describeTaskSync, renderTaskSync, writeTaskSync } from "./sync.js";
 
 export interface PipelineCliOptions {
   args: string[];
-  workspace?: PipelineWorkspace;
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  commands?: PipelineCommands;
   program?: string;
   stdout?(text: string): void;
   stderr?(text: string): void;
@@ -27,7 +29,9 @@ interface PipelineCliContext {
   cwd: string;
   configPath: string;
   pipeline: NormalizedPipeline;
-  workspace: PipelineWorkspace;
+  env: NodeJS.ProcessEnv;
+  commands?: PipelineCommands;
+  sandboxId?: string;
   stdout(text: string): void;
   stderr(text: string): void;
 }
@@ -37,7 +41,7 @@ interface ParsedGlobalOptions {
   concurrency?: number;
   force: boolean;
   dryRun: boolean;
-  workspaceId?: string;
+  sandboxId?: string;
 }
 
 export async function runPipelineCli(options: PipelineCliOptions): Promise<CommandResult> {
@@ -48,7 +52,9 @@ export async function runPipelineCli(options: PipelineCliOptions): Promise<Comma
 
   const result = await runPipelineCliBuffered({
     args: options.args,
-    workspace: options.workspace ?? hostWorkspace(),
+    cwd: options.cwd ?? process.cwd(),
+    env: options.env ?? process.env,
+    commands: options.commands,
     program: options.program,
     onStdout(text) {
       streamedStdout += text.length;
@@ -69,7 +75,9 @@ export async function runPipelineCli(options: PipelineCliOptions): Promise<Comma
 }
 
 interface PipelineCliStreamOptions {
-  workspace: PipelineWorkspace;
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  commands?: PipelineCommands;
   applyCommandPolicy: boolean;
   onStdout?(text: string): void;
   onStderr?(text: string): void;
@@ -80,7 +88,7 @@ async function runPipelineCliBuffered(options: Omit<PipelineCliOptions, "stdout"
     const parsed = parseGlobalOptions(options.args);
     const [commandName, ...args] = parsed.args;
     const program = options.program ?? programName();
-    const cwd = options.workspace.cwd;
+    const cwd = options.cwd;
     const configPath = findPipelineConfig(cwd);
     let stdout = "";
     let stderr = "";
@@ -110,18 +118,23 @@ async function runPipelineCliBuffered(options: Omit<PipelineCliOptions, "stdout"
 
     const pipeline = await loadPipeline(configPath);
     const configDir = dirname(configPath);
-    const baseWorkspace = configDir === cwd ? options.workspace : { ...options.workspace, cwd: configDir };
-    const workspace = selectWorkspace(parsed.workspaceId, pipeline, baseWorkspace);
+    // Validate the sandbox id before the command policy can mock the
+    // invocation, so typos fail loudly even under mocked CLI commands.
+    if (parsed.sandboxId && parsed.sandboxId !== "host" && !pipeline.sandboxes[parsed.sandboxId]) {
+      throw new Error(`Unknown sandbox "${parsed.sandboxId}". Declare it under \`sandboxes\` in the pipeline config.`);
+    }
+    const commands = options.commands ?? (pipeline.commands ? commandProxy(pipeline.commands) : undefined);
 
-    if (options.applyCommandPolicy && workspace.commands) {
-      return workspace.commands.run({
+    if (options.applyCommandPolicy && commands) {
+      return commands.run({
         argv: ["async-pipeline", ...options.args],
-        cwd: workspace.cwd,
-        env: workspace.env
+        cwd: configDir,
+        env: options.env
       }, () => runPipelineCliBuffered({
         ...options,
         args: options.args,
-        workspace,
+        cwd: configDir,
+        commands,
         applyCommandPolicy: false
       }));
     }
@@ -133,7 +146,9 @@ async function runPipelineCliBuffered(options: Omit<PipelineCliOptions, "stdout"
       cwd: configDir,
       configPath,
       pipeline,
-      workspace,
+      env: options.env,
+      commands,
+      sandboxId: parsed.sandboxId,
       stdout: out,
       stderr: err
     };
@@ -172,7 +187,7 @@ async function dispatchCommand(commandName: string, args: string[], context: Pip
     }
     if (subcommand === "run") {
       const explicitJobs = collectFlagValues(args.slice(1), "--job");
-      const eventContext = await readGitHubEventContext(context.workspace.env);
+      const eventContext = await readGitHubEventContext(context.env);
       const jobs = explicitJobs.length > 0
         ? explicitJobs.map((jobId) => {
             const selected = context.pipeline.jobs[jobId];
@@ -188,7 +203,7 @@ async function dispatchCommand(commandName: string, args: string[], context: Pip
       for (const selectedJob of jobs) {
         const graph = tasksForJob(context.pipeline, selectedJob.id);
         context.stdout(`Running ${context.pipeline.name}:${selectedJob.id} (${graph.executionOrder.join(" -> ")})\n`);
-        const result = await runJob(context.pipeline, { id: selectedJob.id, mode: "ci", workspace: context.workspace, concurrency: context.concurrency });
+        const result = await runJob(context.pipeline, { id: selectedJob.id, mode: "ci", cwd: context.cwd, env: context.env, commands: context.commands, sandbox: context.sandboxId, concurrency: context.concurrency });
         context.stdout(`Pipeline ${result.status}: ${result.id}\n`);
         if (result.status !== "passed") failed = true;
       }
@@ -276,7 +291,7 @@ async function dispatchCommand(commandName: string, args: string[], context: Pip
       return printDryRun(context, format, jobId);
     }
     if (format === "text") context.stdout(`Running ${context.pipeline.name}:${jobId} (${graph.executionOrder.join(" -> ")})\n`);
-    const result = await runJob(context.pipeline, { id: jobId, mode: context.workspace.env.CI ? "ci" : "manual", workspace: context.workspace, concurrency: context.concurrency, force: context.force, echo: format === "text" });
+    const result = await runJob(context.pipeline, { id: jobId, mode: context.env.CI ? "ci" : "manual", cwd: context.cwd, env: context.env, commands: context.commands, sandbox: context.sandboxId, concurrency: context.concurrency, force: context.force, echo: format === "text" });
     if (format === "json") {
       context.stdout(`${JSON.stringify(result, null, 2)}\n`);
     } else {
@@ -293,7 +308,7 @@ async function dispatchCommand(commandName: string, args: string[], context: Pip
     if (context.dryRun) {
       return printDryRun(context, format, undefined, taskId);
     }
-    const result = await runSingleTask(context.pipeline, taskId, { mode: context.workspace.env.CI ? "ci" : "manual", workspace: context.workspace, concurrency: context.concurrency, force: context.force, echo: format === "text" });
+    const result = await runSingleTask(context.pipeline, taskId, { mode: context.env.CI ? "ci" : "manual", cwd: context.cwd, env: context.env, commands: context.commands, sandbox: context.sandboxId, concurrency: context.concurrency, force: context.force, echo: format === "text" });
     if (format === "json") {
       context.stdout(`${JSON.stringify(result, null, 2)}\n`);
     } else {
@@ -342,7 +357,7 @@ async function printDryRun(context: PipelineCliContext, format: "text" | "json",
     };
   }
   if (!id) throw new Error("Dry run requires a job or task.");
-  const plan = await planJob(pipeline, { id, workspace: context.workspace });
+  const plan = await planJob(pipeline, { id, cwd: context.cwd, env: context.env, sandbox: context.sandboxId });
   if (format === "json") {
     context.stdout(`${JSON.stringify(plan, null, 2)}\n`);
     return 0;
@@ -371,7 +386,7 @@ function runOutputFormat(args: string[], program: string): "text" | "json" {
 const DEFAULT_KEPT_RUNS = 50;
 
 async function pruneRunsAfterRun(context: PipelineCliContext): Promise<void> {
-  const raw = context.workspace.env.ASYNC_PIPELINE_KEEP_RUNS;
+  const raw = context.env.ASYNC_PIPELINE_KEEP_RUNS;
   let keep = DEFAULT_KEPT_RUNS;
   if (raw !== undefined && raw !== "") {
     const parsed = Number(raw);
@@ -456,8 +471,8 @@ async function handleSourcesCommand(args: string[], context: PipelineCliContext)
 
 function printHelp(program: string): string {
   return `Usage:
-  ${program} run <job> [--workspace <id>] [--concurrency <n>] [--force] [--dry-run] [--format text|json]
-  ${program} run-task <task> [--workspace <id>] [--concurrency <n>] [--force] [--dry-run] [--format text|json]
+  ${program} run <job> [--sandbox <id>] [--concurrency <n>] [--force] [--dry-run] [--format text|json]
+  ${program} run-task <task> [--sandbox <id>] [--concurrency <n>] [--force] [--dry-run] [--format text|json]
   ${program} list
   ${program} graph --format json|dot
   ${program} explain <task>
@@ -476,7 +491,7 @@ function printHelp(program: string): string {
   ${program} sync tasks check
   ${program} github generate [--workflow <path>] [--lock <path>]
   ${program} github check [--workflow <path>] [--lock <path>]
-  ${program} github run [--job <id>] [--workspace <id>] [--concurrency <n>]
+  ${program} github run [--job <id>] [--sandbox <id>] [--concurrency <n>]
   ${program} cache clear
   ${program} gc [--keep <n>] [--cache-days <n>]
   ${program} doctor\n`;
@@ -613,7 +628,7 @@ async function handleSyncTasksCommand(
 function parseGlobalOptions(args: string[]): ParsedGlobalOptions {
   const rest: string[] = [];
   let concurrency: number | undefined;
-  let workspaceId: string | undefined;
+  let sandboxId: string | undefined;
   let force = false;
   let dryRun = false;
   for (let index = 0; index < args.length; index += 1) {
@@ -627,9 +642,9 @@ function parseGlobalOptions(args: string[]): ParsedGlobalOptions {
       dryRun = true;
       continue;
     }
-    if (arg === "--workspace") {
-      workspaceId = args[index + 1];
-      if (!workspaceId) throw new Error("Usage: async-pipeline <command> --workspace <id>");
+    if (arg === "--sandbox") {
+      sandboxId = args[index + 1];
+      if (!sandboxId) throw new Error("Usage: async-pipeline <command> --sandbox <id>");
       index += 1;
       continue;
     }
@@ -642,35 +657,9 @@ function parseGlobalOptions(args: string[]): ParsedGlobalOptions {
     }
     rest.push(arg);
   }
-  return { args: rest, concurrency, workspaceId, force, dryRun };
+  return { args: rest, concurrency, sandboxId, force, dryRun };
 }
 
-function selectWorkspace(workspaceId: string | undefined, pipeline: NormalizedPipeline, base: PipelineWorkspace): PipelineWorkspace {
-  const commands = base.commands ?? (pipeline.commands ? commandProxy(pipeline.commands) : undefined);
-  if (!workspaceId || workspaceId === "host") {
-    return { ...base, commands };
-  }
-
-  const definition = pipeline.workspaces[workspaceId];
-  if (!definition) throw new Error(`Unknown workspace "${workspaceId}".`);
-  return createWorkspaceFromDefinition(definition, base, commands);
-}
-
-function createWorkspaceFromDefinition(definition: WorkspaceDefinition, base: PipelineWorkspace, commands: PipelineWorkspace["commands"]): PipelineWorkspace {
-  if (definition.kind === "host") return hostWorkspace({ cwd: base.cwd, env: base.env, commands });
-  if (definition.kind === "lima") return limaWorkspace({ cwd: base.cwd, env: base.env, vm: definition.vm, commands });
-  if (definition.kind === "docker") {
-    return dockerWorkspace({
-      cwd: base.cwd,
-      env: base.env,
-      image: definition.image,
-      workdir: definition.workdir,
-      volumes: definition.volumes,
-      commands
-    });
-  }
-  throw new Error(`Workspace kind "${definition.kind}" is declared but not executable in this tranche.`);
-}
 
 function findPipelineConfig(cwd: string): string | null {
   let current = resolve(cwd);

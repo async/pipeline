@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { availableParallelism } from "node:os";
 import { posix, relative } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import type { CandidateContext, CommandAction, CommandOutputPolicy, CommandPolicy, EnvValue, ExecutionRecord, NormalizedPipeline, NormalizedTask, ShellCommand, TaskContext, TaskResult, TaskRunFunction, TaskSourceContext, TaskStep } from "@async/pipeline-core";
+import type { CandidateContext, CommandAction, CommandOutputPolicy, CommandPolicy, EnvValue, ExecutionRecord, NormalizedPipeline, NormalizedTask, SandboxDefinition, SandboxId, ShellCommand, TaskContext, TaskResult, TaskRunFunction, TaskSourceContext, TaskStep } from "@async/pipeline-core";
 import { sh, tasksForJob } from "@async/pipeline-core";
 import { acquireRunLock, computeTaskCacheKey, createStore, outputFilesExist, readCacheEntry, resolveOutputFiles, restoreCacheOutputs, writeCacheEntry, writeExecution, writeTaskLog, type PipelineStore } from "./store.js";
 import { createRunPlan, sourceContext, type ResolvedSource } from "./sources.js";
@@ -56,7 +56,7 @@ export interface CommandRecord {
   durationMs: number;
 }
 
-export interface WorkspaceCommands {
+export interface PipelineCommands {
   run(invocation: CommandInvocation, next: () => Promise<CommandResult>): Promise<CommandResult>;
   records(): CommandRecord[];
 }
@@ -65,19 +65,12 @@ export interface PipelineFileSystem {
   kind: "host";
 }
 
-export interface PipelineWorkspace {
+export interface ExecutionContext {
   cwd: string;
   env: NodeJS.ProcessEnv;
   fs: PipelineFileSystem;
   executor: CommandExecutor;
-  commands?: WorkspaceCommands;
-}
-
-export interface HostWorkspaceOptions {
-  cwd?: string;
-  env?: NodeJS.ProcessEnv;
-  executor?: CommandExecutor;
-  commands?: WorkspaceCommands;
+  commands?: PipelineCommands;
 }
 
 export class HostCommandExecutor implements CommandExecutor {
@@ -97,15 +90,6 @@ export interface DockerVolume {
   source: string;
   target: string;
   readonly?: boolean;
-}
-
-export interface DockerWorkspaceOptions {
-  image: string;
-  cwd?: string;
-  env?: NodeJS.ProcessEnv;
-  workdir?: string;
-  volumes?: DockerVolume[];
-  commands?: WorkspaceCommands;
 }
 
 export class DockerCommandExecutor implements CommandExecutor {
@@ -159,9 +143,8 @@ export class LimaCommandExecutor implements CommandExecutor {
   constructor(private readonly vm = "async-pipeline") {}
 
   runShell(command: string, options: RunShellOptions): Promise<CommandResult> {
-    const vm = options.task.environment?.vm ?? this.vm;
     const escaped = shellEscape(`cd ${shellEscape(options.cwd)} && ${command}`);
-    return runProcess(`limactl shell ${shellEscape(vm)} -- bash -lc ${escaped}`, { cwd: options.cwd, env: options.env, echo: options.echo, timeoutMs: options.timeoutMs, label: options.task?.id, redactValues: options.redactValues });
+    return runProcess(`limactl shell ${shellEscape(this.vm)} -- bash -lc ${escaped}`, { cwd: options.cwd, env: options.env, echo: options.echo, timeoutMs: options.timeoutMs, label: options.task?.id, redactValues: options.redactValues });
   }
 
   async checkTool(tool: string): Promise<boolean> {
@@ -173,42 +156,44 @@ export class LimaCommandExecutor implements CommandExecutor {
   }
 }
 
-export function hostWorkspace(options: HostWorkspaceOptions = {}): PipelineWorkspace {
-  return {
-    cwd: options.cwd ?? process.cwd(),
-    env: options.env ?? process.env,
+/**
+ * Resolve flat run options into the execution context a run uses: host by
+ * default, or the selected sandbox (by id from `pipeline.sandboxes`, or an
+ * inline definition).
+ */
+export function resolveExecutionContext(pipeline: NormalizedPipeline, target: RunTarget = {}): ExecutionContext {
+  const cwd = target.cwd ?? process.cwd();
+  const env = target.env ?? process.env;
+  const base: ExecutionContext = {
+    cwd,
+    env,
     fs: { kind: "host" },
-    executor: options.executor ?? new HostCommandExecutor(),
-    commands: options.commands
+    executor: target.executor ?? new HostCommandExecutor(),
+    commands: target.commands
+  };
+  const ref = target.sandbox;
+  if (!ref || ref === "host") return base;
+  const definition = typeof ref === "string" ? pipeline.sandboxes[ref] : ref;
+  if (!definition) {
+    throw new Error(`Unknown sandbox "${String(ref)}". Declare it under \`sandboxes\` in the pipeline config.`);
+  }
+  if (definition.kind === "host") return base;
+  if (definition.kind === "lima") {
+    return { ...base, executor: new LimaCommandExecutor(definition.vm) };
+  }
+  const workdir = definition.workdir ?? "/workspace";
+  return {
+    ...base,
+    executor: new DockerCommandExecutor({
+      image: definition.image,
+      hostCwd: cwd,
+      workdir,
+      volumes: definition.volumes ?? [{ source: cwd, target: workdir }]
+    })
   };
 }
 
-export function dockerWorkspace(options: DockerWorkspaceOptions): PipelineWorkspace {
-  const cwd = options.cwd ?? process.cwd();
-  const workdir = options.workdir ?? "/workspace";
-  return hostWorkspace({
-    cwd,
-    env: options.env,
-    executor: new DockerCommandExecutor({
-      image: options.image,
-      hostCwd: cwd,
-      workdir,
-      volumes: options.volumes ?? [{ source: cwd, target: workdir }]
-    }),
-    commands: options.commands
-  });
-}
-
-export function limaWorkspace(options: { vm?: string; cwd?: string; env?: NodeJS.ProcessEnv; commands?: WorkspaceCommands } = {}): PipelineWorkspace {
-  return hostWorkspace({
-    cwd: options.cwd,
-    env: options.env,
-    executor: new LimaCommandExecutor(options.vm),
-    commands: options.commands
-  });
-}
-
-export function commandProxy(policy: CommandPolicy = { rules: [] }): WorkspaceCommands {
+export function commandProxy(policy: CommandPolicy = { rules: [] }): PipelineCommands {
   const records: CommandRecord[] = [];
   return {
     async run(invocation, next) {
@@ -263,13 +248,20 @@ interface ScheduledTaskExecution {
   taskResult?: TaskResult;
 }
 
-export interface RunOptions {
+export interface RunTarget {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  executor?: CommandExecutor;
+  commands?: PipelineCommands;
+  sandbox?: SandboxId | SandboxDefinition;
+}
+
+export interface RunOptions extends RunTarget {
   id: string;
   mode?: "manual" | "ci";
   concurrency?: number;
   force?: boolean;
   echo?: boolean;
-  workspace?: PipelineWorkspace;
 }
 
 export type RunSingleTaskOptions = Omit<RunOptions, "id">;
@@ -277,14 +269,14 @@ export type RunSingleTaskOptions = Omit<RunOptions, "id">;
 export async function runJob(pipeline: NormalizedPipeline, options: RunOptions): Promise<ExecutionRecord> {
   // Install before any task spawns so an early Ctrl-C still finalizes the record.
   ensureSignalForwarding();
-  const workspace = options.workspace ?? hostWorkspace();
-  const store = await createStore(workspace.cwd);
+  const context = resolveExecutionContext(pipeline, options);
+  const store = await createStore(context.cwd);
   // One run at a time per project: concurrent runs would race on the task
   // cache, run records, and synced outputs. A lock whose holder process is
   // dead is reclaimed automatically.
   const lock = await acquireRunLock(store);
   try {
-    return await runJobLocked(pipeline, options, workspace, store);
+    return await runJobLocked(pipeline, options, context, store);
   } finally {
     await lock.release();
   }
@@ -293,21 +285,21 @@ export async function runJob(pipeline: NormalizedPipeline, options: RunOptions):
 async function runJobLocked(
   pipeline: NormalizedPipeline,
   options: RunOptions,
-  workspace: PipelineWorkspace,
+  context: ExecutionContext,
   store: PipelineStore
 ): Promise<ExecutionRecord> {
-  const plan = await createRunPlan(pipeline, workspace.cwd, store);
+  const plan = await createRunPlan(pipeline, context.cwd, store);
   const graph = tasksForJob(plan.pipeline, options.id);
   const record: ExecutionRecord = {
     schemaVersion: 1,
     id: `${new Date().toISOString().replaceAll(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`,
     pipelineName: plan.pipeline.name,
     jobId: options.id,
-    cwd: workspace.cwd,
+    cwd: context.cwd,
     pid: process.pid,
     startedAt: new Date().toISOString(),
     status: "running",
-    mode: options.mode ?? (workspace.env.CI ? "ci" : "manual"),
+    mode: options.mode ?? (context.env.CI ? "ci" : "manual"),
     tasks: [],
     sources: Object.fromEntries(Object.entries(plan.sources).map(([sourceId, resolved]) => [sourceId, resolved.record]))
   };
@@ -356,10 +348,10 @@ async function runJobLocked(
     if (!promise) {
       promise = runSourcePrepare(source, {
         candidate: plan.candidate,
-        executor: workspace.executor,
-        rootCwd: workspace.cwd,
+        executor: context.executor,
+        rootCwd: context.cwd,
         runId: record.id,
-        workspaceEnv: workspace.env,
+        contextEnv: context.env,
         echo: options.echo,
         store
       });
@@ -392,18 +384,18 @@ async function runJobLocked(
 
     const result = await runTask(plan.pipeline, taskDefinition, {
       candidate: plan.candidate,
-      cwd: taskDefinition.source?.dir || workspace.cwd,
-      executor: workspace.executor,
-      rootCwd: workspace.cwd,
+      cwd: taskDefinition.source?.dir || context.cwd,
+      executor: context.executor,
+      rootCwd: context.cwd,
       runId: record.id,
       source: taskDefinition.source,
       envDefinitions,
-      workspaceEnv: workspace.env,
+      contextEnv: context.env,
       sourcePrepareCommands: taskSource ? await resolvePrepareCommands(taskSource, {
         candidate: plan.candidate,
-        rootCwd: workspace.cwd,
+        rootCwd: context.cwd,
         runId: record.id,
-        workspaceEnv: workspace.env
+        contextEnv: context.env
       }) : [],
       dependencyFingerprints: Object.fromEntries(taskDefinition.dependsOn.map((dependency) => [
         dependency,
@@ -510,10 +502,10 @@ export interface JobPlan {
  * Computes the execution order and predicted cache behavior for a job without running it.
  * Predictions reuse the real cache-key chain but do not validate cached output files.
  */
-export async function planJob(pipeline: NormalizedPipeline, options: { id: string; workspace?: PipelineWorkspace }): Promise<JobPlan> {
-  const workspace = options.workspace ?? hostWorkspace();
-  const store = await createStore(workspace.cwd);
-  const plan = await createRunPlan(pipeline, workspace.cwd, store);
+export async function planJob(pipeline: NormalizedPipeline, options: { id: string } & RunTarget): Promise<JobPlan> {
+  const context = resolveExecutionContext(pipeline, options);
+  const store = await createStore(context.cwd);
+  const plan = await createRunPlan(pipeline, context.cwd, store);
   const graph = tasksForJob(plan.pipeline, options.id);
   const jobDefinition = plan.pipeline.jobs[options.id];
   const envDefinitions = {
@@ -527,32 +519,32 @@ export async function planJob(pipeline: NormalizedPipeline, options: { id: strin
     const taskDefinition = plan.pipeline.tasks[taskId];
     if (!taskDefinition) continue;
     try {
-      const taskCwd = taskDefinition.source?.dir || workspace.cwd;
-      const resolvedEnv = buildTaskEnv(workspace.env, {
+      const taskCwd = taskDefinition.source?.dir || context.cwd;
+      const resolvedEnv = buildTaskEnv(context.env, {
         candidate: plan.candidate,
         envDefinitions,
-        rootCwd: workspace.cwd,
+        rootCwd: context.cwd,
         source: taskDefinition.source,
         taskId
       });
-      const context = createTaskContext(taskDefinition, {
+      const taskContext = createTaskContext(taskDefinition, {
         candidate: plan.candidate,
         cwd: taskCwd,
         env: resolvedEnv.env,
         metadata: {},
-        rootCwd: workspace.cwd,
+        rootCwd: context.cwd,
         runId: "dry-run",
         source: taskDefinition.source,
         writeLog() {}
       });
-      const steps = await resolveTaskSteps(taskDefinition.steps, context);
+      const steps = await resolveTaskSteps(taskDefinition.steps, taskContext);
       const taskSource = taskDefinition.source?.name ? plan.sources[taskDefinition.source.name] : undefined;
       const prepareCommands = taskSource
         ? (await resolvePrepareCommands(taskSource, {
             candidate: plan.candidate,
-            rootCwd: workspace.cwd,
+            rootCwd: context.cwd,
             runId: "dry-run",
-            workspaceEnv: workspace.env
+            contextEnv: context.env
           })).map((command) => command.command)
         : [];
       const cacheKey = await computeTaskCacheKey(plan.pipeline, taskDefinition, taskCwd, {
@@ -620,19 +612,19 @@ async function runTask(
     dependencyFingerprints?: Record<string, string | null>;
     force?: boolean;
     echo?: boolean;
-    workspaceEnv: NodeJS.ProcessEnv;
+    contextEnv: NodeJS.ProcessEnv;
     store: PipelineStore;
   }
 ): Promise<TaskResult> {
   const started = Date.now();
   const startedAt = new Date().toISOString();
   const metadata: Record<string, string | number | boolean | null> = {};
-  const taskLog = cappedBuffer(resolveMaxLogBytes(options.workspaceEnv));
+  const taskLog = cappedBuffer(resolveMaxLogBytes(options.contextEnv));
   let taskEnv: NodeJS.ProcessEnv;
   let envSecretValues: string[] = [];
   let forwardEnvKeys: string[] = [];
   try {
-    const resolvedTaskEnv = buildTaskEnv(options.workspaceEnv, {
+    const resolvedTaskEnv = buildTaskEnv(options.contextEnv, {
       candidate: options.candidate,
       envDefinitions: options.envDefinitions,
       rootCwd: options.rootCwd,
@@ -810,7 +802,7 @@ async function runShellStep(
 
 async function runSourcePrepare(
   source: ResolvedSource,
-  options: { candidate: CandidateContext; executor: CommandExecutor; rootCwd: string; runId: string; workspaceEnv: NodeJS.ProcessEnv; echo?: boolean; store: PipelineStore }
+  options: { candidate: CandidateContext; executor: CommandExecutor; rootCwd: string; runId: string; contextEnv: NodeJS.ProcessEnv; echo?: boolean; store: PipelineStore }
 ): Promise<TaskResult | null> {
   if (source.definition.prepare.length === 0) return null;
 
@@ -818,8 +810,8 @@ async function runSourcePrepare(
   const startedAt = new Date().toISOString();
   const taskId = `${source.id}:prepare`;
   const sourceTaskContext = sourceContext(source);
-  const log = cappedBuffer(resolveMaxLogBytes(options.workspaceEnv));
-  const prepareEnv = buildTaskEnv(options.workspaceEnv, {
+  const log = cappedBuffer(resolveMaxLogBytes(options.contextEnv));
+  const prepareEnv = buildTaskEnv(options.contextEnv, {
     candidate: options.candidate,
     rootCwd: options.rootCwd,
     source: sourceTaskContext
@@ -891,12 +883,12 @@ async function runSourcePrepare(
 
 async function resolvePrepareCommands(
   source: ResolvedSource,
-  options: { candidate: CandidateContext; rootCwd: string; runId: string; workspaceEnv: NodeJS.ProcessEnv }
+  options: { candidate: CandidateContext; rootCwd: string; runId: string; contextEnv: NodeJS.ProcessEnv }
 ): Promise<ShellCommand[]> {
   const context = createTaskContext({ id: `${source.id}:prepare` } as NormalizedTask, {
     candidate: options.candidate,
     cwd: source.dir,
-    env: buildTaskEnv(options.workspaceEnv, {
+    env: buildTaskEnv(options.contextEnv, {
       candidate: options.candidate,
       rootCwd: options.rootCwd,
       source: sourceContext(source)

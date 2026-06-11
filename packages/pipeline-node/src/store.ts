@@ -233,7 +233,6 @@ export async function computeTaskCacheKey(
     timeout: taskDefinition.timeout,
     timeoutMs: taskDefinition.timeoutMs,
     requires: taskDefinition.requires,
-    environment: taskDefinition.environment,
     steps: serializeSteps(options.steps ?? taskDefinition.steps)
   }));
 

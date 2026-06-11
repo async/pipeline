@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { hostWorkspace, loadPipeline, runJob } from "../packages/pipeline-node/dist/index.js";
+import { loadPipeline, runJob } from "../packages/pipeline-node/dist/index.js";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
@@ -17,14 +17,14 @@ test("runs a path source task with root-owned dynamic prepare and cache reuse", 
   try {
     const pipeline = await loadPipeline(join(fixture.root, "pipeline.js"));
 
-    const workspace = hostWorkspace({ cwd: fixture.root });
-    const first = await runJob(pipeline, { id: "verifyImpact", workspace });
+    const target = ({ cwd: fixture.root });
+    const first = await runJob(pipeline, { id: "verifyImpact", ...target });
     assert.equal(first.status, "passed");
     assert.equal(first.sources?.app?.dir, fixture.app);
     assert.deepEqual(first.tasks.map((task) => task.id), ["app:prepare", "app:test", "impact"]);
     assert.equal(await readFile(join(fixture.app, "candidate.txt"), "utf8"), fixture.root);
 
-    const second = await runJob(pipeline, { id: "verifyImpact", workspace });
+    const second = await runJob(pipeline, { id: "verifyImpact", ...target });
     assert.equal(second.status, "passed");
     assert.equal(second.tasks.find((task) => task.id === "app:test")?.status, "cached");
   } finally {

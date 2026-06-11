@@ -345,7 +345,7 @@ Pin `ref` to a commit SHA for reproducible impact runs. A branch name like `"mai
 
 ## Platform Support
 
-The checked-in workflow targets Node `>= 24` on Linux (`ubuntu-latest`) and on a self-hosted Apple Silicon macOS runner labeled `self-hosted`, `macos`, and `tart`; see [GitHub Actions setup](docs/github-actions.md). Windows is untested; use WSL.
+The checked-in workflow targets Node `>= 24` on GitHub-hosted Linux (`ubuntu-latest`) and macOS (`macos-latest`) runners; self-hosted label sets such as Tart-backed Apple Silicon runners are supported through `runsOn`/`runsOnMatrix` (see [GitHub Actions setup](docs/github-actions.md)). Windows is untested; use WSL.
 
 ## Use It When
 
@@ -359,8 +359,7 @@ The checked-in workflow targets Node `>= 24` on Linux (`ubuntu-latest`) and on a
 
 - Built-in Redis or remote task cache execution. Remote stores can be declared, but no Redis dependency is shipped.
 - Automatic dependency discovery. Sources are explicit by design.
-- Automatic routing from `task.environment.backend`. Use explicit `--workspace lima` or `--workspace docker` for local isolation.
-- Full memory, SSH, and GitHub workspaces. Their inspectable config exists, but full execution needs filesystem-backed store/source ports.
+- Automatic sandbox routing. Isolation is opt-in: select it with `--sandbox lima`, `--sandbox docker`, or `sandbox:` run options.
 - Deno or Ollama runtime integration. They can be declared as optional tool requirements, but they are not package dependencies.
 
 ## Workspace Layout

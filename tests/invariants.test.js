@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { definePipeline, job, sh, task } from "../packages/pipeline-core/dist/index.js";
-import { hostWorkspace, runJob } from "../packages/pipeline-node/dist/runner.js";
+import { runJob } from "../packages/pipeline-node/dist/runner.js";
 
 const cliPath = fileURLToPath(new URL("../packages/pipeline-node/dist/cli.js", import.meta.url));
 const coreUrl = new URL("../packages/pipeline-core/dist/index.js", import.meta.url).href;
@@ -34,11 +34,11 @@ test("PROMISE: per-task inputs isolate cache invalidation", async () => {
       },
       jobs: { all: job({ target: ["a", "b"] }) }
     });
-    const workspace = hostWorkspace({ cwd: dir, env: { PATH: process.env.PATH } });
+    const target = ({ cwd: dir, env: { PATH: process.env.PATH } });
 
-    await runJob(pipeline(), { id: "all", workspace });
+    await runJob(pipeline(), { id: "all", ...target });
     await writeFile(join(dir, "b.txt"), "b2\n", "utf8");
-    const record = await runJob(pipeline(), { id: "all", workspace });
+    const record = await runJob(pipeline(), { id: "all", ...target });
 
     assert.equal(statusOf(record, "a"), "cached", "task a must stay cached when only b's inputs change");
     assert.equal(statusOf(record, "b"), "passed", "task b must re-run when its inputs change");
@@ -74,11 +74,11 @@ test("PROMISE: a second run of an unchanged pipeline is fully cached", async () 
       },
       jobs: { verify: job({ target: "check" }) }
     });
-    const workspace = hostWorkspace({ cwd: dir, env: { PATH: process.env.PATH } });
+    const target = ({ cwd: dir, env: { PATH: process.env.PATH } });
 
-    const cold = await runJob(pipeline(), { id: "verify", workspace });
+    const cold = await runJob(pipeline(), { id: "verify", ...target });
     assert.equal(cold.status, "passed");
-    const warm = await runJob(pipeline(), { id: "verify", workspace });
+    const warm = await runJob(pipeline(), { id: "verify", ...target });
     assert.equal(warm.status, "passed");
     for (const entry of warm.tasks) {
       assert.equal(entry.status, "cached", `task ${entry.id} must be cached on an unchanged second run`);
@@ -108,11 +108,11 @@ test("PROMISE: declared outputs do not feed back into a task's own cache inputs"
       },
       jobs: { render: job({ target: "render" }) }
     });
-    const workspace = hostWorkspace({ cwd: dir, env: { PATH: process.env.PATH } });
+    const target = ({ cwd: dir, env: { PATH: process.env.PATH } });
 
-    const first = await runJob(pipeline(), { id: "render", workspace });
+    const first = await runJob(pipeline(), { id: "render", ...target });
     assert.equal(first.status, "passed");
-    const second = await runJob(pipeline(), { id: "render", workspace });
+    const second = await runJob(pipeline(), { id: "render", ...target });
     assert.equal(statusOf(second, "render"), "cached", "render must not invalidate itself by writing its declared outputs");
   } finally {
     await rm(dir, { force: true, recursive: true });
