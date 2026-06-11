@@ -79,6 +79,22 @@ if (mode === "release") {
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
     fail(`packages/pipeline version must be simple semver for a stable mirror. Found: ${version}`);
   }
+  // A GitHub release cut on a commit whose package.json was never bumped
+  // would silently republish the old version. Enforce tag/version parity.
+  if (process.env.GITHUB_EVENT_NAME === "release") {
+    const eventPath = process.env.GITHUB_EVENT_PATH;
+    if (!eventPath || !existsSync(eventPath)) {
+      fail("release events need GITHUB_EVENT_PATH to verify the release tag matches package.json.");
+    }
+    const event = JSON.parse(await readFile(eventPath, "utf8"));
+    const tagName = event.release?.tag_name;
+    if (!tagName) {
+      fail("Release event payload did not include release.tag_name.");
+    }
+    if (tagName.replace(/^v/, "") !== version) {
+      fail(`Release tag ${tagName} does not match packages/pipeline version ${version}. Publish from a matching tag such as v${version}.`);
+    }
+  }
 } else if (mode === "main") {
   const sha = process.env.GITHUB_SHA;
   if (!sha || !SHA_PATTERN.test(sha)) {
@@ -139,21 +155,33 @@ for (const extra of ["LICENSE", "README.md"]) {
 }
 
 // npm auth scoped to a throwaway userconfig so the token never lands in the
-// repo or in run logs.
+// repo or in run logs. The auth line derives from the registry URL so a
+// GHES registry (host or path based) works by changing GITHUB_REGISTRY.
+const registryUrl = new URL(GITHUB_REGISTRY);
+const registryAuthPath = `${registryUrl.host}${registryUrl.pathname.replace(/\/$/, "")}`;
 const npmConfig = join(stagingDir, ".github-packages.npmrc");
-await writeFile(npmConfig, `@${owner}:registry=${GITHUB_REGISTRY}\n//npm.pkg.github.com/:_authToken=${token}\n`, "utf8");
+await writeFile(npmConfig, `@${owner}:registry=${GITHUB_REGISTRY}\n//${registryAuthPath}/:_authToken=${token}\n`, "utf8");
 await chmod(npmConfig, 0o600);
 
 function npm(args, options = {}) {
   return spawnSync("npm", args, {
     cwd: stagingDir,
-    stdio: options.quiet ? "ignore" : "inherit",
+    stdio: options.capture ? ["ignore", "pipe", "pipe"] : "inherit",
+    encoding: "utf8",
     env: { ...process.env, NPM_CONFIG_USERCONFIG: npmConfig }
   });
 }
 
 const spec = `${mirrorName}@${version}`;
-const exists = npm(["view", spec, "version", "--registry", GITHUB_REGISTRY], { quiet: true }).status === 0;
+// A registry outage must not look like a missing version: only a 404-shaped
+// failure may fall through to publish.
+const view = npm(["view", spec, "version", "--registry", GITHUB_REGISTRY], { capture: true });
+const viewOutput = `${view.stdout ?? ""}${view.stderr ?? ""}`;
+const exists = view.status === 0;
+if (!exists && !/(^|[\s])(E404|404)([\s]|$)|not found/i.test(viewOutput)) {
+  console.error(viewOutput.slice(0, 2000));
+  fail(`Could not check whether ${spec} already exists on GitHub Packages; refusing to guess. See npm output above.`);
+}
 if (exists) {
   console.log(`${spec} already exists on GitHub Packages; skipping publish.`);
 } else {

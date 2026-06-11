@@ -71,7 +71,13 @@ function makeNpmShim(dir) {
       "try { record.manifest = JSON.parse(readFileSync(join(process.cwd(), \"package.json\"), \"utf8\")); } catch {}",
       "try { record.files = readdirSync(process.cwd()).sort(); } catch {}",
       "appendFileSync(process.env.NPM_SHIM_LOG, JSON.stringify(record) + \"\\n\");",
-      "if (args[0] === \"view\") process.exit(Number(process.env.NPM_SHIM_VIEW_EXIT ?? 1));",
+      "if (args[0] === \"view\") {",
+      "  const exit = Number(process.env.NPM_SHIM_VIEW_EXIT ?? 1);",
+      "  if (exit !== 0) {",
+      "    console.error(process.env.NPM_SHIM_VIEW_ERROR === \"1\" ? \"npm error network ECONNRESET\" : \"npm error code E404\\nnpm error 404 Not Found\");",
+      "  }",
+      "  process.exit(exit);",
+      "}",
       "if (args[0] === \"publish\") process.exit(Number(process.env.NPM_SHIM_PUBLISH_EXIT ?? 0));",
       "process.exit(Number(process.env.NPM_SHIM_DISTTAG_EXIT ?? 0));"
     ].join("\n"),
@@ -155,6 +161,32 @@ test("PROMISE: republishing an existing version skips publish but still moves th
   assert.equal(run.calls.some((call) => call.args[0] === "publish"), false);
   assert.equal(run.calls.some((call) => call.args[0] === "dist-tag"), true);
   assert.match(run.stdout, /already exists/);
+});
+
+test("PROMISE: a registry outage during the existence check fails loudly instead of publishing blind", async () => {
+  const run = await runScript("release", { env: { NPM_SHIM_VIEW_ERROR: "1" } });
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /refusing to guess/);
+  assert.equal(run.calls.some((call) => call.args[0] === "publish"), false, "an outage must not fall through to publish");
+});
+
+test("release events with a tag that does not match package.json fail before publishing", async () => {
+  const run = await runScript("release", {
+    event: { release: { tag_name: "v9.9.9" } },
+    env: { GITHUB_EVENT_NAME: "release" }
+  });
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /does not match/);
+  assert.equal(run.calls.length, 0, "nothing may publish from a mismatched release tag");
+});
+
+test("release events with a matching v-prefixed tag publish normally", async () => {
+  const run = await runScript("release", {
+    event: { release: { tag_name: `v${manifest.version}` } },
+    env: { GITHUB_EVENT_NAME: "release" }
+  });
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(run.calls.some((call) => call.args[0] === "publish"), true);
 });
 
 test("release publish failures exit non-zero with an actionable error", async () => {

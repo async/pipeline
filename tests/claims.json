@@ -496,6 +496,23 @@
       "tests": [
         "renders github job packages, issues, and pull-requests permissions with a contents fallback"
       ]
+    },
+    {
+      "id": "changelog.publish-view-discrimination",
+      "source": "CHANGELOG.md",
+      "anchor": "refuses to treat registry availability failures as a missing version",
+      "tests": [
+        "PROMISE: a registry outage during the existence check fails loudly instead of publishing blind"
+      ]
+    },
+    {
+      "id": "changelog.publish-tag-parity",
+      "source": "CHANGELOG.md",
+      "anchor": "enforces release tag/package.json version parity on `release` events",
+      "tests": [
+        "release events with a tag that does not match package.json fail before publishing",
+        "release events with a matching v-prefixed tag publish normally"
+      ]
     }
   ]
 }
