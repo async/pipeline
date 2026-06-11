@@ -61,6 +61,18 @@ export default definePipeline({
       cache: true,
       run: sh`pnpm docs:check`
     }),
+    "sync-check": task({
+      description: "All synced surfaces (generated workflow, lock, package scripts) still match pipeline.ts.",
+      inputs: [
+        "pipeline.ts",
+        "package.json",
+        ".github/workflows/async-pipeline.yml",
+        ".github/async-pipeline.lock.json",
+        ".async-pipeline/tasks.lock.json"
+      ],
+      cache: false,
+      run: sh`pnpm async-pipeline sync check`
+    }),
     claims: task({
       description: "Claim coverage checks: every registered doc claim still exists verbatim and is enforced by a named test; every PROMISE test is registered.",
       inputs: [
@@ -94,7 +106,7 @@ export default definePipeline({
       run: sh`pnpm test`
     }),
     pack: task({
-      dependsOn: ["test", "drift", "claims", "docs"],
+      dependsOn: ["test", "drift", "claims", "docs", "sync-check"],
       inputs: ["production", "package.json", "packages/*/package.json", "scripts/check-exports.mjs"],
       cache: false,
       run: [sh`pnpm exports:check`, sh`pnpm pack:check`]

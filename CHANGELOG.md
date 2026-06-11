@@ -63,6 +63,7 @@
 - Build the docs site through an explicit GitHub Pages workflow (`.github/workflows/pages.yml`): docs stay plain markdown that renders on GitHub, and Jekyll runs as a CI build step instead of branch magic.
 - Check docs drift in the pipeline: `scripts/check-docs.mjs` (the self pipeline's `docs` task, wired into `release:check`) fails on broken relative links or anchors in README.md and docs/.
 - Move internal agent goal state from `docs/goals/` to `goals/` so the published docs tree is only documentation.
+- Dogfood release verification end to end: `release:check` is now `pnpm build && async-pipeline run verify --force`, with a `sync-check` task gating `pack` — the shell chain that duplicated the pipeline's orchestration is gone.
 
 ## 0.1.5 - 2026-06-10
 
