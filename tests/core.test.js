@@ -58,7 +58,6 @@ test("normalizes cache and retry defaults", () => {
   assert.equal(pipeline.tasks.build.retry.attempts, 2);
   assert.equal(pipeline.tasks.build.cache.store, "file");
   assert.equal(pipeline.tasks.build.cache.policy, "local");
-  assert.equal(pipeline.tasks.build.cache.strategy, "local");
 });
 
 test("normalizes cache refs and custom registries", () => {
@@ -85,23 +84,16 @@ test("normalizes cache refs and custom registries", () => {
   assert.equal(pipeline.tasks.build.cache.policy, "local");
 });
 
-test("accepts legacy cache-first refs as policy aliases", () => {
-  const pipeline = definePipeline({
+test("rejects stale cache-first refs", () => {
+  assert.throws(() => definePipeline({
     name: "test",
     tasks: {
-      build: task({ cache: "file:cache-first", run: sh`echo build` }),
-      load: task({ cache: "memory:cache-first", run: sh`echo load` })
+      build: task({ cache: "file:cache-first", run: sh`echo build` })
     },
     jobs: {
-      verify: job({ target: "load" })
+      verify: job({ target: "build" })
     }
-  });
-
-  assert.equal(pipeline.tasks.build.cache.ref, "file:cache-first");
-  assert.equal(pipeline.tasks.build.cache.policy, "local");
-  assert.equal(pipeline.tasks.build.cache.strategy, "cache-first");
-  assert.equal(pipeline.tasks.load.cache.policy, "session");
-  assert.equal(pipeline.tasks.load.cache.strategy, "cache-first");
+  }), (error) => error.code === "ASYNC_PIPELINE_UNKNOWN_CACHE_POLICY");
 });
 
 test("normalizes pipeline and job env definitions", () => {
@@ -211,7 +203,7 @@ test("rejects unknown cache stores and policies", () => {
     jobs: {
       verify: job({ target: "build" })
     }
-  }), (error) => error.code === "ASYNC_PIPELINE_UNKNOWN_CACHE_STRATEGY");
+  }), (error) => error.code === "ASYNC_PIPELINE_UNKNOWN_CACHE_POLICY");
 });
 
 test("lifts run-array cache and dependsOn directives into task metadata", () => {

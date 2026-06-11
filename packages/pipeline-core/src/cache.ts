@@ -1,9 +1,7 @@
 import { pipelineError } from "./errors.js";
 
 export type CachePolicy = "local" | "session";
-export type LegacyCacheStrategy = "cache-first";
-export type CacheStrategy = CachePolicy | LegacyCacheStrategy;
-export type CacheRef = `${string}:${CacheStrategy}` | string;
+export type CacheRef = `${string}:${CachePolicy}` | string;
 
 export interface CacheStoreDefinition {
   kind: "cache-store";
@@ -39,11 +37,9 @@ export interface ParsedCacheRef {
   ref: CacheRef;
   store: string;
   policy: CachePolicy;
-  strategy: CacheStrategy;
 }
 
 const knownPolicies = new Set<CachePolicy>(["local", "session"]);
-const legacyStrategies = new Set<LegacyCacheStrategy>(["cache-first"]);
 
 export function memoryCache(): CacheStoreDefinition {
   return { kind: "cache-store", type: "memory" };
@@ -96,12 +92,9 @@ export function parseCacheRef(ref: CacheRef): ParsedCacheRef {
     throw pipelineError("ASYNC_PIPELINE_INVALID_CACHE_REF", `Invalid cache reference "${ref}". Use "store:policy".`, { ref });
   }
   if (knownPolicies.has(policyToken as CachePolicy)) {
-    return { ref, store, policy: policyToken as CachePolicy, strategy: policyToken as CachePolicy };
+    return { ref, store, policy: policyToken as CachePolicy };
   }
-  if (legacyStrategies.has(policyToken as LegacyCacheStrategy)) {
-    return { ref, store, policy: defaultCachePolicyForStore(store), strategy: policyToken as LegacyCacheStrategy };
-  }
-  throw pipelineError("ASYNC_PIPELINE_UNKNOWN_CACHE_STRATEGY", `Unknown cache policy "${policyToken}" in "${ref}".`, { ref, strategy: policyToken });
+  throw pipelineError("ASYNC_PIPELINE_UNKNOWN_CACHE_POLICY", `Unknown cache policy "${policyToken}" in "${ref}".`, { ref, policy: policyToken });
 }
 
 export function isCacheDirective(value: unknown): value is CacheDirective {

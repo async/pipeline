@@ -10,7 +10,6 @@ import {
   type CacheRef,
   type CacheRegistryDefinition,
   type CacheRegistryInput,
-  type CacheStrategy,
   type CacheUseOptions
 } from "./cache.js";
 import { pipelineError } from "./errors.js";
@@ -94,7 +93,6 @@ export interface TaskCacheOptions {
   ref?: CacheRef;
   store?: string;
   policy?: CachePolicy;
-  strategy?: CacheStrategy;
   ttlMs?: number;
   key?: unknown;
 }
@@ -1080,7 +1078,6 @@ function normalizeCache(cache: TaskDefinition["cache"] | CacheDirective, registr
       ref: parsed.ref,
       store: parsed.store,
       policy: parsed.policy,
-      strategy: parsed.strategy,
       ttlMs: cache.options?.ttlMs,
       key: cache.options?.key
     };
@@ -1088,13 +1085,13 @@ function normalizeCache(cache: TaskDefinition["cache"] | CacheDirective, registr
   if (cache === true) {
     const parsed = parseCacheRef(registry.default);
     assertCacheStore(registry, parsed);
-    return { enabled: true, directories: [], ref: parsed.ref, store: parsed.store, policy: parsed.policy, strategy: parsed.strategy };
+    return { enabled: true, directories: [], ref: parsed.ref, store: parsed.store, policy: parsed.policy };
   }
   if (cache === false || cache === undefined) return { enabled: false, directories: [] };
   if (typeof cache === "string") {
     const parsed = parseCacheRef(cache);
     assertCacheStore(registry, parsed);
-    return { enabled: true, directories: [], ref: parsed.ref, store: parsed.store, policy: parsed.policy, strategy: parsed.strategy };
+    return { enabled: true, directories: [], ref: parsed.ref, store: parsed.store, policy: parsed.policy };
   }
   const ref = cacheRefFromStoreOptions(cache, registry.default);
   const parsed = parseCacheRef(ref);
@@ -1105,16 +1102,14 @@ function normalizeCache(cache: TaskDefinition["cache"] | CacheDirective, registr
     directories: [...(cache.directories ?? [])],
     ref: parsed.ref,
     store: parsed.store,
-    policy: parsed.policy,
-    strategy: parsed.strategy
+    policy: parsed.policy
   };
 }
 
-function cacheRefFromStoreOptions(cache: { ref?: CacheRef; store?: string; policy?: CachePolicy; strategy?: CacheStrategy }, defaultRef: CacheRef): CacheRef {
+function cacheRefFromStoreOptions(cache: { ref?: CacheRef; store?: string; policy?: CachePolicy }, defaultRef: CacheRef): CacheRef {
   if (cache.ref) return cache.ref;
   if (!cache.store) return defaultRef;
-  const policy = cache.policy ?? cache.strategy;
-  return policy ? `${cache.store}:${policy}` : cache.store;
+  return cache.policy ? `${cache.store}:${cache.policy}` : cache.store;
 }
 
 function normalizeRetry(retry: TaskDefinition["retry"]): RetryPolicy {
