@@ -61,7 +61,7 @@ visual_board:
   local:
     status: generated
     url: null
-    command: "npx goalbuddy board docs/goals/async-pipeline-build"
+    command: "npx goalbuddy board goals/async-pipeline-build"
 
 active_task: null
 
@@ -91,7 +91,7 @@ tasks:
     reasoning_hint: default
     objective: "Implement the first usable @async/pipeline monorepo tranche and verify self-dogfood behavior."
     inputs:
-      - "docs/goals/async-pipeline-build/goal.md"
+      - "goals/async-pipeline-build/goal.md"
     constraints:
       - "Keep runtime dependencies minimal."
       - "Use pnpm and Node ESM."
@@ -107,8 +107,8 @@ tasks:
       - ".github/workflows/ci.yml"
       - ".gitignore"
       - "README.md"
-      - "docs/goals/async-pipeline-build/goal.md"
-      - "docs/goals/async-pipeline-build/state.yaml"
+      - "goals/async-pipeline-build/goal.md"
+      - "goals/async-pipeline-build/state.yaml"
       - "package.json"
       - "pipeline.ts"
       - "pnpm-lock.yaml"
@@ -158,8 +158,8 @@ tasks:
         - ".github/workflows/ci.yml"
         - ".gitignore"
         - "README.md"
-        - "docs/goals/async-pipeline-build/goal.md"
-        - "docs/goals/async-pipeline-build/state.yaml"
+        - "goals/async-pipeline-build/goal.md"
+        - "goals/async-pipeline-build/state.yaml"
         - "package.json"
         - "packages/pipeline-core/package.json"
         - "packages/pipeline-core/tsconfig.build.json"
@@ -248,4 +248,4 @@ checks:
       - "pnpm install --frozen-lockfile"
       - "pnpm release:check"
       - "pnpm async-pipeline doctor"
-      - "node /Users/patrickjs/.codex/plugins/cache/goalbuddy/goalbuddy/0.3.8/skills/goalbuddy/scripts/check-goal-state.mjs docs/goals/async-pipeline-build/state.yaml"
+      - "node /Users/patrickjs/.codex/plugins/cache/goalbuddy/goalbuddy/0.3.8/skills/goalbuddy/scripts/check-goal-state.mjs goals/async-pipeline-build/state.yaml"

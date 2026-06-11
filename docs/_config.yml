@@ -1,6 +1,4 @@
-# GitHub Pages config for the docs site.
-# docs/goals holds internal working state and is not published.
+# GitHub Pages config for the docs site, built and deployed by
+# .github/workflows/pages.yml (Settings -> Pages -> Source: GitHub Actions).
 title: "@async/pipeline"
 description: "One typed pipeline.ts as the single source of truth. GitHub Actions and npm scripts receive only what you choose to sync."
-exclude:
-  - goals
