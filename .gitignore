@@ -1,5 +1,6 @@
 node_modules/
 dist/
 .async/
+docs/goals/**/.goalbuddy-board/
 *.tgz
 .DS_Store

@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { posix, relative } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import type { CandidateContext, EnvValue, ExecutionRecord, NormalizedPipeline, NormalizedTask, ShellCommand, TaskContext, TaskResult, TaskRunFunction, TaskSourceContext, TaskStep } from "@async/pipeline-core";
+import type { CandidateContext, CommandAction, CommandOutputPolicy, CommandPolicy, EnvValue, ExecutionRecord, NormalizedPipeline, NormalizedTask, ShellCommand, TaskContext, TaskResult, TaskRunFunction, TaskSourceContext, TaskStep } from "@async/pipeline-core";
 import { sh, tasksForJob } from "@async/pipeline-core";
 import { computeTaskCacheKey, createStore, readCacheEntry, writeCacheEntry, writeExecution, writeTaskLog, type PipelineStore } from "./store.js";
 import { createRunPlan, sourceContext, type ResolvedSource } from "./sources.js";
@@ -19,6 +20,32 @@ export interface CommandExecutor {
   checkTool?(tool: string): Promise<boolean>;
 }
 
+export type CommandPolicyStatus = "allowed" | "mocked" | "denied" | "approval-required";
+
+export interface CommandInvocation {
+  argv: string[];
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  timeoutMs?: number;
+}
+
+export interface CommandRecord {
+  argv: string[];
+  cwd: string;
+  status: CommandPolicyStatus;
+  code: number;
+  stdout: string;
+  stderr: string;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+}
+
+export interface WorkspaceCommands {
+  run(invocation: CommandInvocation, next: () => Promise<CommandResult>): Promise<CommandResult>;
+  records(): CommandRecord[];
+}
+
 export interface PipelineFileSystem {
   kind: "host";
 }
@@ -28,12 +55,14 @@ export interface PipelineWorkspace {
   env: NodeJS.ProcessEnv;
   fs: PipelineFileSystem;
   executor: CommandExecutor;
+  commands?: WorkspaceCommands;
 }
 
 export interface HostWorkspaceOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   executor?: CommandExecutor;
+  commands?: WorkspaceCommands;
 }
 
 export class HostCommandExecutor implements CommandExecutor {
@@ -49,12 +78,149 @@ export class HostCommandExecutor implements CommandExecutor {
   }
 }
 
+export interface DockerVolume {
+  source: string;
+  target: string;
+  readonly?: boolean;
+}
+
+export interface DockerWorkspaceOptions {
+  image: string;
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  workdir?: string;
+  volumes?: DockerVolume[];
+  commands?: WorkspaceCommands;
+}
+
+export class DockerCommandExecutor implements CommandExecutor {
+  name = "docker";
+
+  constructor(private readonly options: { image: string; hostCwd: string; workdir: string; volumes: DockerVolume[] }) {}
+
+  runShell(command: string, options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs?: number }): Promise<CommandResult> {
+    return runProcess(this.dockerCommand(command, options.cwd, options.env), { cwd: this.options.hostCwd, env: options.env, timeoutMs: options.timeoutMs });
+  }
+
+  async checkTool(tool: string): Promise<boolean> {
+    const result = await runProcess(this.dockerCommand(`command -v ${shellEscape(tool)}`, this.options.hostCwd, process.env), {
+      cwd: this.options.hostCwd,
+      env: process.env,
+      echo: false
+    });
+    return result.code === 0;
+  }
+
+  private dockerCommand(command: string, cwd: string, env: NodeJS.ProcessEnv): string {
+    return [
+      "docker",
+      "run",
+      "--rm",
+      "-w",
+      shellEscape(this.containerCwd(cwd)),
+      ...this.options.volumes.flatMap((volume) => ["-v", shellEscape(`${volume.source}:${volume.target}${volume.readonly ? ":ro" : ""}`)]),
+      ...Object.keys(env).filter((key) => env[key] !== undefined).flatMap((key) => ["-e", shellEscape(key)]),
+      shellEscape(this.options.image),
+      "bash",
+      "-lc",
+      shellEscape(command)
+    ].join(" ");
+  }
+
+  private containerCwd(cwd: string): string {
+    const rel = relative(this.options.hostCwd, cwd);
+    if (!rel || rel === ".") return this.options.workdir;
+    if (rel.startsWith("..")) return this.options.workdir;
+    return posix.join(this.options.workdir, rel.split(/[\\/]+/).join("/"));
+  }
+}
+
+export class LimaCommandExecutor implements CommandExecutor {
+  name = "lima";
+
+  constructor(private readonly vm = "async-pipeline") {}
+
+  runShell(command: string, options: { cwd: string; env: NodeJS.ProcessEnv; task: NormalizedTask; timeoutMs?: number }): Promise<CommandResult> {
+    const vm = options.task.environment?.vm ?? this.vm;
+    const escaped = shellEscape(`cd ${shellEscape(options.cwd)} && ${command}`);
+    return runProcess(`limactl shell ${shellEscape(vm)} -- bash -lc ${escaped}`, { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs });
+  }
+
+  async checkTool(tool: string): Promise<boolean> {
+    const result = await runProcess(`limactl shell ${shellEscape(this.vm)} -- bash -lc ${shellEscape(`command -v ${shellEscape(tool)}`)}`, {
+      cwd: process.cwd(),
+      env: process.env
+    });
+    return result.code === 0;
+  }
+}
+
 export function hostWorkspace(options: HostWorkspaceOptions = {}): PipelineWorkspace {
   return {
     cwd: options.cwd ?? process.cwd(),
     env: options.env ?? process.env,
     fs: { kind: "host" },
-    executor: options.executor ?? new HostCommandExecutor()
+    executor: options.executor ?? new HostCommandExecutor(),
+    commands: options.commands
+  };
+}
+
+export function dockerWorkspace(options: DockerWorkspaceOptions): PipelineWorkspace {
+  const cwd = options.cwd ?? process.cwd();
+  const workdir = options.workdir ?? "/workspace";
+  return hostWorkspace({
+    cwd,
+    env: options.env,
+    executor: new DockerCommandExecutor({
+      image: options.image,
+      hostCwd: cwd,
+      workdir,
+      volumes: options.volumes ?? [{ source: cwd, target: workdir }]
+    }),
+    commands: options.commands
+  });
+}
+
+export function limaWorkspace(options: { vm?: string; cwd?: string; env?: NodeJS.ProcessEnv; commands?: WorkspaceCommands } = {}): PipelineWorkspace {
+  return hostWorkspace({
+    cwd: options.cwd,
+    env: options.env,
+    executor: new LimaCommandExecutor(options.vm),
+    commands: options.commands
+  });
+}
+
+export function commandProxy(policy: CommandPolicy = { rules: [] }): WorkspaceCommands {
+  const records: CommandRecord[] = [];
+  return {
+    async run(invocation, next) {
+      const startedAt = new Date().toISOString();
+      const started = Date.now();
+      const action = matchingAction(policy, invocation.argv);
+      const status = commandStatus(action);
+      const result = await runCommandAction(action, next);
+      const outputPolicy = action.output ?? policy.output ?? {};
+      if (policy.record) {
+        records.push({
+          argv: [...invocation.argv],
+          cwd: invocation.cwd,
+          status,
+          code: result.code,
+          stdout: applyOutputPolicy(result.stdout, outputPolicy, invocation.env),
+          stderr: applyOutputPolicy(result.stderr, outputPolicy, invocation.env),
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          durationMs: Date.now() - started
+        });
+      }
+      return result;
+    },
+    records() {
+      return records.map((record) => ({
+        ...record,
+        argv: [...record.argv]
+      }));
+    }
   };
 }
 
@@ -633,6 +799,75 @@ function runProcess(command: string, options: { cwd: string; env: NodeJS.Process
       resolve({ code: code ?? 1, stdout, stderr });
     });
   });
+}
+
+function matchingAction(policy: CommandPolicy, argv: string[]): CommandAction {
+  for (const rule of policy.rules) {
+    if (matchesCommandRule(rule, argv)) return rule.action;
+  }
+  return policy.fallback ?? { kind: "async-pipeline.command.allow" };
+}
+
+function matchesCommandRule(rule: { exact?: string[]; prefix?: string[] }, argv: string[]): boolean {
+  if (rule.exact && sameArgs(rule.exact, argv)) return true;
+  if (rule.prefix && hasPrefix(argv, rule.prefix)) return true;
+  return false;
+}
+
+function sameArgs(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => right[index] === value);
+}
+
+function hasPrefix(argv: string[], prefix: string[]): boolean {
+  return prefix.length <= argv.length && prefix.every((value, index) => argv[index] === value);
+}
+
+function commandStatus(action: CommandAction): CommandPolicyStatus {
+  if (action.kind === "async-pipeline.command.mock") return "mocked";
+  if (action.kind === "async-pipeline.command.deny") return "denied";
+  if (action.kind === "async-pipeline.command.requireApproval") return "approval-required";
+  return "allowed";
+}
+
+async function runCommandAction(action: CommandAction, next: () => Promise<CommandResult>): Promise<CommandResult> {
+  if (action.kind === "async-pipeline.command.allow") return next();
+  if (action.kind === "async-pipeline.command.requireEnvironment") return next();
+  if (action.kind === "async-pipeline.command.mock") {
+    return {
+      code: action.code ?? 0,
+      stdout: action.stdout ?? "",
+      stderr: action.stderr ?? ""
+    };
+  }
+  if (action.kind === "async-pipeline.command.deny") {
+    return {
+      code: 1,
+      stdout: "",
+      stderr: `${action.message ?? "Command denied by async-pipeline command policy."}\n`
+    };
+  }
+  return {
+    code: 1,
+    stdout: "",
+    stderr: `${action.message ?? "Command requires approval by async-pipeline command policy."}\n`
+  };
+}
+
+function applyOutputPolicy(output: string, policy: CommandOutputPolicy, env: NodeJS.ProcessEnv): string {
+  let next = policy.redactSecrets ? redactSecretValues(output, env) : output;
+  const maxBytes = policy.maxBytes;
+  if (maxBytes === undefined || Buffer.byteLength(next, "utf8") <= maxBytes) return next;
+  const truncated = Buffer.from(next).subarray(0, maxBytes).toString("utf8");
+  return `${truncated}\n[async-pipeline] output truncated to ${maxBytes} bytes\n`;
+}
+
+function redactSecretValues(output: string, env: NodeJS.ProcessEnv): string {
+  let redacted = output;
+  for (const [key, value] of Object.entries(env)) {
+    if (!value || value.length < 4 || !/(SECRET|TOKEN|PASSWORD|AUTH|KEY)/i.test(key)) continue;
+    redacted = redacted.split(value).join("[redacted]");
+  }
+  return redacted;
 }
 
 function shellEscape(value: string): string {

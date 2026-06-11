@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildGraph, cache, composePipelines, defineCache, definePipeline, dependsOn, env, fileCache, job, sh, source, task, tasksForJob, trigger } from "../packages/pipeline-core/dist/index.js";
+import { buildGraph, cache, command, composePipelines, defineCache, definePipeline, dependsOn, env, fileCache, job, sh, source, task, tasksForJob, trigger, workspace } from "../packages/pipeline-core/dist/index.js";
 
 test("orders tasks deterministically with dependencies before dependents", () => {
   const pipeline = definePipeline({
@@ -127,6 +127,48 @@ test("normalizes pipeline and job env definitions", () => {
   assert.deepEqual(pipeline.jobs.verify.requires, { provenance: true });
   assert.equal(pipeline.jobs.verify.env?.LITERAL, "job");
   assert.equal(pipeline.jobs.verify.env?.NODE_AUTH_TOKEN.kind, "async-pipeline.env.secret");
+});
+
+test("normalizes workspace and command policy definitions", () => {
+  const pipeline = definePipeline({
+    name: "test",
+    workspaces: {
+      lima: workspace.lima({ vm: "async-pipeline" }),
+      docker: workspace.docker({ image: "node:24", workdir: "/workspace" })
+    },
+    commands: command.policy({
+      rules: [
+        command.rule({
+          prefix: ["npm", "publish"],
+          action: command.deny()
+        }),
+        command.rule({
+          exact: ["async-pipeline", "github", "check"],
+          action: command.mock({ code: 0, stdout: "current\n" })
+        })
+      ],
+      fallback: command.allow(),
+      record: true,
+      output: {
+        maxBytes: 20_000,
+        redactSecrets: true
+      }
+    }),
+    tasks: {
+      build: task({ run: sh`echo build` })
+    },
+    jobs: {
+      verify: job({ target: "build" })
+    }
+  });
+
+  assert.deepEqual(pipeline.workspaces.lima, { kind: "lima", vm: "async-pipeline" });
+  assert.equal(pipeline.workspaces.docker.kind, "docker");
+  assert.equal(pipeline.commands?.rules[0]?.action.kind, "async-pipeline.command.deny");
+  assert.equal(pipeline.commands?.rules[1]?.action.kind, "async-pipeline.command.mock");
+  assert.equal(pipeline.commands?.fallback?.kind, "async-pipeline.command.allow");
+  assert.equal(pipeline.commands?.record, true);
+  assert.equal(pipeline.commands?.output?.redactSecrets, true);
 });
 
 test("rejects unknown cache stores and strategies", () => {

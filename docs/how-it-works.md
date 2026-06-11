@@ -175,20 +175,47 @@ Path sources with `prepare` require `writable: true` in v1. Git sources use warm
 
 The CLI uses a host workspace by default. A workspace owns the current directory, env, filesystem identity, and command executor used by a run.
 
-The Lima command executor is exported from `@async/pipeline/lima` and can be used programmatically:
+Use named workspaces for local isolation:
 
 ```ts
-import { LimaCommandExecutor, hostWorkspace, runJob } from "@async/pipeline";
+import { definePipeline, job, sh, task, workspace } from "@async/pipeline";
+
+export default definePipeline({
+  name: "app",
+  workspaces: {
+    lima: workspace.lima({ vm: "async-pipeline" }),
+    docker: workspace.docker({ image: "node:24" })
+  },
+  tasks: {
+    verify: task({ run: sh`pnpm test` })
+  },
+  jobs: {
+    verify: job({ target: "verify" })
+  }
+});
+```
+
+```sh
+async-pipeline run verify --workspace lima
+async-pipeline run verify --workspace docker
+```
+
+The Lima workspace can also be used programmatically:
+
+```ts
+import { limaWorkspace, runJob } from "@async/pipeline";
 import pipeline from "./pipeline.js";
 
 await runJob(pipeline, {
   id: "verify",
-  workspace: hostWorkspace({
+  workspace: limaWorkspace({
     cwd: process.cwd(),
     env: process.env,
-    executor: new LimaCommandExecutor("async-pipeline")
+    vm: "async-pipeline"
   })
 });
 ```
 
-The current CLI does not automatically route tasks to Lima based on `environment.backend`. That routing is a future scheduler feature.
+Command policy is a separate workspace port for CLI/tool/agent boundaries. It can allow, deny, mock, record, redact, and bound output for commands such as `async-pipeline github check` or `npm publish`. Task shell steps still run through `workspace.executor`.
+
+The current CLI does not automatically route tasks based on `task.environment.backend`. Explicit `--workspace` selection is the supported local testing path.

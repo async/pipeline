@@ -1,212 +1,289 @@
 #!/usr/bin/env node
 import { existsSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { buildGraph, composePipelines, tasksForJob } from "@async/pipeline-core";
+import { pathToFileURL } from "node:url";
+import { buildGraph, composePipelines, tasksForJob, type NormalizedPipeline, type WorkspaceDefinition } from "@async/pipeline-core";
 import { runDoctor } from "./doctor.js";
 import { checkGitHubWorkflow, jobsForGitHubEvent, readGitHubEventContext, renderGitHubWorkflow, writeGitHubWorkflow } from "./github.js";
 import { loadPipeline } from "./loader.js";
-import { runJob, runSingleTask } from "./runner.js";
+import { commandProxy, dockerWorkspace, hostWorkspace, limaWorkspace, runJob, runSingleTask, type CommandResult, type PipelineWorkspace } from "./runner.js";
 import { createStore } from "./store.js";
 import { matrixForJob, readPipelineMetadata, resolveSources, sourceContext } from "./sources.js";
 import { checkTaskSync, describeTaskSync, renderTaskSync, writeTaskSync } from "./sync.js";
 
-async function main(): Promise<void> {
-  const [command, ...args] = process.argv.slice(2);
-  const program = programName();
-  const cwd = process.cwd();
-  const configPath = findPipelineConfig(cwd);
+export interface PipelineCliOptions {
+  args: string[];
+  workspace?: PipelineWorkspace;
+  program?: string;
+  stdout?(text: string): void;
+  stderr?(text: string): void;
+}
 
-  if (command === "doctor") {
-    const checks = await runDoctor();
-    for (const check of checks) {
-      console.log(`${check.status.toUpperCase()} ${check.name}: ${check.message}`);
+interface PipelineCliContext {
+  cwd: string;
+  configPath: string;
+  pipeline: NormalizedPipeline;
+  workspace: PipelineWorkspace;
+  stdout(text: string): void;
+  stderr(text: string): void;
+}
+
+interface ParsedGlobalOptions {
+  args: string[];
+  workspaceId?: string;
+}
+
+export async function runPipelineCli(options: PipelineCliOptions): Promise<CommandResult> {
+  let stdout = "";
+  let stderr = "";
+  const writeStdout = (text: string): void => {
+    stdout += text;
+  };
+  const writeStderr = (text: string): void => {
+    stderr += text;
+  };
+
+  const result = await runPipelineCliBuffered({
+    args: options.args,
+    workspace: options.workspace ?? hostWorkspace(),
+    program: options.program,
+    stdout: writeStdout,
+    stderr: writeStderr,
+    applyCommandPolicy: true
+  });
+
+  options.stdout?.(result.stdout);
+  options.stderr?.(result.stderr);
+  if (!options.stdout) process.stdout.write(result.stdout);
+  if (!options.stderr) process.stderr.write(result.stderr);
+  return result;
+}
+
+async function runPipelineCliBuffered(options: PipelineCliOptions & { workspace: PipelineWorkspace; applyCommandPolicy: boolean }): Promise<CommandResult> {
+  try {
+    const parsed = parseGlobalOptions(options.args);
+    const [commandName, ...args] = parsed.args;
+    const program = options.program ?? programName();
+    const cwd = options.workspace.cwd;
+    const configPath = findPipelineConfig(cwd);
+    let stdout = "";
+    let stderr = "";
+    const out = (text: string): void => {
+      stdout += text;
+    };
+    const err = (text: string): void => {
+      stderr += text;
+    };
+
+    if (commandName === "doctor") {
+      const checks = await runDoctor();
+      for (const check of checks) out(`${check.status.toUpperCase()} ${check.name}: ${check.message}\n`);
+      return { code: checks.some((check) => check.status === "fail") ? 1 : 0, stdout, stderr };
     }
-    process.exitCode = checks.some((check) => check.status === "fail") ? 1 : 0;
-    return;
+
+    if (!commandName || commandName === "help" || commandName === "--help") {
+      out(printHelp(program));
+      return { code: 0, stdout, stderr };
+    }
+
+    if (!configPath) {
+      throw new Error(`No pipeline.ts, pipeline.mjs, or pipeline.js found in ${cwd}.`);
+    }
+
+    const pipeline = await loadPipeline(configPath);
+    const workspace = selectWorkspace(parsed.workspaceId, pipeline, options.workspace);
+
+    if (options.applyCommandPolicy && workspace.commands) {
+      return workspace.commands.run({
+        argv: ["async-pipeline", ...options.args],
+        cwd: workspace.cwd,
+        env: workspace.env
+      }, () => runPipelineCliBuffered({
+        ...options,
+        args: options.args,
+        workspace,
+        applyCommandPolicy: false
+      }));
+    }
+
+    const context: PipelineCliContext = {
+      cwd,
+      configPath,
+      pipeline,
+      workspace,
+      stdout: out,
+      stderr: err
+    };
+
+    const code = await dispatchCommand(commandName, args, context, program);
+    return { code, stdout, stderr };
+  } catch (error) {
+    const message = `${error instanceof Error ? error.message : String(error)}\n`;
+    return { code: 1, stdout: "", stderr: message };
+  }
+}
+
+async function dispatchCommand(commandName: string, args: string[], context: PipelineCliContext, program: string): Promise<number> {
+  if (commandName === "sync") {
+    return handleSyncCommand(args, context);
   }
 
-  if (!command || command === "help" || command === "--help") {
-    printHelp(program);
-    return;
-  }
-
-  if (!configPath) {
-    throw new Error(`No pipeline.ts, pipeline.mjs, or pipeline.js found in ${cwd}.`);
-  }
-
-  const pipeline = await loadPipeline(configPath);
-
-  if (command === "sync") {
-    await handleSyncCommand(args, { cwd, configPath, pipeline });
-    return;
-  }
-
-  if (command === "github") {
+  if (commandName === "github") {
     const subcommand = args[0] ?? "help";
     const paths = githubGenerationPaths(args.slice(1));
-    const rendered = await renderGitHubWorkflow(pipeline, { cwd, configPath, ...paths });
+    const rendered = await renderGitHubWorkflow(context.pipeline, { cwd: context.cwd, configPath: context.configPath, ...paths });
     if (subcommand === "generate") {
-      await writeGitHubWorkflow(rendered, cwd);
-      console.log(`Generated ${rendered.workflowPath}`);
-      console.log(`Generated ${rendered.lockPath}`);
-      return;
+      await writeGitHubWorkflow(rendered, context.cwd);
+      context.stdout(`Generated ${rendered.workflowPath}\n`);
+      context.stdout(`Generated ${rendered.lockPath}\n`);
+      return 0;
     }
     if (subcommand === "check") {
-      const issues = await checkGitHubWorkflow(rendered, cwd);
+      const issues = await checkGitHubWorkflow(rendered, context.cwd);
       if (issues.length > 0) {
-        for (const issue of issues) console.error(issue);
-        process.exitCode = 1;
-        return;
+        for (const issue of issues) context.stderr(`${issue}\n`);
+        return 1;
       }
-      console.log("GitHub workflow is current.");
-      return;
+      context.stdout("GitHub workflow is current.\n");
+      return 0;
     }
     if (subcommand === "run") {
-      const context = await readGitHubEventContext(process.env);
-      const jobs = jobsForGitHubEvent(pipeline, context);
+      const eventContext = await readGitHubEventContext(context.workspace.env);
+      const jobs = jobsForGitHubEvent(context.pipeline, eventContext);
       if (jobs.length === 0) {
-        console.log(`No pipeline jobs matched GitHub event "${context.eventName}".`);
-        return;
+        context.stdout(`No pipeline jobs matched GitHub event "${eventContext.eventName}".\n`);
+        return 0;
       }
       let failed = false;
       for (const selectedJob of jobs) {
-        const graph = tasksForJob(pipeline, selectedJob.id);
-        console.log(`Running ${pipeline.name}:${selectedJob.id} (${graph.executionOrder.join(" -> ")})`);
-        const result = await runJob(pipeline, { id: selectedJob.id, mode: "ci" });
-        console.log(`Pipeline ${result.status}: ${result.id}`);
+        const graph = tasksForJob(context.pipeline, selectedJob.id);
+        context.stdout(`Running ${context.pipeline.name}:${selectedJob.id} (${graph.executionOrder.join(" -> ")})\n`);
+        const result = await runJob(context.pipeline, { id: selectedJob.id, mode: "ci", workspace: context.workspace });
+        context.stdout(`Pipeline ${result.status}: ${result.id}\n`);
         if (result.status !== "passed") failed = true;
       }
-      process.exitCode = failed ? 1 : 0;
-      return;
+      return failed ? 1 : 0;
     }
     throw new Error(`Unknown github command "${subcommand}".`);
   }
 
-  if (command === "list") {
-    console.log("Jobs:");
-    for (const jobId of Object.keys(pipeline.jobs).sort()) {
-      console.log(`  ${jobId}`);
+  if (commandName === "list") {
+    context.stdout("Jobs:\n");
+    for (const jobId of Object.keys(context.pipeline.jobs).sort()) context.stdout(`  ${jobId}\n`);
+    context.stdout("Tasks:\n");
+    for (const taskId of Object.keys(context.pipeline.tasks).sort()) context.stdout(`  ${taskId}\n`);
+    if (Object.keys(context.pipeline.sources).length > 0) {
+      context.stdout("Sources:\n");
+      for (const sourceId of Object.keys(context.pipeline.sources).sort()) context.stdout(`  ${sourceId}\n`);
     }
-    console.log("Tasks:");
-    for (const taskId of Object.keys(pipeline.tasks).sort()) {
-      console.log(`  ${taskId}`);
-    }
-    if (Object.keys(pipeline.sources).length > 0) {
-      console.log("Sources:");
-      for (const sourceId of Object.keys(pipeline.sources).sort()) {
-        console.log(`  ${sourceId}`);
-      }
-    }
-    return;
+    return 0;
   }
 
-  if (command === "graph") {
+  if (commandName === "graph") {
     const formatIndex = args.indexOf("--format");
     const format = formatIndex >= 0 ? args[formatIndex + 1] : "json";
-    const store = virtualStore(cwd);
-    const graphPipeline = await loadAvailableSourceGraph(pipeline, cwd, store);
+    const store = virtualStore(context.cwd);
+    const graphPipeline = await loadAvailableSourceGraph(context.pipeline, context.cwd, store);
     const graph = buildGraph(graphPipeline);
     if (format === "json") {
-      console.log(JSON.stringify(graph, null, 2));
-      return;
+      context.stdout(`${JSON.stringify(graph, null, 2)}\n`);
+      return 0;
     }
     if (format === "dot") {
-      console.log("digraph pipeline {");
+      context.stdout("digraph pipeline {\n");
       for (const task of graph.tasks) {
-        if (task.dependsOn.length === 0) console.log(`  "${task.id}";`);
-        for (const dependency of task.dependsOn) {
-          console.log(`  "${dependency}" -> "${task.id}";`);
-        }
+        if (task.dependsOn.length === 0) context.stdout(`  "${task.id}";\n`);
+        for (const dependency of task.dependsOn) context.stdout(`  "${dependency}" -> "${task.id}";\n`);
       }
-      console.log("}");
-      return;
+      context.stdout("}\n");
+      return 0;
     }
     throw new Error(`Unsupported graph format "${format}".`);
   }
 
-  if (command === "explain") {
+  if (commandName === "explain") {
     const taskId = args[0];
     if (!taskId) throw new Error(`Usage: ${program} explain <task>`);
-    const store = virtualStore(cwd);
-    const explainPipeline = await loadAvailableSourceGraph(pipeline, cwd, store);
+    const store = virtualStore(context.cwd);
+    const explainPipeline = await loadAvailableSourceGraph(context.pipeline, context.cwd, store);
     const task = explainPipeline.tasks[taskId];
     if (!task) throw new Error(`Unknown task "${taskId}".`);
-    console.log(JSON.stringify(task, jsonReplacer, 2));
-    return;
+    context.stdout(`${JSON.stringify(task, jsonReplacer, 2)}\n`);
+    return 0;
   }
 
-  if (command === "sources") {
-    const subcommand = args[0] ?? "list";
-    if (subcommand === "list") {
-      const store = virtualStore(cwd);
-      const sources = await resolveSources(pipeline, cwd, store, { sync: false, loadPipelines: false });
-      for (const source of Object.values(sources)) {
-        const detail = source.definition.type === "git"
-          ? `${source.definition.url}#${source.definition.ref}`
-          : source.definition.path;
-        console.log(`${source.id}\t${source.definition.type}\t${detail}\t${source.dir}`);
-      }
-      return;
-    }
-    if (subcommand === "sync") {
-      const store = await createStore(cwd);
-      const sources = await resolveSources(pipeline, cwd, store, { sync: true, loadPipelines: true });
-      for (const source of Object.values(sources)) {
-        console.log(`${source.id}\t${source.record.commit ?? "unknown"}\t${source.dir}`);
-      }
-      return;
-    }
-    throw new Error(`Unknown sources command "${subcommand}".`);
+  if (commandName === "sources") {
+    return handleSourcesCommand(args, context);
   }
 
-  if (command === "metadata") {
+  if (commandName === "metadata") {
     const formatIndex = args.indexOf("--format");
     const format = formatIndex >= 0 ? args[formatIndex + 1] : "json";
     if (format !== "json") throw new Error(`Unsupported metadata format "${format}".`);
     const includeSources = args.includes("--include-sources");
-    const store = virtualStore(cwd);
-    const metadata = await readPipelineMetadata(configPath, { cwd, includeSources, store });
-    console.log(JSON.stringify(metadata, jsonReplacer, 2));
-    return;
+    const store = virtualStore(context.cwd);
+    const metadata = await readPipelineMetadata(context.configPath, { cwd: context.cwd, includeSources, store });
+    context.stdout(`${JSON.stringify(metadata, jsonReplacer, 2)}\n`);
+    return 0;
   }
 
-  if (command === "matrix") {
+  if (commandName === "matrix") {
     const jobId = args[0];
     if (!jobId) throw new Error(`Usage: ${program} matrix <job> --format github`);
     const formatIndex = args.indexOf("--format");
     const format = formatIndex >= 0 ? args[formatIndex + 1] : "github";
     if (format !== "github") throw new Error(`Unsupported matrix format "${format}".`);
-    console.log(JSON.stringify(matrixForJob(pipeline, jobId)));
-    return;
+    context.stdout(`${JSON.stringify(matrixForJob(context.pipeline, jobId))}\n`);
+    return 0;
   }
 
-  if (command === "run") {
+  if (commandName === "run") {
     const jobId = args[0];
     if (!jobId) throw new Error(`Usage: ${program} run <job>`);
-    const graph = tasksForJob(pipeline, jobId);
-    console.log(`Running ${pipeline.name}:${jobId} (${graph.executionOrder.join(" -> ")})`);
-    const result = await runJob(pipeline, { id: jobId, mode: process.env.CI ? "ci" : "manual" });
-    console.log(`Pipeline ${result.status}: ${result.id}`);
-    process.exitCode = result.status === "passed" ? 0 : 1;
-    return;
+    const graph = tasksForJob(context.pipeline, jobId);
+    context.stdout(`Running ${context.pipeline.name}:${jobId} (${graph.executionOrder.join(" -> ")})\n`);
+    const result = await runJob(context.pipeline, { id: jobId, mode: context.workspace.env.CI ? "ci" : "manual", workspace: context.workspace });
+    context.stdout(`Pipeline ${result.status}: ${result.id}\n`);
+    return result.status === "passed" ? 0 : 1;
   }
 
-  if (command === "run-task") {
+  if (commandName === "run-task") {
     const taskId = args[0];
     if (!taskId) throw new Error(`Usage: ${program} run-task <task>`);
-    const result = await runSingleTask(pipeline, taskId, { mode: process.env.CI ? "ci" : "manual" });
-    console.log(`Task run ${result.status}: ${result.id}`);
-    process.exitCode = result.status === "passed" ? 0 : 1;
-    return;
+    const result = await runSingleTask(context.pipeline, taskId, { mode: context.workspace.env.CI ? "ci" : "manual", workspace: context.workspace });
+    context.stdout(`Task run ${result.status}: ${result.id}\n`);
+    return result.status === "passed" ? 0 : 1;
   }
 
-  throw new Error(`Unknown command "${command}".`);
+  throw new Error(`Unknown command "${commandName}".`);
 }
 
-function printHelp(program: string): void {
-  console.log(`Usage:
-  ${program} run <job>
-  ${program} run-task <task>
+async function handleSourcesCommand(args: string[], context: PipelineCliContext): Promise<number> {
+  const subcommand = args[0] ?? "list";
+  if (subcommand === "list") {
+    const store = virtualStore(context.cwd);
+    const sources = await resolveSources(context.pipeline, context.cwd, store, { sync: false, loadPipelines: false });
+    for (const source of Object.values(sources)) {
+      const detail = source.definition.type === "git"
+        ? `${source.definition.url}#${source.definition.ref}`
+        : source.definition.path;
+      context.stdout(`${source.id}\t${source.definition.type}\t${detail}\t${source.dir}\n`);
+    }
+    return 0;
+  }
+  if (subcommand === "sync") {
+    const store = await createStore(context.cwd);
+    const sources = await resolveSources(context.pipeline, context.cwd, store, { sync: true, loadPipelines: true });
+    for (const source of Object.values(sources)) context.stdout(`${source.id}\t${source.record.commit ?? "unknown"}\t${source.dir}\n`);
+    return 0;
+  }
+  throw new Error(`Unknown sources command "${subcommand}".`);
+}
+
+function printHelp(program: string): string {
+  return `Usage:
+  ${program} run <job> [--workspace <id>]
+  ${program} run-task <task> [--workspace <id>]
   ${program} list
   ${program} graph --format json|dot
   ${program} explain <task>
@@ -225,42 +302,33 @@ function printHelp(program: string): void {
   ${program} sync tasks check
   ${program} github generate [--workflow <path>] [--lock <path>]
   ${program} github check [--workflow <path>] [--lock <path>]
-  ${program} github run
-  ${program} doctor`);
+  ${program} github run [--workspace <id>]
+  ${program} doctor\n`;
 }
 
-async function handleSyncCommand(
-  args: string[],
-  context: { cwd: string; configPath: string; pipeline: Awaited<ReturnType<typeof loadPipeline>> }
-): Promise<void> {
+async function handleSyncCommand(args: string[], context: PipelineCliContext): Promise<number> {
   const targetNames = new Set(["github", "tasks"]);
   const maybeTarget = args[0];
   const target = targetNames.has(maybeTarget ?? "") ? maybeTarget : undefined;
   const subcommand = target ? args[1] ?? "list" : args[0] ?? "list";
   const rest = target ? args.slice(2) : args.slice(1);
 
-  if (target === "github") {
-    await handleSyncGitHubCommand(subcommand, rest, context, { requireConfigured: true });
-    return;
-  }
-  if (target === "tasks") {
-    await handleSyncTasksCommand(subcommand, context, { requireConfigured: true });
-    return;
-  }
+  if (target === "github") return handleSyncGitHubCommand(subcommand, rest, context, { requireConfigured: true });
+  if (target === "tasks") return handleSyncTasksCommand(subcommand, context, { requireConfigured: true });
 
   if (subcommand === "list") {
     let listed = false;
     if (context.pipeline.sync.github.enabled) {
-      console.log(`GitHub workflow: ${context.pipeline.sync.github.workflow}`);
-      console.log(`GitHub lock: ${context.pipeline.sync.github.lock}`);
+      context.stdout(`GitHub workflow: ${context.pipeline.sync.github.workflow}\n`);
+      context.stdout(`GitHub lock: ${context.pipeline.sync.github.lock}\n`);
       listed = true;
     }
     if (context.pipeline.sync.tasks.enabled) {
-      for (const line of describeTaskSync(await renderTaskSync(context.pipeline, context))) console.log(line);
+      for (const line of describeTaskSync(await renderTaskSync(context.pipeline, context))) context.stdout(`${line}\n`);
       listed = true;
     }
-    if (!listed) console.log("No sync targets configured.");
-    return;
+    if (!listed) context.stdout("No sync targets configured.\n");
+    return 0;
   }
 
   if (subcommand === "generate") {
@@ -274,7 +342,7 @@ async function handleSyncCommand(
       generated = true;
     }
     if (!generated) throw new Error("No sync targets configured.");
-    return;
+    return 0;
   }
 
   if (subcommand === "check") {
@@ -282,7 +350,7 @@ async function handleSyncCommand(
     let checked = false;
     if (context.pipeline.sync.github.enabled) {
       const paths = githubGenerationPaths(rest);
-      const rendered = await renderGitHubWorkflow(context.pipeline, { ...context, ...paths });
+      const rendered = await renderGitHubWorkflow(context.pipeline, { cwd: context.cwd, configPath: context.configPath, ...paths });
       issues.push(...await checkGitHubWorkflow(rendered, context.cwd));
       checked = true;
     }
@@ -293,12 +361,11 @@ async function handleSyncCommand(
     }
     if (!checked) throw new Error("No sync targets configured.");
     if (issues.length > 0) {
-      for (const issue of issues) console.error(issue);
-      process.exitCode = 1;
-      return;
+      for (const issue of issues) context.stderr(`${issue}\n`);
+      return 1;
     }
-    console.log("Sync targets are current.");
-    return;
+    context.stdout("Sync targets are current.\n");
+    return 0;
   }
 
   throw new Error(`Unknown sync command "${subcommand}".`);
@@ -307,67 +374,108 @@ async function handleSyncCommand(
 async function handleSyncGitHubCommand(
   subcommand: string,
   args: string[],
-  context: { cwd: string; configPath: string; pipeline: Awaited<ReturnType<typeof loadPipeline>> },
+  context: PipelineCliContext,
   options: { requireConfigured: boolean }
-): Promise<void> {
+): Promise<number> {
   if (options.requireConfigured && !context.pipeline.sync.github.enabled) {
     throw new Error("GitHub sync is not configured. Add sync.github to pipeline.ts.");
   }
   const paths = githubGenerationPaths(args);
-  const rendered = await renderGitHubWorkflow(context.pipeline, { ...context, ...paths });
+  const rendered = await renderGitHubWorkflow(context.pipeline, { cwd: context.cwd, configPath: context.configPath, ...paths });
   if (subcommand === "list") {
-    console.log(`GitHub workflow: ${rendered.workflowPath}`);
-    console.log(`GitHub lock: ${rendered.lockPath}`);
-    return;
+    context.stdout(`GitHub workflow: ${rendered.workflowPath}\n`);
+    context.stdout(`GitHub lock: ${rendered.lockPath}\n`);
+    return 0;
   }
   if (subcommand === "generate") {
     await writeGitHubWorkflow(rendered, context.cwd);
-    console.log(`Generated ${rendered.workflowPath}`);
-    console.log(`Generated ${rendered.lockPath}`);
-    return;
+    context.stdout(`Generated ${rendered.workflowPath}\n`);
+    context.stdout(`Generated ${rendered.lockPath}\n`);
+    return 0;
   }
   if (subcommand === "check") {
     const issues = await checkGitHubWorkflow(rendered, context.cwd);
     if (issues.length > 0) {
-      for (const issue of issues) console.error(issue);
-      process.exitCode = 1;
-      return;
+      for (const issue of issues) context.stderr(`${issue}\n`);
+      return 1;
     }
-    console.log("GitHub workflow is current.");
-    return;
+    context.stdout("GitHub workflow is current.\n");
+    return 0;
   }
   throw new Error(`Unknown sync github command "${subcommand}".`);
 }
 
 async function handleSyncTasksCommand(
   subcommand: string,
-  context: { cwd: string; configPath: string; pipeline: Awaited<ReturnType<typeof loadPipeline>> },
+  context: PipelineCliContext,
   options: { requireConfigured: boolean }
-): Promise<void> {
+): Promise<number> {
   const rendered = await renderTaskSync(context.pipeline, context);
   if (subcommand === "list") {
-    for (const line of describeTaskSync(rendered)) console.log(line);
-    if (options.requireConfigured && !rendered.enabled) process.exitCode = 1;
-    return;
+    for (const line of describeTaskSync(rendered)) context.stdout(`${line}\n`);
+    return options.requireConfigured && !rendered.enabled ? 1 : 0;
   }
   if (subcommand === "generate") {
     if (options.requireConfigured && !rendered.enabled) throw new Error("Task sync is not configured. Add sync.tasks to pipeline.ts.");
     await writeTaskSync(rendered, context.cwd);
-    for (const manifest of rendered.manifests) console.log(`Generated ${manifest.path}`);
-    console.log(`Generated ${rendered.lockPath}`);
-    return;
+    for (const manifest of rendered.manifests) context.stdout(`Generated ${manifest.path}\n`);
+    context.stdout(`Generated ${rendered.lockPath}\n`);
+    return 0;
   }
   if (subcommand === "check") {
     const issues = await checkTaskSync(rendered, context.cwd, { requireConfigured: options.requireConfigured });
     if (issues.length > 0) {
-      for (const issue of issues) console.error(issue);
-      process.exitCode = 1;
-      return;
+      for (const issue of issues) context.stderr(`${issue}\n`);
+      return 1;
     }
-    console.log("Task sync is current.");
-    return;
+    context.stdout("Task sync is current.\n");
+    return 0;
   }
   throw new Error(`Unknown sync tasks command "${subcommand}".`);
+}
+
+function parseGlobalOptions(args: string[]): ParsedGlobalOptions {
+  const rest: string[] = [];
+  let workspaceId: string | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === undefined) continue;
+    if (arg === "--workspace") {
+      workspaceId = args[index + 1];
+      if (!workspaceId) throw new Error("Usage: async-pipeline <command> --workspace <id>");
+      index += 1;
+      continue;
+    }
+    rest.push(arg);
+  }
+  return { args: rest, workspaceId };
+}
+
+function selectWorkspace(workspaceId: string | undefined, pipeline: NormalizedPipeline, base: PipelineWorkspace): PipelineWorkspace {
+  const commands = base.commands ?? (pipeline.commands ? commandProxy(pipeline.commands) : undefined);
+  if (!workspaceId || workspaceId === "host") {
+    return { ...base, commands };
+  }
+
+  const definition = pipeline.workspaces[workspaceId];
+  if (!definition) throw new Error(`Unknown workspace "${workspaceId}".`);
+  return createWorkspaceFromDefinition(definition, base, commands);
+}
+
+function createWorkspaceFromDefinition(definition: WorkspaceDefinition, base: PipelineWorkspace, commands: PipelineWorkspace["commands"]): PipelineWorkspace {
+  if (definition.kind === "host") return hostWorkspace({ cwd: base.cwd, env: base.env, commands });
+  if (definition.kind === "lima") return limaWorkspace({ cwd: base.cwd, env: base.env, vm: definition.vm, commands });
+  if (definition.kind === "docker") {
+    return dockerWorkspace({
+      cwd: base.cwd,
+      env: base.env,
+      image: definition.image,
+      workdir: definition.workdir,
+      volumes: definition.volumes,
+      commands
+    });
+  }
+  throw new Error(`Workspace kind "${definition.kind}" is declared but not executable in this tranche.`);
 }
 
 function findPipelineConfig(cwd: string): string | null {
@@ -398,7 +506,7 @@ function githubGenerationPaths(args: string[]): { workflowPath?: string; lockPat
   return { workflowPath, lockPath };
 }
 
-async function loadAvailableSourceGraph(pipeline: Awaited<ReturnType<typeof loadPipeline>>, cwd: string, store: Awaited<ReturnType<typeof createStore>>) {
+async function loadAvailableSourceGraph(pipeline: NormalizedPipeline, cwd: string, store: Awaited<ReturnType<typeof createStore>>) {
   const sources = await resolveSources(pipeline, cwd, store, { sync: false, loadPipelines: true });
   const sourcePipelines: Parameters<typeof composePipelines>[1] = {};
   for (const [sourceId, resolved] of Object.entries(sources)) {
@@ -421,7 +529,11 @@ function virtualStore(root: string): Awaited<ReturnType<typeof createStore>> {
   };
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  runPipelineCli({ args: process.argv.slice(2) }).then((result) => {
+    process.exitCode = result.code;
+  }).catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

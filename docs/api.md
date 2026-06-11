@@ -562,6 +562,7 @@ interface PipelineWorkspace {
   env: NodeJS.ProcessEnv;
   fs: PipelineFileSystem;
   executor: CommandExecutor;
+  commands?: WorkspaceCommands;
 }
 
 interface CommandExecutor {
@@ -576,7 +577,104 @@ interface CommandExecutor {
 }
 ```
 
-The host workspace uses the real filesystem and shell. Tests can provide a custom `env` or `CommandExecutor` to fake secrets, commands, and failures without touching global process state. In-memory and remote workspaces need filesystem-backed store/source ports before they can fully share one fake filesystem with the command executor.
+The host workspace uses the real filesystem and shell. Tests can provide a custom `env`, `CommandExecutor`, or command policy without touching global process state.
+
+## workspaces
+
+Declare inspectable workspace profiles in `definePipeline(...)`:
+
+```ts
+import { definePipeline, workspace } from "@async/pipeline";
+
+export default definePipeline({
+  name: "app",
+  workspaces: {
+    lima: workspace.lima({ vm: "async-pipeline" }),
+    docker: workspace.docker({ image: "node:24" })
+  },
+  tasks: {},
+  jobs: {}
+});
+```
+
+Run a job with a selected workspace:
+
+```sh
+async-pipeline run verify --workspace docker
+async-pipeline run verify --workspace lima
+```
+
+Programmatic factories are available for host, Lima, and Docker:
+
+```ts
+import { dockerWorkspace, limaWorkspace, runJob } from "@async/pipeline";
+
+await runJob(pipeline, {
+  id: "verify",
+  workspace: dockerWorkspace({
+    image: "node:24",
+    cwd: process.cwd()
+  })
+});
+
+await runJob(pipeline, {
+  id: "verify",
+  workspace: limaWorkspace({
+    vm: "async-pipeline",
+    cwd: process.cwd()
+  })
+});
+```
+
+`memory`, `ssh`, and `github` workspace definitions are inspectable placeholders in this tranche. Full execution for those requires moving store, cache, and source IO behind `workspace.fs`.
+
+## command policy
+
+`commands` governs CLI/tool/agent command boundaries. It is separate from task shell execution, which still uses `workspace.executor`.
+
+```ts
+import { command, definePipeline } from "@async/pipeline";
+
+export default definePipeline({
+  name: "app",
+  commands: command.policy({
+    rules: [
+      command.rule({
+        prefix: ["npm", "publish"],
+        action: command.deny()
+      }),
+      command.rule({
+        exact: ["async-pipeline", "github", "check"],
+        action: command.mock({
+          code: 0,
+          stdout: "GitHub workflow is current.\n"
+        })
+      })
+    ],
+    fallback: command.allow(),
+    record: true,
+    output: {
+      maxBytes: 20_000,
+      redactSecrets: true
+    }
+  }),
+  tasks: {},
+  jobs: {}
+});
+```
+
+Use `runPipelineCli(...)` to exercise the CLI without spawning a subprocess:
+
+```ts
+import { runPipelineCli } from "@async/pipeline";
+
+const result = await runPipelineCli({
+  args: ["github", "check"],
+  workspace: hostWorkspace({ cwd: process.cwd() })
+});
+```
+
+Rules only affect matching commands. Unmatched commands use `fallback`, and `fallback` defaults to `command.allow()`.
 
 ## Execution Record Shape
 

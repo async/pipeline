@@ -333,7 +333,8 @@ How it works:
 - Parallel task scheduling. Execution is deterministic and sequential today.
 - Built-in Redis or remote task cache execution. Remote stores can be declared, but no Redis dependency is shipped.
 - Automatic dependency discovery. Sources are explicit by design.
-- Automatic CLI routing to Lima. The Lima command executor is available programmatically, and `doctor` checks for `limactl`.
+- Automatic routing from `task.environment.backend`. Use explicit `--workspace lima` or `--workspace docker` for local isolation.
+- Full memory, SSH, and GitHub workspaces. Their inspectable config exists, but full execution needs filesystem-backed store/source ports.
 - Deno or Ollama runtime integration. They can be declared as optional tool requirements, but they are not package dependencies.
 
 ## Workspace Layout
@@ -345,7 +346,7 @@ Only `@async/pipeline` is published to npm. The other workspace packages are pri
 | `@async/pipeline` | Public package, `async-pipeline` CLI bin, and bundled dist output. |
 | `@async/pipeline-core` | Private pipeline, runtime, cache, task, job, graph, source, and type contracts. |
 | `@async/pipeline-node` | Private CLI, filesystem store, scheduler, host runner, source sync, and doctor checks. |
-| `@async/pipeline-adapter-lima` | Private programmatic Lima command executor using `limactl`. |
+| `@async/pipeline-adapter-lima` | Private compatibility package that re-exports the Lima workspace/executor. |
 
 ## Docs
 

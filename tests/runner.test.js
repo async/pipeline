@@ -3,8 +3,85 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { definePipeline, env, job, sh, task } from "../packages/pipeline-core/dist/index.js";
-import { hostWorkspace, runJob, runSingleTask } from "../packages/pipeline-node/dist/runner.js";
+import { command, definePipeline, env, job, sh, task } from "../packages/pipeline-core/dist/index.js";
+import { commandProxy, hostWorkspace, runJob, runSingleTask } from "../packages/pipeline-node/dist/runner.js";
+
+test("commandProxy mocks matching commands and records bounded redacted output", async () => {
+  const commands = commandProxy(command.policy({
+    rules: [
+      command.rule({
+        exact: ["npm", "publish"],
+        action: command.mock({
+          code: 0,
+          stdout: "published secret-value with extra output"
+        })
+      })
+    ],
+    record: true,
+    output: {
+      maxBytes: 18,
+      redactSecrets: true
+    }
+  }));
+
+  const result = await commands.run({
+    argv: ["npm", "publish"],
+    cwd: "/repo",
+    env: {
+      NPM_TOKEN: "secret-value"
+    }
+  }, async () => ({
+    code: 9,
+    stdout: "should not run",
+    stderr: ""
+  }));
+
+  assert.equal(result.code, 0);
+  assert.equal(result.stdout, "published secret-value with extra output");
+  const records = commands.records();
+  assert.equal(records.length, 1);
+  assert.equal(records[0]?.status, "mocked");
+  assert.doesNotMatch(records[0]?.stdout ?? "", /secret-value/);
+  assert.match(records[0]?.stdout ?? "", /output truncated/);
+});
+
+test("commandProxy denies matching commands and allows unmatched commands by default", async () => {
+  const commands = commandProxy(command.policy({
+    rules: [
+      command.rule({
+        prefix: ["npm", "publish"],
+        action: command.deny({ message: "publish disabled" })
+      })
+    ],
+    record: true
+  }));
+
+  const denied = await commands.run({
+    argv: ["npm", "publish", "--provenance"],
+    cwd: "/repo",
+    env: {}
+  }, async () => ({
+    code: 0,
+    stdout: "should not run",
+    stderr: ""
+  }));
+
+  const allowed = await commands.run({
+    argv: ["pnpm", "test"],
+    cwd: "/repo",
+    env: {}
+  }, async () => ({
+    code: 0,
+    stdout: "tests passed\n",
+    stderr: ""
+  }));
+
+  assert.equal(denied.code, 1);
+  assert.match(denied.stderr, /publish disabled/);
+  assert.equal(allowed.code, 0);
+  assert.equal(allowed.stdout, "tests passed\n");
+  assert.deepEqual(commands.records().map((record) => record.status), ["denied", "allowed"]);
+});
 
 test("task timeout fails the execution and records the error", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-timeout-"));

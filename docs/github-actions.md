@@ -196,6 +196,37 @@ process.env.NODE_AUTH_TOKEN = "fake-token";
 
 For `env: { NODE_AUTH_TOKEN: env.secret("NPM_TOKEN") }`, the runner accepts either `NPM_TOKEN` or `NODE_AUTH_TOKEN`. This lets local tests cover the same step that GitHub runs.
 
+## Command Policy
+
+Command policy can mock or deny CLI/tool commands during local tests and agent runs:
+
+```ts
+import { command, definePipeline } from "@async/pipeline";
+
+export default definePipeline({
+  name: "app",
+  commands: command.policy({
+    rules: [
+      command.rule({
+        exact: ["async-pipeline", "github", "check"],
+        action: command.mock({ code: 0, stdout: "GitHub workflow is current.\n" })
+      }),
+      command.rule({
+        prefix: ["npm", "publish"],
+        action: command.deny()
+      })
+    ],
+    fallback: command.allow(),
+    record: true,
+    output: { maxBytes: 20_000, redactSecrets: true }
+  }),
+  tasks: {},
+  jobs: {}
+});
+```
+
+Generated GitHub Actions do not install PATH shims yet. Future GitHub workspace/shim work will route selected tools through this policy in CI.
+
 ## Cache
 
 The generated workflow does not persist `.async/cache` by default. The built-in task cache is runner-local unless you explicitly add a separate GitHub cache step or a future remote cache adapter.

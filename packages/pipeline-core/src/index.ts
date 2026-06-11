@@ -20,6 +20,7 @@ export type TaskId = string;
 export type JobId = string;
 export type TriggerId = string;
 export type SourceId = string;
+export type WorkspaceId = string;
 export type SourceType = "git" | "path";
 export type EnvironmentBackend = "host" | "lima";
 export type ExecutionMode = "manual" | "ci";
@@ -27,6 +28,7 @@ export type CacheSharing = "shared" | "private" | "locked";
 export type TaskStatus = "pending" | "running" | "passed" | "failed" | "skipped" | "cached";
 export type EnvVarMap = Record<string, string>;
 export type EnvValue = string | EnvSecretRef | EnvVarRef;
+export type WorkspaceKind = "host" | "lima" | "docker" | "memory" | "ssh" | "github";
 
 export interface ShellCommand {
   kind: "shell";
@@ -113,6 +115,76 @@ export type JobEnvironment = string | {
 
 export interface JobRequirements {
   provenance?: boolean;
+}
+
+export interface WorkspaceVolume {
+  source: string;
+  target: string;
+  readonly?: boolean;
+}
+
+export interface HostWorkspaceDefinition {
+  kind: "host";
+}
+
+export interface LimaWorkspaceDefinition {
+  kind: "lima";
+  vm?: string;
+}
+
+export interface DockerWorkspaceDefinition {
+  kind: "docker";
+  image: string;
+  workdir?: string;
+  volumes?: WorkspaceVolume[];
+}
+
+export interface MemoryWorkspaceDefinition {
+  kind: "memory";
+}
+
+export interface SshWorkspaceDefinition {
+  kind: "ssh";
+  host: string;
+  cwd?: string;
+}
+
+export interface GitHubWorkspaceDefinition {
+  kind: "github";
+}
+
+export type WorkspaceDefinition =
+  | HostWorkspaceDefinition
+  | LimaWorkspaceDefinition
+  | DockerWorkspaceDefinition
+  | MemoryWorkspaceDefinition
+  | SshWorkspaceDefinition
+  | GitHubWorkspaceDefinition;
+
+export interface CommandOutputPolicy {
+  maxBytes?: number;
+  redactSecrets?: boolean;
+}
+
+export type CommandAction =
+  | { kind: "async-pipeline.command.allow"; output?: CommandOutputPolicy }
+  | { kind: "async-pipeline.command.deny"; message?: string; output?: CommandOutputPolicy }
+  | { kind: "async-pipeline.command.mock"; code?: number; stdout?: string; stderr?: string; output?: CommandOutputPolicy }
+  | { kind: "async-pipeline.command.requireApproval"; message?: string; output?: CommandOutputPolicy }
+  | { kind: "async-pipeline.command.requireEnvironment"; name: string; output?: CommandOutputPolicy };
+
+export interface CommandRule {
+  exact?: string[];
+  prefix?: string[];
+  action: CommandAction;
+}
+
+export interface CommandPolicy {
+  rules: CommandRule[];
+  fallback?: CommandAction;
+  record?: boolean;
+  output?: CommandOutputPolicy;
+  shims?: string[];
 }
 
 export interface EnvSecretRef {
@@ -284,6 +356,8 @@ export interface GitHubJobConfig {
 export interface PipelineDefinition {
   name: string;
   env?: Record<string, EnvValue>;
+  commands?: CommandPolicy;
+  workspaces?: Record<WorkspaceId, WorkspaceDefinition>;
   cache?: CacheRef | CacheRegistryDefinition | CacheRegistryInput | false;
   namedInputs?: Record<string, string[]>;
   taskDefaults?: Record<string, Partial<TaskDefinition>>;
@@ -297,6 +371,8 @@ export interface PipelineDefinition {
 export interface NormalizedPipeline {
   name: string;
   env: Record<string, EnvValue>;
+  commands?: CommandPolicy;
+  workspaces: Record<WorkspaceId, WorkspaceDefinition>;
   cache: CacheRegistryDefinition;
   namedInputs: Record<string, string[]>;
   triggers: Record<TriggerId, TriggerDefinition>;
@@ -419,6 +495,68 @@ export const env = {
   var: envVar
 };
 
+export const workspace = {
+  host(): HostWorkspaceDefinition {
+    return { kind: "host" };
+  },
+  lima(options: Omit<LimaWorkspaceDefinition, "kind"> = {}): LimaWorkspaceDefinition {
+    return { kind: "lima", vm: options.vm };
+  },
+  docker(options: Omit<DockerWorkspaceDefinition, "kind">): DockerWorkspaceDefinition {
+    return {
+      kind: "docker",
+      image: options.image,
+      workdir: options.workdir,
+      volumes: options.volumes ? options.volumes.map((volume) => ({ ...volume })) : undefined
+    };
+  },
+  memory(): MemoryWorkspaceDefinition {
+    return { kind: "memory" };
+  },
+  ssh(options: Omit<SshWorkspaceDefinition, "kind">): SshWorkspaceDefinition {
+    return { kind: "ssh", host: options.host, cwd: options.cwd };
+  },
+  github(): GitHubWorkspaceDefinition {
+    return { kind: "github" };
+  }
+};
+
+export const command = {
+  policy(options: Omit<CommandPolicy, "rules"> & { rules?: CommandRule[] } = {}): CommandPolicy {
+    return {
+      rules: options.rules ? options.rules.map(cloneCommandRule) : [],
+      fallback: options.fallback ? cloneCommandAction(options.fallback) : undefined,
+      record: options.record,
+      output: options.output ? { ...options.output } : undefined,
+      shims: options.shims ? [...options.shims] : undefined
+    };
+  },
+  rule(options: CommandRule): CommandRule {
+    return cloneCommandRule(options);
+  },
+  allow(options: { output?: CommandOutputPolicy } = {}): CommandAction {
+    return { kind: "async-pipeline.command.allow", output: options.output ? { ...options.output } : undefined };
+  },
+  deny(options: { message?: string; output?: CommandOutputPolicy } = {}): CommandAction {
+    return { kind: "async-pipeline.command.deny", message: options.message, output: options.output ? { ...options.output } : undefined };
+  },
+  mock(options: { code?: number; stdout?: string; stderr?: string; output?: CommandOutputPolicy } = {}): CommandAction {
+    return {
+      kind: "async-pipeline.command.mock",
+      code: options.code,
+      stdout: options.stdout,
+      stderr: options.stderr,
+      output: options.output ? { ...options.output } : undefined
+    };
+  },
+  requireApproval(options: { message?: string; output?: CommandOutputPolicy } = {}): CommandAction {
+    return { kind: "async-pipeline.command.requireApproval", message: options.message, output: options.output ? { ...options.output } : undefined };
+  },
+  requireEnvironment(options: { name: string; output?: CommandOutputPolicy }): CommandAction {
+    return { kind: "async-pipeline.command.requireEnvironment", name: options.name, output: options.output ? { ...options.output } : undefined };
+  }
+};
+
 export const trigger = {
   manual(): TriggerDefinition {
     return { type: "manual" };
@@ -513,6 +651,8 @@ export function normalizePipeline(definition: PipelineDefinition): NormalizedPip
   const pipeline: NormalizedPipeline = {
     name: definition.name,
     env: { ...(definition.env ?? {}) },
+    commands: definition.commands ? normalizeCommandPolicy(definition.commands) : undefined,
+    workspaces: normalizeWorkspaces(definition.workspaces),
     cache: cacheRegistry,
     namedInputs,
     triggers: definition.triggers ?? {},
@@ -528,6 +668,40 @@ export function normalizePipeline(definition: PipelineDefinition): NormalizedPip
 
 function isDefaultOnlyEnvOptions(value: EnvVarMap | { default: string }): value is { default: string } {
   return typeof value.default === "string";
+}
+
+function normalizeWorkspaces(definitions: Record<WorkspaceId, WorkspaceDefinition> = {}): Record<WorkspaceId, WorkspaceDefinition> {
+  const normalized: Record<WorkspaceId, WorkspaceDefinition> = {};
+  for (const [id, definition] of Object.entries(definitions)) {
+    normalized[id] = cloneWorkspaceDefinition(definition);
+  }
+  return normalized;
+}
+
+function normalizeCommandPolicy(policy: CommandPolicy): CommandPolicy {
+  return command.policy(policy);
+}
+
+function cloneWorkspaceDefinition(definition: WorkspaceDefinition): WorkspaceDefinition {
+  if (definition.kind === "docker") {
+    return {
+      ...definition,
+      volumes: definition.volumes ? definition.volumes.map((volume) => ({ ...volume })) : undefined
+    };
+  }
+  return { ...definition };
+}
+
+function cloneCommandRule(rule: CommandRule): CommandRule {
+  return {
+    exact: rule.exact ? [...rule.exact] : undefined,
+    prefix: rule.prefix ? [...rule.prefix] : undefined,
+    action: cloneCommandAction(rule.action)
+  };
+}
+
+function cloneCommandAction(action: CommandAction): CommandAction {
+  return { ...action, output: action.output ? { ...action.output } : undefined };
 }
 
 export function validatePipeline(pipeline: NormalizedPipeline): void {
