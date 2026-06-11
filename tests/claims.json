@@ -317,7 +317,8 @@
       "source": "AGENTS.md",
       "anchor": "Resolved secret values never appear in echoed output or stored run logs.",
       "tests": [
-        "resolved secret values are redacted from stored task logs"
+        "resolved secret values are redacted from stored task logs",
+        "PROMISE: the GitHub token never appears in publish output"
       ]
     },
     {
@@ -442,6 +443,56 @@
       "tests": [
         "job env secrets fail before execution when missing",
         "mapped env vars fail before execution when unmapped"
+      ]
+    },
+    {
+      "id": "readme.github-packages-before-npm",
+      "source": "README.md",
+      "anchor": "Stable releases publish to GitHub Packages as `@async-framework/pipeline` before npm, so a stable version exists on the fallback registry even when npm publishing has an issue.",
+      "tests": [
+        "PROMISE: stable releases mirror to GitHub Packages as @async-framework/pipeline with the latest tag"
+      ]
+    },
+    {
+      "id": "readme.main-snapshots",
+      "source": "README.md",
+      "anchor": "Pushes to `main` that pass the verify chain publish an immutable `0.0.0-main.sha.<sha>` snapshot to GitHub Packages and move the `main` dist-tag.",
+      "tests": [
+        "main snapshots publish 0.0.0-main.sha.<sha> and move the main tag while current",
+        "PROMISE: a superseded main snapshot never drags the main tag backwards"
+      ]
+    },
+    {
+      "id": "readme.pr-previews-fork-guard",
+      "source": "README.md",
+      "anchor": "Same-repo pull requests publish an immutable `0.0.0-pr.<n>.sha.<sha>` preview and move the `pr-<number>` dist-tag; fork pull requests never publish previews.",
+      "tests": [
+        "same-repo PRs publish an immutable preview version, move the pr tag, and upsert one comment",
+        "PROMISE: fork pull requests never publish preview packages"
+      ]
+    },
+    {
+      "id": "readme.republish-idempotent",
+      "source": "README.md",
+      "anchor": "Republishing an existing version skips cleanly instead of failing, so re-dispatched publish jobs stay green.",
+      "tests": [
+        "PROMISE: republishing an existing version skips publish but still moves the dist-tag"
+      ]
+    },
+    {
+      "id": "api.github-permissions-unknown-fields",
+      "source": "docs/api.md",
+      "anchor": "Unknown permission fields fail with `ASYNC_PIPELINE_UNKNOWN_FIELD`.",
+      "tests": [
+        "rejects unknown github permission fields"
+      ]
+    },
+    {
+      "id": "github-actions.permissions-contents-restated",
+      "source": "docs/github-actions.md",
+      "anchor": "the generator restates `contents: read` automatically whenever a job grants anything else",
+      "tests": [
+        "renders github job packages, issues, and pull-requests permissions with a contents fallback"
       ]
     }
   ]
