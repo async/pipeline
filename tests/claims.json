@@ -25,8 +25,35 @@
     {
       "id": "readme.cache-clear-gc",
       "source": "README.md",
-      "anchor": "`cache clear` resets the task cache, and `gc` prunes old run records",
+      "anchor": "`cache clear` resets the task cache, and `gc` prunes old run records and cache entries unused for `--cache-days` days",
       "tests": ["cache clear and gc maintain local pipeline state"]
+    },
+    {
+      "id": "docs.index.cache-clear-gc",
+      "source": "docs/index.md",
+      "anchor": "`cache clear` resets the task cache, and `gc` prunes old run records and cache entries unused for `--cache-days` days",
+      "tests": ["cache clear and gc maintain local pipeline state"]
+    },
+    {
+      "id": "api.gc-cache-days",
+      "source": "docs/api.md",
+      "anchor": "`gc` prunes run records and cache entries unused for `--cache-days` days",
+      "tests": [
+        "cache clear and gc maintain local pipeline state",
+        "cache hits refresh mtimes and gc prunes cold cache entries"
+      ]
+    },
+    {
+      "id": "local-runs.gc-cache-days",
+      "source": "docs/local-runs.md",
+      "anchor": "`gc` keeps the newest run records and prunes task-cache entries unused for `--cache-days` days.",
+      "tests": ["cache clear and gc maintain local pipeline state"]
+    },
+    {
+      "id": "local-runs.cache-hit-mtime",
+      "source": "docs/local-runs.md",
+      "anchor": "Cache hits refresh their last-used time, and `--cache-days 0` disables cache pruning.",
+      "tests": ["cache hits refresh mtimes and gc prunes cold cache entries"]
     },
     {
       "id": "readme.run-auto-prune",
@@ -100,6 +127,78 @@
       "source": "docs/api.md",
       "anchor": "On `workflow_dispatch` only jobs with a `manual` trigger run implicitly",
       "tests": ["matches github jobs from event context"]
+    },
+    {
+      "id": "api.run-lock",
+      "source": "docs/api.md",
+      "anchor": "`run` and `run-task` hold `.async/run.lock` for the duration of a run.",
+      "tests": [
+        "concurrent runs in the same project fail fast with ASYNC_PIPELINE_RUN_ACTIVE",
+        "run locks reject active holders and reclaim stale locks"
+      ]
+    },
+    {
+      "id": "api.run-lock-stale",
+      "source": "docs/api.md",
+      "anchor": "A lock whose holder process is dead is reclaimed automatically",
+      "tests": ["run locks reject active holders and reclaim stale locks"]
+    },
+    {
+      "id": "api.execution-record-schema",
+      "source": "docs/api.md",
+      "anchor": "Execution records (`.async/runs/<run-id>/execution.json`) and stored cache results carry `schemaVersion` (currently `1`), and records include the owning `pid` so `doctor` can tell a crashed run from a live one.",
+      "tests": [
+        "execution records and cache entries carry schemaVersion 1",
+        "doctor warns about stale running run records"
+      ]
+    },
+    {
+      "id": "api.exit-sigint",
+      "source": "docs/api.md",
+      "anchor": "| `130` | Interrupted by SIGINT (Ctrl-C); tasks were terminated and the execution record finalized. |",
+      "tests": ["PROMISE: interrupting the CLI terminates running task processes"]
+    },
+    {
+      "id": "api.exit-epipe",
+      "source": "docs/api.md",
+      "anchor": "| `141` | CLI output pipe closed (EPIPE, e.g. piping into `head`); tasks were terminated and the record finalized. |",
+      "tests": ["PROMISE: a closed output pipe terminates tasks and finalizes the run"]
+    },
+    {
+      "id": "api.exit-sigterm",
+      "source": "docs/api.md",
+      "anchor": "| `143` | Terminated by SIGTERM; same shutdown path as SIGINT. |",
+      "tests": ["CLI exits 143 and finalizes records after SIGTERM"]
+    },
+    {
+      "id": "api.timeout-exit",
+      "source": "docs/api.md",
+      "anchor": "Task-level timeouts surface as command exit code `124` inside the task result; the run itself exits `1`.",
+      "tests": ["task timeout fails the execution and records the error"]
+    },
+    {
+      "id": "api.env-keep-runs",
+      "source": "docs/api.md",
+      "anchor": "| `ASYNC_PIPELINE_KEEP_RUNS` | Run-record auto-prune limit applied after each run (default `50`, `0` disables). |",
+      "tests": ["run auto-prunes records, emits json, and finds config from subdirectories"]
+    },
+    {
+      "id": "api.env-max-log-bytes",
+      "source": "docs/api.md",
+      "anchor": "| `ASYNC_PIPELINE_MAX_LOG_BYTES` | Per-stream task output buffer cap in bytes (default 8 MiB, `0` = unlimited, minimum `4096`). |",
+      "tests": ["task logs are capped by ASYNC_PIPELINE_MAX_LOG_BYTES with a truncation marker"]
+    },
+    {
+      "id": "api.env-require-environment",
+      "source": "docs/api.md",
+      "anchor": "| `ASYNC_PIPELINE_ENVIRONMENT` | Environment name checked by `command.requireEnvironment(...)`. |",
+      "tests": ["requireEnvironment command policy denies unless ASYNC_PIPELINE_ENVIRONMENT matches"]
+    },
+    {
+      "id": "api.env-ci-mode",
+      "source": "docs/api.md",
+      "anchor": "| `CI` | When set, runs record `mode: \"ci\"`. |",
+      "tests": ["CI env records ci execution mode"]
     },
     {
       "id": "agents.cache-key-scope",
@@ -194,6 +293,33 @@
       "source": "CHANGELOG.md",
       "anchor": "Write execution records, cache results, output manifests, and logs atomically",
       "tests": ["writeFileAtomic publishes complete files and leaves no temp files behind"]
+    },
+    {
+      "id": "changelog.run-lock",
+      "source": "CHANGELOG.md",
+      "anchor": "Serialize local runs with `.async/run.lock`",
+      "tests": ["run locks reject active holders and reclaim stale locks"]
+    },
+    {
+      "id": "changelog.execution-record-version",
+      "source": "CHANGELOG.md",
+      "anchor": "Record `schemaVersion` and owner `pid` on execution records",
+      "tests": ["run records include schema version and owner pid"]
+    },
+    {
+      "id": "changelog.cache-days",
+      "source": "CHANGELOG.md",
+      "anchor": "Refresh task-cache mtimes on cache hits and let `gc --cache-days <n>` prune cold entries.",
+      "tests": [
+        "cache hits refresh mtimes and gc prunes cold cache entries",
+        "cache clear and gc maintain local pipeline state"
+      ]
+    },
+    {
+      "id": "changelog.doctor-stale-runs",
+      "source": "CHANGELOG.md",
+      "anchor": "Have `doctor` warn about unreadable run directories and stale `\"running\"` records.",
+      "tests": ["doctor warns about stale running run records"]
     },
     {
       "id": "changelog.never-running-record",

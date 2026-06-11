@@ -162,8 +162,8 @@ pnpm async-pipeline run verify
 
 ```sh
 async-pipeline list
-async-pipeline run <job> [--concurrency <n>]
-async-pipeline run-task <task> [--concurrency <n>]
+async-pipeline run <job> [--concurrency <n>] [--force] [--dry-run] [--format text|json]
+async-pipeline run-task <task> [--concurrency <n>] [--force] [--dry-run] [--format text|json]
 async-pipeline graph --format json
 async-pipeline graph --format dot
 async-pipeline explain <task>
@@ -182,11 +182,13 @@ async-pipeline sync tasks generate
 async-pipeline sync tasks check
 async-pipeline github generate [--workflow <path>] [--lock <path>]
 async-pipeline github check [--workflow <path>] [--lock <path>]
-async-pipeline github run [--concurrency <n>]
+async-pipeline github run [--job <id>] [--concurrency <n>]
+async-pipeline cache clear
+async-pipeline gc [--keep <n>] [--cache-days <n>]
 async-pipeline doctor
 ```
 
-The scheduler starts ready tasks in deterministic graph order and runs independent tasks in parallel up to the configured concurrency. Use `--concurrency 1` when a run needs strict sequential execution.
+The scheduler starts ready tasks in deterministic graph order and runs independent tasks in parallel up to the configured concurrency. Use `--concurrency 1` when a run needs strict sequential execution. `--force` re-runs tasks while still recording fresh cache entries, `--dry-run` prints the plan with predicted cache hits without executing, `cache clear` resets the task cache, and `gc` prunes old run records and cache entries unused for `--cache-days` days (20 run records and 30 cache days by default). Runs also auto-prune to the newest 50 records; set `ASYNC_PIPELINE_KEEP_RUNS` to change the limit or `0` to disable.
 
 Use `async-pipeline` as the explicit command in docs and CI. Short aliases and smart runner dispatch belong in `@async/run`, not this package.
 

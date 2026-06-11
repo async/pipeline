@@ -5,7 +5,7 @@ import { posix, relative } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { CandidateContext, CommandAction, CommandOutputPolicy, CommandPolicy, EnvValue, ExecutionRecord, NormalizedPipeline, NormalizedTask, ShellCommand, TaskContext, TaskResult, TaskRunFunction, TaskSourceContext, TaskStep } from "@async/pipeline-core";
 import { sh, tasksForJob } from "@async/pipeline-core";
-import { computeTaskCacheKey, createStore, outputFilesExist, readCacheEntry, resolveOutputFiles, restoreCacheOutputs, writeCacheEntry, writeExecution, writeTaskLog, type PipelineStore } from "./store.js";
+import { acquireRunLock, computeTaskCacheKey, createStore, outputFilesExist, readCacheEntry, resolveOutputFiles, restoreCacheOutputs, writeCacheEntry, writeExecution, writeTaskLog, type PipelineStore } from "./store.js";
 import { createRunPlan, sourceContext, type ResolvedSource } from "./sources.js";
 
 export interface CommandResult {
@@ -279,13 +279,32 @@ export async function runJob(pipeline: NormalizedPipeline, options: RunOptions):
   ensureSignalForwarding();
   const workspace = options.workspace ?? hostWorkspace();
   const store = await createStore(workspace.cwd);
+  // One run at a time per project: concurrent runs would race on the task
+  // cache, run records, and synced outputs. A lock whose holder process is
+  // dead is reclaimed automatically.
+  const lock = await acquireRunLock(store);
+  try {
+    return await runJobLocked(pipeline, options, workspace, store);
+  } finally {
+    await lock.release();
+  }
+}
+
+async function runJobLocked(
+  pipeline: NormalizedPipeline,
+  options: RunOptions,
+  workspace: PipelineWorkspace,
+  store: PipelineStore
+): Promise<ExecutionRecord> {
   const plan = await createRunPlan(pipeline, workspace.cwd, store);
   const graph = tasksForJob(plan.pipeline, options.id);
   const record: ExecutionRecord = {
+    schemaVersion: 1,
     id: `${new Date().toISOString().replaceAll(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`,
     pipelineName: plan.pipeline.name,
     jobId: options.id,
     cwd: workspace.cwd,
+    pid: process.pid,
     startedAt: new Date().toISOString(),
     status: "running",
     mode: options.mode ?? (workspace.env.CI ? "ci" : "manual"),

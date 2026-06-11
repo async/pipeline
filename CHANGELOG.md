@@ -15,7 +15,7 @@
 - Restore `.async/cache` in generated GitHub workflows through a pinned `actions/cache` step (`sync.github.cache`, default on), so unchanged tasks resolve as `cached` in CI.
 - Make the generated workflow Node version configurable with `sync.github.nodeVersion` (default `24`).
 - Add `run`/`run-task` `--force` (bypass cache reads while still writing fresh entries) and `--dry-run` (print the plan with predicted cache hits without executing).
-- Add `async-pipeline cache clear` and `async-pipeline gc [--keep <n>]` for task-cache and run-record maintenance.
+- Add `async-pipeline cache clear` and `async-pipeline gc [--keep <n>] [--cache-days <n>]` for task-cache and run-record maintenance.
 - Prefix live task output lines with `[task-id]` so parallel runs stay readable.
 - Stream CLI progress (plan and per-task status) while a run is executing instead of buffering it until the end.
 - Add `run --format json` and `run-task --format json` emitting the full execution record (and the plan under `--dry-run`).
@@ -23,9 +23,13 @@
 - Find `pipeline.ts` from subdirectories by walking up to the config root.
 - Add product-promise invariant tests (`tests/invariants.test.js`), release-drift checks (`scripts/check-release-drift.mjs`, wired into `release:check` and the self pipeline's `drift` task), and `AGENTS.md` definition-of-done rules for coding agents.
 - Add an executable claim -> test coverage map: `tests/claims.json` registers documented claims with the tests that enforce them, and `scripts/check-claims.mjs` (wired into `release:check` and the self pipeline's `claims` task) fails on stale claim anchors, claims pointing at missing tests, and unregistered `PROMISE:` tests.
+- Have `doctor` warn about unreadable run directories and stale `"running"` records.
 
 ### Fixes
 
+- Serialize local runs with `.async/run.lock`, reclaim stale locks from dead processes, and fail concurrent runs with `ASYNC_PIPELINE_RUN_ACTIVE`.
+- Record `schemaVersion` and owner `pid` on execution records so local tools can reason about record format and stale owners.
+- Refresh task-cache mtimes on cache hits and let `gc --cache-days <n>` prune cold entries.
 - Prune `.git/`, `.async/`, and `node_modules/` at any path depth during input resolution, not only at the repo root.
 - Redact resolved `env.secret(...)` and `requires.secrets` values from echoed task output and stored run logs.
 - Reuse existing source checkouts during runs without refetching or force-checkout when the declared ref is already resolved; `sources sync` remains the explicit refresh that discards local edits.

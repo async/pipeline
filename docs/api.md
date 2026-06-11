@@ -493,7 +493,7 @@ async-pipeline github generate [--workflow <path>] [--lock <path>]
 async-pipeline github check [--workflow <path>] [--lock <path>]
 async-pipeline github run [--job <id>] [--concurrency <n>]
 async-pipeline cache clear
-async-pipeline gc [--keep <n>]
+async-pipeline gc [--keep <n>] [--cache-days <n>]
 ```
 
 `github generate` and `github check` are compatibility aliases for the GitHub sync implementation.
@@ -502,7 +502,7 @@ async-pipeline gc [--keep <n>]
 
 `github check` fails when generated files are stale.
 
-`github run` reads the GitHub event context and runs matching jobs. On `workflow_dispatch` only jobs with a `manual` trigger run implicitly; select others explicitly with `--job <id>`. Pass `--concurrency <n>` to bound parallel ready-task execution. `run --format json` emits the execution record; `cache clear` resets the task cache; `gc` prunes run records, and runs auto-prune to `ASYNC_PIPELINE_KEEP_RUNS` (default 50, `0` disables). In-memory task output buffers cap at `ASYNC_PIPELINE_MAX_LOG_BYTES` (default 8 MiB per stream, `0` = unlimited); stored logs keep the tail with a truncation marker.
+`github run` reads the GitHub event context and runs matching jobs. On `workflow_dispatch` only jobs with a `manual` trigger run implicitly; select others explicitly with `--job <id>`. Pass `--concurrency <n>` to bound parallel ready-task execution. `run --format json` emits the execution record; `cache clear` resets the task cache; `gc` prunes run records and cache entries unused for `--cache-days` days, and runs auto-prune to `ASYNC_PIPELINE_KEEP_RUNS` (default 50, `0` disables). In-memory task output buffers cap at `ASYNC_PIPELINE_MAX_LOG_BYTES` (default 8 MiB per stream, `0` = unlimited); stored logs keep the tail with a truncation marker.
 
 ## Runtime Subpath
 
@@ -737,3 +737,32 @@ async-pipeline metadata --format json --include-sources
 ```
 
 Metadata reads do not clone sources, run source `prepare`, execute tasks, or evaluate deferred shell callbacks. `--include-sources` only loads source pipeline metadata from already-available path sources or previously synced git checkouts.
+
+## Run Lock
+
+`run` and `run-task` hold `.async/run.lock` for the duration of a run. A second run in the same project fails fast with `ASYNC_PIPELINE_RUN_ACTIVE` instead of racing the task cache and run records. A lock whose holder process is dead is reclaimed automatically, so crashed runs never require manual cleanup.
+
+## Execution Record Schema
+
+Execution records (`.async/runs/<run-id>/execution.json`) and stored cache results carry `schemaVersion` (currently `1`), and records include the owning `pid` so `doctor` can tell a crashed run from a live one. Consumers should ignore unknown fields; `schemaVersion` increments only on breaking shape changes.
+
+## Exit Codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Run passed or command succeeded. |
+| `1` | Run failed, configuration error, or unexpected error. |
+| `130` | Interrupted by SIGINT (Ctrl-C); tasks were terminated and the execution record finalized. |
+| `141` | CLI output pipe closed (EPIPE, e.g. piping into `head`); tasks were terminated and the record finalized. |
+| `143` | Terminated by SIGTERM; same shutdown path as SIGINT. |
+
+Task-level timeouts surface as command exit code `124` inside the task result; the run itself exits `1`.
+
+## Environment Variables
+
+| Variable | Effect |
+| --- | --- |
+| `ASYNC_PIPELINE_KEEP_RUNS` | Run-record auto-prune limit applied after each run (default `50`, `0` disables). |
+| `ASYNC_PIPELINE_MAX_LOG_BYTES` | Per-stream task output buffer cap in bytes (default 8 MiB, `0` = unlimited, minimum `4096`). |
+| `ASYNC_PIPELINE_ENVIRONMENT` | Environment name checked by `command.requireEnvironment(...)`. |
+| `CI` | When set, runs record `mode: "ci"`. |

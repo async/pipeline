@@ -210,6 +210,64 @@ test("PROMISE: interrupting the CLI terminates running task processes", { skip: 
   }
 });
 
+test("CLI exits 143 and finalizes records after SIGTERM", { skip: process.platform === "win32" }, async () => {
+  const { spawn } = await import("node:child_process");
+  const { setTimeout: delay } = await import("node:timers/promises");
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-invariant-sigterm-"));
+  try {
+    await writeFile(join(dir, "pipeline.mjs"), [
+      `import { definePipeline, job, sh, task } from ${JSON.stringify(coreUrl)};`,
+      "export default definePipeline({",
+      '  name: "sigterm",',
+      "  tasks: { hang: task({ cache: false, run: sh`node -e \"console.log('CHILD='+process.pid); setInterval(()=>{},1000)\"` }) },",
+      '  jobs: { hang: job({ target: "hang" }) }',
+      "});",
+      ""
+    ].join("\n"), "utf8");
+
+    const cli = spawn("node", [cliPath, "run", "hang"], { cwd: dir, stdio: ["ignore", "pipe", "pipe"] });
+    const closed = new Promise((resolve) => cli.on("close", (code) => resolve(code)));
+    cli.stderr.resume();
+    let output = "";
+    cli.stdout.setEncoding("utf8");
+    cli.stdout.on("data", (chunk) => { output += chunk; });
+
+    let childPid;
+    for (let attempt = 0; attempt < 100 && !childPid; attempt += 1) {
+      const match = /CHILD=(\d+)/.exec(output);
+      if (match) childPid = Number(match[1]);
+      else await delay(50);
+    }
+    assert.ok(childPid, `task process never reported its pid: ${output}`);
+
+    cli.kill("SIGTERM");
+    const exitCode = await Promise.race([closed, delay(15000).then(() => null)]);
+    if (exitCode === null) { try { cli.kill("SIGKILL"); } catch {} }
+    assert.equal(exitCode, 143, "CLI must exit 143 after SIGTERM");
+
+    let childAlive = true;
+    for (let attempt = 0; attempt < 100 && childAlive; attempt += 1) {
+      try {
+        process.kill(childPid, 0);
+        await delay(50);
+      } catch {
+        childAlive = false;
+      }
+    }
+    if (childAlive) {
+      try { process.kill(childPid, "SIGKILL"); } catch {}
+    }
+    assert.equal(childAlive, false, "task process must terminate when the CLI receives SIGTERM");
+
+    const runs = await readdir(join(dir, ".async", "runs"));
+    assert.equal(runs.length >= 1, true, "an execution record directory must exist");
+    const record = JSON.parse(await readFile(join(dir, ".async", "runs", runs[0], "execution.json"), "utf8"));
+    assert.notEqual(record.status, "running", "SIGTERM must finalize the execution record");
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test("PROMISE: a closed output pipe terminates tasks and finalizes the run", { skip: process.platform === "win32" }, async () => {
   // Stability: `async-pipeline run x | head` must not crash, orphan task
   // processes, or leave the execution record "running"; it exits 141

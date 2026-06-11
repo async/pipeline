@@ -386,6 +386,8 @@ export interface NormalizedPipeline {
 }
 
 export interface TaskResult {
+  /** Present on stored cache entries; absent inside in-memory results. */
+  schemaVersion?: number;
   id: TaskId;
   status: TaskStatus;
   startedAt?: string;
@@ -399,10 +401,14 @@ export interface TaskResult {
 }
 
 export interface ExecutionRecord {
+  /** Record format version. Consumers should ignore fields they do not know. */
+  schemaVersion: number;
   id: string;
   pipelineName: string;
   jobId: JobId;
   cwd: string;
+  /** Pid of the process that owns this run; used to detect crashed runs. */
+  pid?: number;
   startedAt: string;
   finishedAt?: string;
   status: "running" | "passed" | "failed";

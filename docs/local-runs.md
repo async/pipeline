@@ -91,6 +91,15 @@ Run environment checks:
 pnpm async-pipeline doctor
 ```
 
+Clear local task cache and prune local state:
+
+```sh
+pnpm async-pipeline cache clear
+pnpm async-pipeline gc --keep 20 --cache-days 30
+```
+
+`gc` keeps the newest run records and prunes task-cache entries unused for `--cache-days` days. Cache hits refresh their last-used time, and `--cache-days 0` disables cache pruning.
+
 ## Inspect A Run
 
 After `async-pipeline run verify`, inspect `.async/runs`:

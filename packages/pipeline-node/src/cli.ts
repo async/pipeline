@@ -8,7 +8,7 @@ import { runDoctor } from "./doctor.js";
 import { checkGitHubWorkflow, jobsForGitHubEvent, readGitHubEventContext, renderGitHubWorkflow, writeGitHubWorkflow } from "./github.js";
 import { loadPipeline } from "./loader.js";
 import { beginShutdown, commandProxy, dockerWorkspace, hostWorkspace, limaWorkspace, planJob, runJob, runSingleTask, shutdownExitCode, type CommandResult, type PipelineWorkspace } from "./runner.js";
-import { createStore } from "./store.js";
+import { createStore, pruneCacheEntries } from "./store.js";
 import { matrixForJob, readPipelineMetadata, resolveSources, sourceContext } from "./sources.js";
 import { checkTaskSync, describeTaskSync, renderTaskSync, writeTaskSync } from "./sync.js";
 
@@ -94,7 +94,7 @@ async function runPipelineCliBuffered(options: Omit<PipelineCliOptions, "stdout"
     };
 
     if (commandName === "doctor") {
-      const checks = await runDoctor();
+      const checks = await runDoctor(cwd);
       for (const check of checks) out(`${check.status.toUpperCase()} ${check.name}: ${check.message}\n`);
       return { code: checks.some((check) => check.status === "fail") ? 1 : 0, stdout, stderr };
     }
@@ -315,9 +315,16 @@ async function dispatchCommand(commandName: string, args: string[], context: Pip
 
   if (commandName === "gc") {
     const keep = parsePositiveInteger(args, "--keep", 20);
+    const cacheDays = parsePositiveInteger(args, "--cache-days", 30);
     const removed = await pruneRuns(context.cwd, keep);
     const remaining = await countRuns(context.cwd);
+    const removedCacheEntries = await pruneCacheEntries(context.cwd, cacheDays);
     context.stdout(`Removed ${removed} run record${removed === 1 ? "" : "s"}; kept ${remaining}.\n`);
+    context.stdout(
+      cacheDays > 0
+        ? `Removed ${removedCacheEntries} cache entr${removedCacheEntries === 1 ? "y" : "ies"} unused for ${cacheDays}+ days.\n`
+        : "Cache pruning disabled (--cache-days 0).\n"
+    );
     return 0;
   }
 
@@ -471,7 +478,7 @@ function printHelp(program: string): string {
   ${program} github check [--workflow <path>] [--lock <path>]
   ${program} github run [--job <id>] [--workspace <id>] [--concurrency <n>]
   ${program} cache clear
-  ${program} gc [--keep <n>]
+  ${program} gc [--keep <n>] [--cache-days <n>]
   ${program} doctor\n`;
 }
 

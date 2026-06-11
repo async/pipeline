@@ -1,6 +1,6 @@
 import { randomBytes, createHash, type Hash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { copyFile, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, open, readdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import type { CandidateContext, ExecutionRecord, NormalizedPipeline, NormalizedTask, TaskCacheOptions, TaskResult, TaskSourceContext, TaskStep } from "@async/pipeline-core";
 import { expandInputs } from "@async/pipeline-core";
@@ -92,10 +92,110 @@ export async function writeTaskLog(store: PipelineStore, runId: string, taskId: 
 export async function readCacheEntry(store: PipelineStore, cacheKey: string): Promise<TaskResult | null> {
   try {
     const cacheFile = join(store.cacheDir, cacheKey, "result.json");
-    return JSON.parse(await readFile(cacheFile, "utf8")) as TaskResult;
+    const result = JSON.parse(await readFile(cacheFile, "utf8")) as TaskResult;
+    // Refresh mtime on hits so age-based `gc` pruning keeps hot entries.
+    const now = new Date();
+    await utimes(cacheFile, now, now).catch(() => {});
+    return result;
   } catch {
     return null;
   }
+}
+
+export interface RunLock {
+  path: string;
+  release(): Promise<void>;
+}
+
+export function isPidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means the process exists but belongs to another user.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * One run at a time per `.async` store: concurrent runs would race on cache
+ * entries, run records, and restored outputs. The lock file records the
+ * holder pid; a lock whose holder is no longer alive is reclaimed.
+ */
+export async function acquireRunLock(store: PipelineStore): Promise<RunLock> {
+  const lockPath = join(store.asyncDir, "run.lock");
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const handle = await open(lockPath, "wx");
+      try {
+        await handle.writeFile(`${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })}\n`, "utf8");
+      } finally {
+        await handle.close();
+      }
+      return {
+        path: lockPath,
+        async release(): Promise<void> {
+          await rm(lockPath, { force: true });
+        }
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      let holder: { pid?: number } | null = null;
+      try {
+        holder = JSON.parse(await readFile(lockPath, "utf8")) as { pid?: number };
+      } catch {
+        holder = null;
+      }
+      if (holder && typeof holder.pid === "number" && isPidAlive(holder.pid)) {
+        throw storeError(
+          "ASYNC_PIPELINE_RUN_ACTIVE",
+          `Another async-pipeline run (pid ${holder.pid}) is active in this project. Wait for it to finish, or delete .async/run.lock if it is stale.`
+        );
+      }
+      // Holder crashed or the lock is unreadable: reclaim and retry.
+      await rm(lockPath, { force: true });
+    }
+  }
+  throw storeError("ASYNC_PIPELINE_RUN_ACTIVE", "Could not acquire .async/run.lock after repeated attempts.");
+}
+
+function storeError(code: string, message: string): Error {
+  const error = new Error(message);
+  (error as Error & { code: string }).code = code;
+  return error;
+}
+
+/**
+ * Remove task-cache entries whose last use is older than `maxAgeDays`.
+ * Cache reads refresh mtime, so hot entries survive. `0` disables pruning.
+ */
+export async function pruneCacheEntries(cwd: string, maxAgeDays: number): Promise<number> {
+  if (!Number.isFinite(maxAgeDays) || maxAgeDays <= 0) return 0;
+  const cacheDir = join(cwd, ".async", "cache", "tasks");
+  let entries;
+  try {
+    entries = await readdir(cacheDir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+  let removed = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const entryDir = join(cacheDir, entry.name);
+    let lastUsedMs = 0; // unreadable/partial entries are always prunable
+    try {
+      lastUsedMs = (await stat(join(entryDir, "result.json"))).mtimeMs;
+    } catch {
+      // keep 0
+    }
+    if (lastUsedMs < cutoff) {
+      await rm(entryDir, { recursive: true, force: true });
+      removed += 1;
+    }
+  }
+  return removed;
 }
 
 export async function writeCacheEntry(
@@ -106,7 +206,7 @@ export async function writeCacheEntry(
 ): Promise<CacheOutputManifest | null> {
   const cacheEntryDir = join(store.cacheDir, cacheKey);
   await mkdir(cacheEntryDir, { recursive: true });
-  await writeFileAtomic(join(cacheEntryDir, "result.json"), `${JSON.stringify(result, null, 2)}\n`);
+  await writeFileAtomic(join(cacheEntryDir, "result.json"), `${JSON.stringify({ ...result, schemaVersion: 1 }, null, 2)}\n`);
   if (!outputOptions || outputOptions.outputs.length === 0) return null;
   return writeCacheOutputs(store, cacheKey, outputOptions.cwd, outputOptions.outputs);
 }

@@ -173,7 +173,7 @@ export default definePipeline({
 });
 
 test("cache clear and gc maintain local pipeline state", async () => {
-  const { mkdtemp, mkdir, writeFile, readdir, rm } = await import("node:fs/promises");
+  const { mkdtemp, mkdir, writeFile, readdir, rm, utimes } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const { hostWorkspace } = await import("../packages/pipeline-node/dist/runner.js");
@@ -204,11 +204,59 @@ test("cache clear and gc maintain local pipeline state", async () => {
     assert.match(stdout, /Cleared task cache/);
     assert.deepEqual(await readdir(join(dir, ".async", "cache")).catch(() => []), []);
 
+    const staleCacheFile = join(dir, ".async", "cache", "tasks", "stale", "result.json");
+    await mkdir(join(dir, ".async", "cache", "tasks", "stale"), { recursive: true });
+    await writeFile(staleCacheFile, "{}\n", "utf8");
+    const old = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000);
+    await utimes(staleCacheFile, old, old);
+
     stdout = "";
-    const gc = await runPipelineCli({ args: ["gc", "--keep", "1"], workspace, stdout: (t) => { stdout += t; }, stderr: () => {} });
+    const gc = await runPipelineCli({ args: ["gc", "--keep", "1", "--cache-days", "30"], workspace, stdout: (t) => { stdout += t; }, stderr: () => {} });
     assert.equal(gc.code, 0, stdout);
     assert.match(stdout, /Removed 2 run records; kept 1/);
+    assert.match(stdout, /Removed 1 cache entry unused for 30\+ days/);
     assert.deepEqual(await readdir(join(dir, ".async", "runs")), ["2026-01-03T00-00-00-000Z-cccccccc"]);
+    assert.deepEqual(await readdir(join(dir, ".async", "cache", "tasks")).catch(() => []), []);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("doctor warns about stale running run records", async () => {
+  const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { hostWorkspace } = await import("../packages/pipeline-node/dist/runner.js");
+  const { runPipelineCli } = await import("../packages/pipeline-node/dist/cli.js");
+
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-cli-doctor-"));
+  try {
+    const runDir = join(dir, ".async", "runs", "2026-01-01T00-00-00-000Z-deadbeef");
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, "execution.json"), `${JSON.stringify({
+      schemaVersion: 1,
+      id: "2026-01-01T00-00-00-000Z-deadbeef",
+      pipelineName: "fixture",
+      jobId: "verify",
+      cwd: dir,
+      pid: 99999999,
+      startedAt: new Date().toISOString(),
+      status: "running",
+      mode: "manual",
+      tasks: []
+    }, null, 2)}\n`, "utf8");
+
+    let stdout = "";
+    const result = await runPipelineCli({
+      args: ["doctor"],
+      workspace: hostWorkspace({ cwd: dir, env: { PATH: process.env.PATH } }),
+      stdout: (text) => { stdout += text; },
+      stderr: () => {}
+    });
+
+    assert.equal(result.code, 0, stdout);
+    assert.match(stdout, /WARN runs: Crashed runs detected/);
+    assert.match(stdout, /record\(s\) stuck in "running" from a dead process/);
   } finally {
     await rm(dir, { force: true, recursive: true });
   }

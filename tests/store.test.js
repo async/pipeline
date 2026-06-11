@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { definePipeline, job, sh, task } from "../packages/pipeline-core/dist/index.js";
-import { readdir } from "node:fs/promises";
-import { computeTaskCacheKey, createStore, resolveInputFiles, restoreCacheOutputs, writeCacheEntry, writeFileAtomic } from "../packages/pipeline-node/dist/store.js";
+import { acquireRunLock, computeTaskCacheKey, createStore, pruneCacheEntries, readCacheEntry, resolveInputFiles, restoreCacheOutputs, writeCacheEntry, writeFileAtomic } from "../packages/pipeline-node/dist/store.js";
 
 test("writeFileAtomic publishes complete files and leaves no temp files behind", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-atomic-"));
@@ -182,6 +181,59 @@ test("file cache entries snapshot and restore declared outputs", async () => {
     assert.equal(await readFile(join(dir, "dist", "artifact.txt"), "utf8"), "cached output\n");
   } finally {
     await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("run locks reject active holders and reclaim stale locks", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-run-lock-"));
+  try {
+    const store = await createStore(dir);
+    const lock = await acquireRunLock(store);
+    await assert.rejects(
+      () => acquireRunLock(store),
+      /ASYNC_PIPELINE_RUN_ACTIVE|Another async-pipeline run/
+    );
+    await lock.release();
+
+    await writeFile(join(store.asyncDir, "run.lock"), `${JSON.stringify({ pid: 99999999 })}\n`, "utf8");
+    const reclaimed = await acquireRunLock(store);
+    await reclaimed.release();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("cache hits refresh mtimes and gc prunes cold cache entries", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-cache-gc-"));
+  try {
+    const store = await createStore(dir);
+    await writeCacheEntry(store, "hot", {
+      id: "build",
+      status: "passed",
+      attempts: 1,
+      cacheHit: false,
+      finishedAt: new Date().toISOString()
+    });
+    await writeCacheEntry(store, "cold", {
+      id: "test",
+      status: "passed",
+      attempts: 1,
+      cacheHit: false,
+      finishedAt: new Date().toISOString()
+    });
+
+    const old = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000);
+    await utimes(join(store.cacheDir, "hot", "result.json"), old, old);
+    await utimes(join(store.cacheDir, "cold", "result.json"), old, old);
+
+    assert.equal((await readCacheEntry(store, "hot"))?.schemaVersion, 1);
+    assert.ok((await stat(join(store.cacheDir, "hot", "result.json"))).mtimeMs > old.getTime());
+
+    assert.equal(await pruneCacheEntries(dir, 30), 1);
+    assert.deepEqual((await readdir(store.cacheDir)).sort(), ["hot"]);
+    assert.equal(await pruneCacheEntries(dir, 0), 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });
 

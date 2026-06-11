@@ -200,6 +200,67 @@ test("pipeline and job env resolve into function task context", async () => {
   }
 });
 
+test("run records include schema version and owner pid", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-record-version-"));
+  try {
+    const pipeline = definePipeline({
+      name: "record-version-test",
+      tasks: {
+        check: task({
+          cache: false,
+          run() {}
+        })
+      },
+      jobs: {
+        check: job({ target: "check" })
+      }
+    });
+
+    const record = await runJob(pipeline, {
+      id: "check",
+      workspace: hostWorkspace({ cwd: dir })
+    });
+
+    assert.equal(record.status, "passed");
+    assert.equal(record.schemaVersion, 1);
+    assert.equal(record.pid, process.pid);
+
+    const persisted = JSON.parse(await readFile(join(dir, ".async", "runs", record.id, "execution.json"), "utf8"));
+    assert.equal(persisted.schemaVersion, 1);
+    assert.equal(persisted.pid, process.pid);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("CI env records ci execution mode", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-ci-mode-"));
+  try {
+    const pipeline = definePipeline({
+      name: "ci-mode-test",
+      tasks: {
+        check: task({
+          cache: false,
+          run() {}
+        })
+      },
+      jobs: {
+        check: job({ target: "check" })
+      }
+    });
+
+    const record = await runJob(pipeline, {
+      id: "check",
+      workspace: hostWorkspace({ cwd: dir, env: { CI: "true" } })
+    });
+
+    assert.equal(record.status, "passed");
+    assert.equal(record.mode, "ci");
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test("env secrets can resolve from rendered destination env", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-secret-destination-"));
   try {
@@ -804,6 +865,62 @@ test("task logs are capped by ASYNC_PIPELINE_MAX_LOG_BYTES with a truncation mar
     const log = await readFile(join(dir, ".async", "runs", record.id, "logs", "noisy.log"), "utf8");
     assert.ok(log.length < 16 * 1024, `log should be capped, saw ${log.length} chars`);
     assert.match(log, /output truncated: dropped \d+ leading bytes/);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("concurrent runs in the same project fail fast with ASYNC_PIPELINE_RUN_ACTIVE", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-lock-"));
+  try {
+    const pipeline = definePipeline({
+      name: "lock-test",
+      tasks: { slow: task({ cache: false, run: sh`sleep 1` }) },
+      jobs: { slow: job({ target: "slow" }) }
+    });
+    const workspace = () => hostWorkspace({ cwd: dir, env: { PATH: process.env.PATH } });
+
+    const first = runJob(pipeline, { id: "slow", workspace: workspace() });
+    await delay(300);
+    await assert.rejects(
+      runJob(pipeline, { id: "slow", workspace: workspace() }),
+      /Another async-pipeline run/
+    );
+
+    const record = await first;
+    assert.equal(record.status, "passed");
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("execution records and cache entries carry schemaVersion 1", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-schema-"));
+  try {
+    const pipeline = definePipeline({
+      name: "schema-test",
+      cache: "file:local",
+      tasks: { emit: task({ cache: true, run: sh`echo emitted` }) },
+      jobs: { emit: job({ target: "emit" }) }
+    });
+    const record = await runJob(pipeline, {
+      id: "emit",
+      workspace: hostWorkspace({ cwd: dir, env: { PATH: process.env.PATH } })
+    });
+
+    assert.equal(record.schemaVersion, 1);
+    assert.equal(record.pid, process.pid);
+
+    const stored = JSON.parse(await readFile(join(dir, ".async", "runs", record.id, "execution.json"), "utf8"));
+    assert.equal(stored.schemaVersion, 1);
+
+    const cacheKey = record.tasks[0]?.cacheKey;
+    assert.ok(cacheKey, "task must record its cache key");
+    const cacheEntry = JSON.parse(await readFile(join(dir, ".async", "cache", "tasks", cacheKey, "result.json"), "utf8"));
+    assert.equal(cacheEntry.schemaVersion, 1);
+
+    // The lock must be released once the run finishes.
+    await assert.rejects(readFile(join(dir, ".async", "run.lock"), "utf8"));
   } finally {
     await rm(dir, { force: true, recursive: true });
   }
