@@ -51,6 +51,16 @@ export default definePipeline({
       cache: true,
       run: sh`pnpm drift:check`
     }),
+    docs: task({
+      description: "Docs-drift checks: every relative link and anchor in README.md and docs/ resolves, for GitHub rendering and the Pages build alike.",
+      inputs: [
+        "docs/**/*.md",
+        "README.md",
+        "scripts/check-docs.mjs"
+      ],
+      cache: true,
+      run: sh`pnpm docs:check`
+    }),
     claims: task({
       description: "Claim coverage checks: every registered doc claim still exists verbatim and is enforced by a named test; every PROMISE test is registered.",
       inputs: [
@@ -84,7 +94,7 @@ export default definePipeline({
       run: sh`pnpm test`
     }),
     pack: task({
-      dependsOn: ["test", "drift", "claims"],
+      dependsOn: ["test", "drift", "claims", "docs"],
       inputs: ["production", "package.json", "packages/*/package.json", "scripts/check-exports.mjs"],
       cache: false,
       run: [sh`pnpm exports:check`, sh`pnpm pack:check`]

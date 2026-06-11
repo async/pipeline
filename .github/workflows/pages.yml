@@ -1,0 +1,60 @@
+# Deploys the docs site to GitHub Pages: docs/ stays plain markdown that
+# renders on GitHub, and this explicit build step turns it into HTML.
+#
+# Hand-maintained on purpose: async-pipeline generates and owns the
+# verification workflow; Pages deployment is platform plumbing outside the
+# pipeline's sync surfaces. One-time setup: Settings -> Pages -> Source ->
+# "GitHub Actions".
+#
+# TODO: pin the four actions/* below to commit SHAs (repo convention);
+# tags are used here only because the SHAs were not resolvable offline.
+name: Pages
+
+on:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "docs/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Build with Jekyll
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./docs
+          destination: ./_site
+
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v4
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

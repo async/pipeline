@@ -60,6 +60,9 @@
 - Verify packaging before pack/publish: `scripts/check-exports.mjs` (wired into `release:check` and the self pipeline's `pack` task) fails when exports, bin, types, license, or files targets are missing from the built package.
 - Run the self pipeline's `verify` job on a runner matrix of GitHub-hosted `ubuntu-latest` and `macos-latest`; self-hosted Tart-backed Apple Silicon runners remain supported via `runsOn`/`runsOnMatrix` (setup guide in docs/github-actions.md).
 - Document the exit-code contract, environment variables, run lock, execution record schema, platform support, source SHA pinning, and the path to 1.0.
+- Build the docs site through an explicit GitHub Pages workflow (`.github/workflows/pages.yml`): docs stay plain markdown that renders on GitHub, and Jekyll runs as a CI build step instead of branch magic.
+- Check docs drift in the pipeline: `scripts/check-docs.mjs` (the self pipeline's `docs` task, wired into `release:check`) fails on broken relative links or anchors in README.md and docs/.
+- Move internal agent goal state from `docs/goals/` to `goals/` so the published docs tree is only documentation.
 
 ## 0.1.5 - 2026-06-10
 

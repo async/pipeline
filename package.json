@@ -12,6 +12,7 @@
     "async-pipeline": "node packages/pipeline-node/dist/cli.js",
     "build": "pnpm -r --sort build",
     "claims:check": "node scripts/check-claims.mjs",
+    "docs:check": "node scripts/check-docs.mjs",
     "drift:check": "node scripts/check-release-drift.mjs",
     "exports:check": "node scripts/check-exports.mjs",
     "pack:check": "pnpm --filter @async/pipeline pack:check",
@@ -19,7 +20,7 @@
     "pipeline:github:generate": "async-pipeline github generate",
     "pipeline:sync:check": "async-pipeline sync check",
     "pipeline:verify": "async-pipeline run verify",
-    "release:check": "pnpm drift:check && pnpm claims:check && pnpm build && pnpm exports:check && pnpm typecheck && pnpm test && pnpm pipeline:sync:check && pnpm async-pipeline run verify && pnpm pack:check",
+    "release:check": "pnpm drift:check && pnpm claims:check && pnpm docs:check && pnpm build && pnpm exports:check && pnpm typecheck && pnpm test && pnpm pipeline:sync:check && pnpm async-pipeline run verify && pnpm pack:check",
     "test": "node --test tests/*.test.js",
     "typecheck": "pnpm -r --sort typecheck"
   },
