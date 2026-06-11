@@ -67,7 +67,7 @@ jobs: {
 
 ### macOS Runners With Tart
 
-GitHub hosts the `ubuntu-*` and `macos-*` labels, but a label set such as `["self-hosted", "macos", "tart"]` expects a runner you provide on Apple Silicon using [Tart](https://tart.run) VMs. The self pipeline's `verify` job fans out across `ubuntu-latest` and that Tart label set.
+GitHub hosts the `ubuntu-*` and `macos-*` labels (the self pipeline's `verify` job fans out across `ubuntu-latest` and `macos-latest`). A label set such as `["self-hosted", "macos", "tart"]` instead expects a runner you provide on Apple Silicon using [Tart](https://tart.run) VMs — useful when you want faster runners, controlled images, or you already own the hardware.
 
 A minimal host setup:
 
@@ -215,23 +215,21 @@ Missing secrets, missing variables without defaults, and unmapped values fail be
 
 ## Local Env Tests
 
-You do not need GitHub Actions to test env behavior. Pass a workspace env in a local test, then call `runJob(...)`.
+You do not need GitHub Actions to test env behavior. Pass an env in a local test, then call `runJob(...)`.
 
 ```ts
 import assert from "node:assert/strict";
-import { hostWorkspace, runJob } from "@async/pipeline/node";
+import { runJob } from "@async/pipeline/node";
 import pipeline from "../pipeline.js";
 
 const record = await runJob(pipeline, {
   id: "publish",
   mode: "ci",
-  workspace: hostWorkspace({
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      NPM_TOKEN: "fake-token"
-    }
-  })
+  cwd: process.cwd(),
+  env: {
+    ...process.env,
+    NPM_TOKEN: "fake-token"
+  }
 });
 
 assert.equal(record.status, "passed");

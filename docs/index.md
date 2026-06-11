@@ -336,8 +336,7 @@ How it works:
 
 - Built-in Redis or remote task cache execution. Remote stores can be declared, but no Redis dependency is shipped.
 - Automatic dependency discovery. Sources are explicit by design.
-- Automatic routing from `task.environment.backend`. Use explicit `--workspace lima` or `--workspace docker` for local isolation.
-- Full memory, SSH, and GitHub workspaces. Their inspectable config exists, but full execution needs filesystem-backed store/source ports.
+- Automatic sandbox routing. Isolation is opt-in: select it with `--sandbox lima`, `--sandbox docker`, or `sandbox:` run options.
 - Deno or Ollama runtime integration. They can be declared as optional tool requirements, but they are not package dependencies.
 
 ## Package Shape

@@ -174,20 +174,20 @@ During execution, the runner resolves or fetches the source, loads its pipeline 
 
 Path sources with `prepare` require `writable: true` in v1. Git sources use warm checkouts under `.async/sources`.
 
-## Workspaces And Executors
+## Sandboxes And Executors
 
-The CLI uses a host workspace by default. A workspace owns the current directory, env, filesystem identity, and command executor used by a run.
+The CLI runs on the host by default. Declared sandboxes are opt-in isolation backends (Lima VMs, Docker containers) that a run selects explicitly; each resolves to an execution context owning the current directory, env, filesystem identity, and command executor.
 
-Use named workspaces for local isolation:
+Use named sandboxes for local isolation:
 
 ```ts
-import { definePipeline, job, sh, task, workspace } from "@async/pipeline";
+import { definePipeline, job, sandbox, sh, task } from "@async/pipeline";
 
 export default definePipeline({
   name: "app",
-  workspaces: {
-    lima: workspace.lima({ vm: "async-pipeline" }),
-    docker: workspace.docker({ image: "node:24" })
+  sandboxes: {
+    lima: sandbox.lima({ vm: "async-pipeline" }),
+    docker: sandbox.docker({ image: "node:24" })
   },
   tasks: {
     verify: task({ run: sh`pnpm test` })
@@ -199,26 +199,26 @@ export default definePipeline({
 ```
 
 ```sh
-async-pipeline run verify --workspace lima
-async-pipeline run verify --workspace docker
+async-pipeline run verify --sandbox lima
+async-pipeline run verify --sandbox docker
 ```
 
-The Lima workspace can also be used programmatically:
+Programmatic runs select sandboxes the same way:
 
 ```ts
-import { limaWorkspace, runJob } from "@async/pipeline";
+import { runJob, sandbox } from "@async/pipeline";
 import pipeline from "./pipeline.js";
+
+await runJob(pipeline, { id: "verify", sandbox: "lima" });
 
 await runJob(pipeline, {
   id: "verify",
-  workspace: limaWorkspace({
-    cwd: process.cwd(),
-    env: process.env,
-    vm: "async-pipeline"
-  })
+  sandbox: sandbox.lima({ vm: "async-pipeline" }),
+  cwd: process.cwd(),
+  env: process.env
 });
 ```
 
-Command policy is a separate workspace port for CLI/tool/agent boundaries. It can allow, deny, mock, record, redact, and bound output for commands such as `async-pipeline github check` or `npm publish`. Task shell steps still run through `workspace.executor`.
+Command policy is a separate execution port for CLI/tool/agent boundaries. It can allow, deny, mock, record, redact, and bound output for commands such as `async-pipeline github check` or `npm publish`. Task shell steps still run through the resolved command executor.
 
-The current CLI does not automatically route tasks based on `task.environment.backend`. Explicit `--workspace` selection is the supported local testing path.
+The current CLI does not automatically route tasks based on `task.environment.backend`. Explicit `--sandbox` selection is the supported local testing path.

@@ -14,7 +14,7 @@ Subpaths are available for advanced use:
 
 ```ts
 import { definePipeline } from "@async/pipeline/core";
-import { hostWorkspace, runJob } from "@async/pipeline/node";
+import { runJob } from "@async/pipeline/node";
 import { LimaCommandExecutor } from "@async/pipeline/lima";
 import { createRuntime, defineRuntime } from "@async/pipeline/runtime";
 ```
@@ -132,23 +132,21 @@ steps:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 ```
 
-Local tests can mock the same job without GitHub Actions by passing a workspace env into `runJob(...)`:
+Local tests can mock the same job without GitHub Actions by passing an env into `runJob(...)`:
 
 ```ts
 import assert from "node:assert/strict";
-import { hostWorkspace, runJob } from "@async/pipeline/node";
+import { runJob } from "@async/pipeline/node";
 import pipeline from "../pipeline.js";
 
 const record = await runJob(pipeline, {
   id: "publish",
   mode: "ci",
-  workspace: hostWorkspace({
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      NPM_TOKEN: "fake-token"
-    }
-  })
+  cwd: process.cwd(),
+  env: {
+    ...process.env,
+    NPM_TOKEN: "fake-token"
+  }
 });
 
 assert.equal(record.status, "passed");
@@ -185,7 +183,6 @@ task({
   retry: { attempts: 2, delayMs: 500 },
   timeout: "2m",
   requires: { tools: ["node", "pnpm"] },
-  environment: { backend: "host" },
   run: sh`pnpm build`
 })
 ```
@@ -211,7 +208,6 @@ Fields:
 | `retry` | Total attempts as a number, or `{ attempts, delayMs }`. `retry: 2` means at most two attempts (one retry); `retry: 1` or omitting it disables retries. |
 | `timeout` | Milliseconds or a duration string such as `500ms`, `30s`, `5m`, `1h`. |
 | `requires` | Tool, secret, or runtime declarations. |
-| `environment` | Backend declaration such as host or Lima. CLI routing to Lima is not automatic today. |
 | `run` | One shell command/function step or an array of steps/directives. |
 | `steps` | Multiple shell commands, function steps, or static directives. |
 
@@ -553,38 +549,31 @@ await runtime.stop();
 `runJob(...)` executes one job from a normalized pipeline. The job id is `id`; `target` stays inside the job definition and points at the requested task graph endpoint.
 
 ```ts
-import { hostWorkspace, runJob } from "@async/pipeline/node";
+import { runJob } from "@async/pipeline/node";
 import pipeline from "./pipeline.js";
 
 const record = await runJob(pipeline, {
   id: "verify",
   concurrency: 2,
-  workspace: hostWorkspace({
-    cwd: process.cwd(),
-    env: process.env
-  })
+  cwd: process.cwd(),
+  env: process.env
 });
 ```
 
-If `workspace` is omitted, the runner uses `hostWorkspace({ cwd: process.cwd(), env: process.env })`.
+`cwd` defaults to `process.cwd()` and `env` to `process.env`. Pass `sandbox` to run inside a declared or inline sandbox.
 
 ```ts
 interface RunOptions {
   id: string;
   mode?: "manual" | "ci";
   concurrency?: number;
-  workspace?: PipelineWorkspace;
-}
-
-// concurrency is the maximum number of ready tasks that may run at once.
-// Use 1 for strict sequential execution.
-
-interface PipelineWorkspace {
-  cwd: string;
-  env: NodeJS.ProcessEnv;
-  fs: PipelineFileSystem;
-  executor: CommandExecutor;
-  commands?: WorkspaceCommands;
+  force?: boolean;
+  echo?: boolean;
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  commands?: PipelineCommands;
+  executor?: CommandExecutor;
+  sandbox?: SandboxId | SandboxDefinition;
 }
 
 interface CommandExecutor {
@@ -603,39 +592,41 @@ When omitted, `concurrency` uses a bounded local default. On the first task fail
 
 The host workspace uses the real filesystem and shell. Tests can provide a custom `env`, `CommandExecutor`, or command policy without touching global process state.
 
-## workspaces
+## sandboxes
 
-Declare inspectable workspace profiles in `definePipeline(...)`:
+Declare inspectable sandbox profiles in `definePipeline(...)` for opt-in isolated local runs. The default is always the host; a sandbox only applies when selected:
 
 ```ts
-import { definePipeline, workspace } from "@async/pipeline";
+import { definePipeline, sandbox } from "@async/pipeline";
 
 export default definePipeline({
   name: "app",
-  workspaces: {
-    lima: workspace.lima({ vm: "async-pipeline" }),
-    docker: workspace.docker({ image: "node:24" })
+  sandboxes: {
+    lima: sandbox.lima({ vm: "async-pipeline" }),
+    docker: sandbox.docker({ image: "node:24" })
   },
   tasks: {},
   jobs: {}
 });
 ```
 
-Run a job with a selected workspace:
+Run a job inside a selected sandbox:
 
 ```sh
-async-pipeline run verify --workspace docker
-async-pipeline run verify --workspace lima
+async-pipeline run verify --sandbox docker
+async-pipeline run verify --sandbox lima
 ```
 
-Programmatic factories are available for host, Lima, and Docker:
+Programmatic runs select sandboxes the same way: by id from the pipeline's `sandboxes`, or with an inline definition.
 
 ```ts
-import { dockerWorkspace, limaWorkspace, runJob } from "@async/pipeline";
+import { runJob, sandbox } from "@async/pipeline";
+
+await runJob(pipeline, { id: "verify", sandbox: "docker" });
 
 await runJob(pipeline, {
   id: "verify",
-  workspace: dockerWorkspace({
+  sandbox: sandbox.docker({
     image: "node:24",
     cwd: process.cwd()
   })
@@ -643,18 +634,14 @@ await runJob(pipeline, {
 
 await runJob(pipeline, {
   id: "verify",
-  workspace: limaWorkspace({
-    vm: "async-pipeline",
-    cwd: process.cwd()
-  })
+  sandbox: sandbox.lima({ vm: "async-pipeline" }),
+  cwd: process.cwd()
 });
 ```
 
-`memory`, `ssh`, and `github` workspace definitions are inspectable placeholders in this tranche. Full execution for those requires moving store, cache, and source IO behind `workspace.fs`.
-
 ## command policy
 
-`commands` governs CLI/tool/agent command boundaries. It is separate from task shell execution, which still uses `workspace.executor`.
+`commands` governs CLI/tool/agent command boundaries. It is separate from task shell execution, which still uses the run's command executor.
 
 ```ts
 import { command, definePipeline } from "@async/pipeline";
@@ -694,7 +681,7 @@ import { runPipelineCli } from "@async/pipeline";
 
 const result = await runPipelineCli({
   args: ["github", "check"],
-  workspace: hostWorkspace({ cwd: process.cwd() })
+  cwd: process.cwd()
 });
 ```
 
