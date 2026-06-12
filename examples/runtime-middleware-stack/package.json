@@ -1,0 +1,21 @@
+{
+  "name": "@async-framework/example-runtime-middleware-stack",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.20.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/async-framework/async-pipeline.git",
+    "directory": "examples/runtime-middleware-stack"
+  },
+  "scripts": {
+    "async-pipeline": "async-pipeline",
+    "checkout": "node src/app.mjs",
+    "test": "node --test src/flows.test.mjs",
+    "worker": "node src/worker.mjs"
+  },
+  "devDependencies": {
+    "@async/pipeline": "workspace:*"
+  }
+}

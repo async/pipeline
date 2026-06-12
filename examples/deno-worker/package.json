@@ -1,0 +1,20 @@
+{
+  "name": "@async-framework/example-deno-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.20.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/async-framework/async-pipeline.git",
+    "directory": "examples/deno-worker"
+  },
+  "scripts": {
+    "async-pipeline": "async-pipeline",
+    "pipeline:sync:check": "async-pipeline sync check",
+    "pipeline:verify": "async-pipeline run verify"
+  },
+  "devDependencies": {
+    "@async/pipeline": "workspace:*"
+  }
+}

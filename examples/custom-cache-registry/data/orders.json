@@ -1,0 +1,6 @@
+[
+  { "id": "A-1001", "amountCents": 4250, "region": "us" },
+  { "id": "A-1002", "amountCents": 1999, "region": "eu" },
+  { "id": "A-1003", "amountCents": 7800, "region": "us" },
+  { "id": "A-1004", "amountCents": 560, "region": "apac" }
+]

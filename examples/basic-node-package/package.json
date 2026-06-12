@@ -1,0 +1,33 @@
+{
+  "name": "@async-framework/example-basic-node-package",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.20.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/async-framework/async-pipeline.git",
+    "directory": "examples/basic-node-package"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "async-pipeline": "async-pipeline",
+    "build": "tsc -p tsconfig.json",
+    "pipeline:nightly": "async-pipeline run nightly",
+    "pipeline:verify": "async-pipeline run verify",
+    "test": "node --test",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@async/pipeline": "workspace:*",
+    "typescript": "6.0.3"
+  }
+}

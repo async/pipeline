@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "generator": "@async/pipeline",
+  "config": "pipeline.ts",
+  "prefix": "pipeline",
+  "runners": [
+    "package"
+  ],
+  "targets": [
+    {
+      "package": "@async-framework/example-monorepo-app"
+    },
+    {
+      "package": "@async-framework/example-monorepo-api"
+    }
+  ],
+  "manifests": [
+    {
+      "path": "packages/api/package.json",
+      "runner": "package",
+      "field": "scripts",
+      "commands": [
+        {
+          "name": "pipeline:verify",
+          "value": "async-pipeline run verify"
+        },
+        {
+          "name": "pipeline:sync:check",
+          "value": "async-pipeline sync check"
+        }
+      ]
+    },
+    {
+      "path": "packages/app/package.json",
+      "runner": "package",
+      "field": "scripts",
+      "commands": [
+        {
+          "name": "pipeline:verify",
+          "value": "async-pipeline run verify"
+        },
+        {
+          "name": "pipeline:sync:check",
+          "value": "async-pipeline sync check"
+        }
+      ]
+    }
+  ],
+  "commands": [
+    {
+      "name": "pipeline:verify",
+      "value": "async-pipeline run verify"
+    },
+    {
+      "name": "pipeline:sync:check",
+      "value": "async-pipeline sync check"
+    }
+  ],
+  "hash": "sha256:80ed5d5ae079b83128a1a81a991ce26c481702c41797ea77afa83ea9a5d890ab",
+  "generatedAt": "2026-06-12T00:28:46.563Z"
+}

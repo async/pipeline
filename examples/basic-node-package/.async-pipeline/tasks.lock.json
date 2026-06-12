@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "generator": "@async/pipeline",
+  "config": "pipeline.ts",
+  "prefix": "pipeline",
+  "runners": "all",
+  "targets": "root",
+  "manifests": [
+    {
+      "path": "package.json",
+      "runner": "package",
+      "field": "scripts",
+      "commands": [
+        {
+          "name": "pipeline:nightly",
+          "value": "async-pipeline run nightly"
+        },
+        {
+          "name": "pipeline:verify",
+          "value": "async-pipeline run verify"
+        }
+      ]
+    }
+  ],
+  "commands": [
+    {
+      "name": "pipeline:nightly",
+      "value": "async-pipeline run nightly"
+    },
+    {
+      "name": "pipeline:verify",
+      "value": "async-pipeline run verify"
+    }
+  ],
+  "hash": "sha256:c4c8628d110ab7a682e121b31a9d14774427c1876050ab0096d81892de3250cb",
+  "generatedAt": "2026-06-12T00:27:05.817Z"
+}

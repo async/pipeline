@@ -1,0 +1,13 @@
+{
+  "name": "@async-framework/example-monorepo-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "pipeline:sync:check": "async-pipeline sync check",
+    "pipeline:verify": "async-pipeline run verify"
+  }
+}

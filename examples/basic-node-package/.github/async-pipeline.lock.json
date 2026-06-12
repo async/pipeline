@@ -1,0 +1,52 @@
+{
+  "version": 2,
+  "generator": "@async/pipeline",
+  "config": "pipeline.ts",
+  "workflow": ".github/workflows/async-pipeline.yml",
+  "hash": "sha256:e3eddd0a16a424fe99bbe73d4c780cd51a7a657498692592a6cd0eb743a84a6f",
+  "generatedAt": "2026-06-12T00:27:05.812Z",
+  "triggers": {
+    "pull_request": {},
+    "push": {
+      "branches": [
+        "main"
+      ]
+    },
+    "schedule": [
+      {
+        "id": "nightly",
+        "cron": "17 2 * * *"
+      }
+    ],
+    "workflow_dispatch": {}
+  },
+  "jobs": [
+    {
+      "id": "nightly",
+      "target": [
+        "build"
+      ],
+      "trigger": [
+        "nightly"
+      ],
+      "env": {},
+      "if": "github.event_name == 'schedule' && github.event.schedule == '17 2 * * *'"
+    },
+    {
+      "id": "verify",
+      "target": [
+        "pack"
+      ],
+      "trigger": [
+        "pr",
+        "main",
+        "manual"
+      ],
+      "env": {},
+      "if": "(github.event_name == 'pull_request') || (github.event_name == 'push' && (github.ref == 'refs/heads/main')) || (github.event_name == 'workflow_dispatch')"
+    }
+  ],
+  "packageManager": "pnpm",
+  "nodeVersion": "24",
+  "taskCache": true
+}

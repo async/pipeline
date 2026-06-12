@@ -1,0 +1,10 @@
+{
+  "name": "@async-framework/example-deno-worker-runtime",
+  "version": "0.1.0",
+  "exports": "./main.ts",
+  "tasks": {
+    "dev": "deno serve --watch --port 8787 main.ts",
+    "pipeline:sync:check": "async-pipeline sync check",
+    "pipeline:verify": "async-pipeline run verify"
+  }
+}

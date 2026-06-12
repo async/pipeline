@@ -18,7 +18,46 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  examples/basic-node-package:
+    devDependencies:
+      '@async/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  examples/custom-cache-registry:
+    devDependencies:
+      '@async/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
+
+  examples/deno-worker:
+    devDependencies:
+      '@async/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
+
   examples/github-native-npm-preview-package:
+    devDependencies:
+      '@async/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
+
+  examples/many-repo-impact-run:
+    devDependencies:
+      '@async/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
+
+  examples/monorepo-package-selection:
+    devDependencies:
+      '@async/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
+
+  examples/runtime-middleware-stack:
     devDependencies:
       '@async/pipeline':
         specifier: workspace:*

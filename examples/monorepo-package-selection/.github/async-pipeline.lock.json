@@ -1,0 +1,37 @@
+{
+  "version": 2,
+  "generator": "@async/pipeline",
+  "config": "pipeline.ts",
+  "workflow": ".github/workflows/async-pipeline.yml",
+  "hash": "sha256:d3efd05a8126ded277b619660ea7302062d777b3a79297acadcdb1b952e381d5",
+  "generatedAt": "2026-06-12T00:28:46.551Z",
+  "triggers": {
+    "pull_request": {},
+    "push": {
+      "branches": [
+        "main"
+      ]
+    },
+    "workflow_dispatch": {}
+  },
+  "jobs": [
+    {
+      "id": "verify",
+      "target": [
+        "test-app",
+        "test-api",
+        "test-internal-tools"
+      ],
+      "trigger": [
+        "pr",
+        "main",
+        "manual"
+      ],
+      "env": {},
+      "if": "(github.event_name == 'pull_request') || (github.event_name == 'push' && (github.ref == 'refs/heads/main')) || (github.event_name == 'workflow_dispatch')"
+    }
+  ],
+  "packageManager": "pnpm",
+  "nodeVersion": "24",
+  "taskCache": true
+}
