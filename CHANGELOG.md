@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.1 - 2026-06-12
+
+### Fixes
+
+- The published bin runs the CLI again: `async-pipeline` invoked through the public package entrypoint (`dist/cli.js`, including npm/pnpm bin shims and `npx async-pipeline`) parsed nothing and exited 0 on 0.2.0, because the wrapper module never satisfied the internal CLI's entrypoint guard. The wrapper now calls the exported `runCliMain()` explicitly, the guard realpath-resolves `argv[1]` so symlinked bin paths count as direct execution, and a regression test drives the public bin both directly and through a symlink.
+
+### Features
+
+- Build out all planned examples — `basic-node-package`, `monorepo-package-selection`, `deno-worker`, `many-repo-impact-run`, `custom-cache-registry`, and `runtime-middleware-stack` — each runnable from its own directory with committed generated sync artifacts where sync is configured.
+- Add an `examples` task to the self pipeline (wired into `release:check`): every example's verification job runs green from its own directory through the public CLI, committed sync artifacts are checked for drift, cached re-runs and output restoration are asserted, the many-repo matrix output is asserted, and the declared-only remote cache store is proven to fail with its recorded reason.
+- Failed `run`, `run-task`, and `github run` invocations now print each failed task's recorded error to stderr next to the final status line, instead of leaving the reason only inside `.async/runs/<id>/execution.json`.
+
 ## 0.2.0 - 2026-06-11
 
 ### Breaking

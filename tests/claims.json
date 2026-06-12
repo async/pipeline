@@ -522,6 +522,22 @@
         "basic-node-package: verify runs, re-runs cached, and sync artifacts are current",
         "many-repo-impact-run: impact job runs both source repos and matrix plans them"
       ]
+    },
+    {
+      "id": "changelog.public-bin-entrypoint",
+      "source": "CHANGELOG.md",
+      "anchor": "The wrapper now calls the exported `runCliMain()` explicitly, the guard realpath-resolves `argv[1]` so symlinked bin paths count as direct execution, and a regression test drives the public bin both directly and through a symlink.",
+      "tests": [
+        "public package bin runs the CLI (direct and through a symlinked bin path)"
+      ]
+    },
+    {
+      "id": "changelog.run-failure-reasons-on-stderr",
+      "source": "CHANGELOG.md",
+      "anchor": "Failed `run`, `run-task`, and `github run` invocations now print each failed task's recorded error to stderr next to the final status line",
+      "tests": [
+        "run prints failed task reasons to stderr next to the final status"
+      ]
     }
   ]
 }
