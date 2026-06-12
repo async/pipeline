@@ -102,4 +102,4 @@ Tasks, jobs, and triggers describe your workflow. Sync is the explicit boundary:
 - [Path to 1.0](path-to-1.0.md) — what freezes, what must be true first.
 - [Design decisions: agentic features](adr/index.md) — proposed ADRs for agent steps, an MCP surface, failure context packs, and more.
 
-The package is MIT-licensed and ships from [github.com/async-framework/async-pipeline](https://github.com/async-framework/async-pipeline) with zero runtime dependencies.
+The package is MIT-licensed and ships from [github.com/async/pipeline](https://github.com/async/pipeline) with zero runtime dependencies.

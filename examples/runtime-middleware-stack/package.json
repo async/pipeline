@@ -6,7 +6,7 @@
   "packageManager": "pnpm@10.20.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/async-framework/async-pipeline.git",
+    "url": "git+https://github.com/async/pipeline.git",
     "directory": "examples/runtime-middleware-stack"
   },
   "scripts": {

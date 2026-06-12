@@ -7,12 +7,12 @@
   "repository": {
     "directory": "packages/pipeline",
     "type": "git",
-    "url": "git+https://github.com/async-framework/async-pipeline.git"
+    "url": "git+https://github.com/async/pipeline.git"
   },
   "bugs": {
-    "url": "https://github.com/async-framework/async-pipeline/issues"
+    "url": "https://github.com/async/pipeline/issues"
   },
-  "homepage": "https://github.com/async-framework/async-pipeline#readme",
+  "homepage": "https://github.com/async/pipeline#readme",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

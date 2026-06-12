@@ -35,7 +35,7 @@ GitHub Actions keeps triggers, runners, permissions, and secrets; it stops being
 Try the repo's own pipeline (requires Node >= 24 on macOS or Linux; `pipeline.ts` loads natively):
 
 ```sh
-git clone https://github.com/async-framework/async-pipeline.git
+git clone https://github.com/async/pipeline.git
 cd async-pipeline
 pnpm install --frozen-lockfile
 pnpm build

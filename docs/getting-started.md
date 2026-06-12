@@ -14,7 +14,7 @@ Use this guide to try the repo, add a pipeline to another project, inspect local
 From the checkout:
 
 ```sh
-cd /Users/patrickjs/code/async-framework/async-pipeline
+cd async-pipeline
 pnpm install --frozen-lockfile
 pnpm build
 pnpm async-pipeline run verify
