@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -204,6 +204,7 @@ async function dispatchCommand(commandName: string, args: string[], context: Pip
         const graph = tasksForJob(context.pipeline, selectedJob.id);
         context.stdout(`Running ${context.pipeline.name}:${selectedJob.id} (${graph.executionOrder.join(" -> ")})\n`);
         const result = await runJob(context.pipeline, { id: selectedJob.id, mode: "ci", cwd: context.cwd, env: context.env, commands: context.commands, sandbox: context.sandboxId, concurrency: context.concurrency });
+        reportFailedTasks(context, result.tasks);
         context.stdout(`Pipeline ${result.status}: ${result.id}\n`);
         if (result.status !== "passed") failed = true;
       }
@@ -295,6 +296,7 @@ async function dispatchCommand(commandName: string, args: string[], context: Pip
     if (format === "json") {
       context.stdout(`${JSON.stringify(result, null, 2)}\n`);
     } else {
+      reportFailedTasks(context, result.tasks);
       context.stdout(`Pipeline ${result.status}: ${result.id}\n`);
     }
     await pruneRunsAfterRun(context);
@@ -312,6 +314,7 @@ async function dispatchCommand(commandName: string, args: string[], context: Pip
     if (format === "json") {
       context.stdout(`${JSON.stringify(result, null, 2)}\n`);
     } else {
+      reportFailedTasks(context, result.tasks);
       context.stdout(`Task run ${result.status}: ${result.id}\n`);
     }
     await pruneRunsAfterRun(context);
@@ -679,6 +682,15 @@ function programName(): string {
   return name === "cli.js" ? "async-pipeline" : name;
 }
 
+// Failed runs must name the reason on the terminal, not only inside
+// .async/runs/<id>/execution.json. Task output was already streamed; this
+// repeats the recorded per-task error next to the final status line.
+function reportFailedTasks(context: PipelineCliContext, tasks: { id: string; status: string; error?: string }[]): void {
+  for (const failed of tasks.filter((task) => task.status === "failed")) {
+    context.stderr(`Task ${failed.id} failed${failed.error ? `: ${failed.error}` : ""}\n`);
+  }
+}
+
 function jsonReplacer(_key: string, value: unknown): unknown {
   if (typeof value === "function") return "[function]";
   return value;
@@ -717,7 +729,7 @@ function virtualStore(root: string): Awaited<ReturnType<typeof createStore>> {
   };
 }
 
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+export function runCliMain(): Promise<void> {
   // When the downstream pipe closes (e.g. `async-pipeline run x | head`),
   // terminate running task process groups, let the run finalize its
   // execution record, and exit 141 (128 + SIGPIPE) instead of crashing
@@ -732,10 +744,28 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
   process.stdout.on("error", shutdownOnEpipe);
   process.stderr.on("error", shutdownOnEpipe);
 
-  runPipelineCli({ args: process.argv.slice(2) }).then((result) => {
+  return runPipelineCli({ args: process.argv.slice(2) }).then((result) => {
     process.exitCode = shutdownExitCode() ?? result.code;
   }).catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = shutdownExitCode() ?? 1;
   });
+}
+
+// True only when this module is the executed entrypoint. The public package
+// bin (`@async/pipeline` dist/cli.js) is a different wrapper module, so it
+// cannot rely on this guard; it imports and calls runCliMain() explicitly.
+// Realpath the argv path so bin shims and node_modules symlinks still count
+// as direct execution of this file.
+function isCliEntrypoint(argvPath: string | undefined): boolean {
+  if (!argvPath) return false;
+  try {
+    return pathToFileURL(realpathSync(argvPath)).href === import.meta.url;
+  } catch {
+    return false;
+  }
+}
+
+if (isCliEntrypoint(process.argv[1])) {
+  void runCliMain();
 }

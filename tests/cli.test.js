@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -19,6 +19,37 @@ test("pipeline list shows self job and tasks", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /verify/);
   assert.match(result.stdout, /typecheck/);
+});
+
+// Regression: the published bin (packages/pipeline/dist/cli.js) is a wrapper
+// module around the internal CLI. The internal entrypoint guard compares
+// argv[1] against its own module URL, so before runCliMain() was invoked
+// explicitly from the wrapper, the public bin parsed nothing, printed
+// nothing, and exited 0.
+test("public package bin runs the CLI (direct and through a symlinked bin path)", () => {
+  const direct = spawnSync("node", ["packages/pipeline/dist/cli.js", "list"], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+
+  assert.equal(direct.status, 0, direct.stderr);
+  assert.match(direct.stdout, /Jobs:/);
+  assert.match(direct.stdout, /verify/);
+
+  const dir = mkdtempSync(join(tmpdir(), "async-pipeline-cli-bin-"));
+  try {
+    const shim = join(dir, "async-pipeline");
+    symlinkSync(join(repoRoot.pathname, "packages/pipeline/dist/cli.js"), shim);
+    const viaSymlink = spawnSync("node", [shim, "list"], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    });
+
+    assert.equal(viaSymlink.status, 0, viaSymlink.stderr);
+    assert.match(viaSymlink.stdout, /Jobs:/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("pipeline graph emits JSON", () => {
@@ -88,6 +119,45 @@ test("runPipelineCli can mock a CLI command through workspace commands", async (
   assert.equal(result.code, 0);
   assert.equal(stdout, "mock current\n");
   assert.equal(commands.records()[0]?.status, "mocked");
+});
+
+test("run prints failed task reasons to stderr next to the final status", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "async-pipeline-cli-fail-reason-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module" }), "utf8");
+    writeFileSync(join(dir, "pipeline.js"), `
+import { definePipeline, job, sh, task } from ${JSON.stringify(packageUrl)};
+
+export default definePipeline({
+  name: "fixture",
+  tasks: {
+    boom: task({ cache: false, run: sh\`exit 7\` })
+  },
+  jobs: {
+    verify: job({ target: "boom" })
+  }
+});
+`, "utf8");
+
+    let stdout = "";
+    let stderr = "";
+    const result = await runPipelineCli({
+      args: ["run", "verify"],
+      ...({ cwd: dir }),
+      stdout(text) {
+        stdout += text;
+      },
+      stderr(text) {
+        stderr += text;
+      }
+    });
+
+    assert.equal(result.code, 1);
+    assert.match(stdout, /Pipeline failed/);
+    assert.match(stderr, /Task boom failed: .*exit code 7/);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
 });
 
 test("runPipelineCli validates concurrency for run commands", async () => {
