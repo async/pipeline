@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
-import { join, posix, relative } from "node:path";
+import { dirname, join, posix, relative } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { AgentStep, CandidateContext, CommandAction, CommandOutputPolicy, CommandPolicy, EnvValue, EnvVarRef, ExecutionRecord, NormalizedPipeline, NormalizedTask, ResolvedAgentStep, SandboxDefinition, SandboxId, ShellCommand, TaskContext, TaskResult, TaskRunFunction, TaskSourceContext, TaskStep } from "@async/pipeline-core";
 import { isAgentStep, isResolvedAgentStep, pipelineError, sh, tasksForJob } from "@async/pipeline-core";
@@ -933,6 +933,13 @@ async function runAgentStep(
     JSON.stringify({ type: "response", at: new Date().toISOString(), durationMs: Date.now() - started, code: result.code, timedOut: result.timedOut ?? false, stdout: redact(result.stdout), stderr: redact(result.stderr) })
   ].join("\n");
   await writeAgentTranscript(options.store, options.runId, taskDefinition.id, `${transcript}\n`);
+  if (step.stdoutTo !== undefined && result.code === 0 && !result.timedOut) {
+    // The artifact is the agent's product, written like any task-written file
+    // (the transcript's copy of the same stdout is the redacted, stored one).
+    const target = join(options.cwd, step.stdoutTo);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, result.stdout);
+  }
   return result;
 }
 
@@ -1103,7 +1110,9 @@ function resolveAgentStep(agents: NormalizedPipeline["agents"], step: AgentStep,
     );
   }
   const model = resolveAgentValue(step.model ?? profile.model, context.env, `agent profile "${use}" model`, context.taskId);
-  return { kind: "agent", use, prompt: step.prompt, model, command: [...profile.command] };
+  const resolved: ResolvedAgentStep = { kind: "agent", use, prompt: step.prompt, model, command: [...profile.command] };
+  if (step.stdoutTo !== undefined) resolved.stdoutTo = step.stdoutTo;
+  return resolved;
 }
 
 function createTaskContext(

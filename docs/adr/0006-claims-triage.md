@@ -1,12 +1,12 @@
 # ADR-0006: Claims Triage Automation
 
-**Status:** Proposed
+**Status:** Accepted (repair half shipped in 0.2.4; scout open)
 **Date:** 2026-06-12
 **Deciders:** PatrickJS
 **Index:** [Design decisions](index.md)
 **Depends on:** [ADR-0001](0001-agent-step-type.md) (agent steps), [ADR-0003](0003-failure-context-packs.md) (context packs)
 
-> Proposed design. Nothing here is a shipped behavior claim; claims and tests land with the implementation per [AGENTS.md](../../AGENTS.md).
+> Shipped in 0.2.4, decision 1 (repair proposals): the self pipeline's `claims-repair` task drafts `claims.patch` via `agent({ stdoutTo })` — claude profile locally, deterministic mechanical mock (`scripts/mock-claims-repair.mjs`) elsewhere — and a human applies it; the checker remains the only authority. The copyable pattern lives in [examples/agent-claims-repair](../../examples/agent-claims-repair/README.md). Not yet shipped: decision 2 (`claims-scout` advisory promise discovery in the PR job) and the ADR-0004 `fixes/` integration (the patch lands as a declared task output instead — simpler, and sufficient until 0004 exists).
 
 ## Context
 

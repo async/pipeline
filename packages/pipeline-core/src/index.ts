@@ -197,6 +197,13 @@ export interface AgentStep {
   prompt: string;
   /** Optional model override of the profile's model. */
   model?: string | EnvVarRef;
+  /**
+   * Write the adapter's stdout to this file (relative to the task's cwd)
+   * after the step succeeds. The propose-only mechanism: an agent emits a
+   * patch or report on stdout, the runner lands it as a reviewable artifact.
+   * Declare the path in the task's `outputs` to cache and restore it.
+   */
+  stdoutTo?: string;
 }
 
 /** An agent step after run-time resolution: profile and model are concrete and the adapter argv is attached for execution. */
@@ -492,9 +499,9 @@ export function sh(first: TemplateStringsArray | DeferredShellCommandFactory, ..
   return { kind: "shell", command };
 }
 
-const AGENT_STEP_FIELDS = new Set(["use", "prompt", "model"]);
+const AGENT_STEP_FIELDS = new Set(["use", "prompt", "model", "stdoutTo"]);
 
-export function agent(options: { use: AgentProfileId | EnvVarRef; prompt: string; model?: string | EnvVarRef }): AgentStep {
+export function agent(options: { use: AgentProfileId | EnvVarRef; prompt: string; model?: string | EnvVarRef; stdoutTo?: string }): AgentStep {
   rejectUnknownFields(AGENT_STEP_FIELDS, options, "agent() step");
   const use = options.use;
   if (use === undefined || use === null || (typeof use === "string" && use.length === 0)) {
@@ -506,8 +513,20 @@ export function agent(options: { use: AgentProfileId | EnvVarRef; prompt: string
   if (typeof options.prompt !== "string" || options.prompt.length === 0) {
     throw pipelineError("ASYNC_PIPELINE_AGENT_INVALID", 'agent() requires a non-empty "prompt" string.');
   }
+  if (options.stdoutTo !== undefined) {
+    if (typeof options.stdoutTo !== "string" || options.stdoutTo.length === 0) {
+      throw pipelineError("ASYNC_PIPELINE_AGENT_INVALID", 'agent() "stdoutTo" must be a non-empty path string.');
+    }
+    if (options.stdoutTo.startsWith("/") || /^[A-Za-z]:[\\/]/.test(options.stdoutTo) || options.stdoutTo.split(/[\\/]+/).includes("..")) {
+      throw pipelineError(
+        "ASYNC_PIPELINE_AGENT_INVALID",
+        'agent() "stdoutTo" must be a relative path inside the task\'s working directory; absolute paths and ".." segments are rejected.'
+      );
+    }
+  }
   const step: AgentStep = { kind: "agent", use, prompt: options.prompt };
   if (options.model !== undefined) step.model = options.model;
+  if (options.stdoutTo !== undefined) step.stdoutTo = options.stdoutTo;
   return step;
 }
 

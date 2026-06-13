@@ -4,3 +4,4 @@ dist/
 docs/goals/**/.goalbuddy-board/
 *.tgz
 .DS_Store
+claims.patch

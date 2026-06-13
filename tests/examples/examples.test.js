@@ -50,6 +50,27 @@ test("github-native-npm-preview-package: prPreview runs and sync artifacts are c
   assertSyncCurrent("github-native-npm-preview-package");
 });
 
+test("agent-claims-repair: verify is green, the stale fixture fails, and the mock agent proposes an applicable patch", () => {
+  const dir = exampleDir("agent-claims-repair");
+  rmSync(join(dir, "claims.patch"), { force: true });
+
+  // The committed registry matches the docs; the committed stale fixture does not.
+  assertJobPasses("agent-claims-repair", "verify");
+  const stale = spawnSync("node", ["scripts/check-claims.mjs", "anchors-stale.txt"], { cwd: dir, encoding: "utf8" });
+  assert.equal(stale.status, 1, "the committed stale fixture must fail the mini checker");
+
+  // PROMISE: the repair job lands the agent's stdout as claims.patch via stdoutTo,
+  // and the proposed unified diff applies cleanly to the stale fixture.
+  assertJobPasses("agent-claims-repair", "repair");
+  const patch = readFileSync(join(dir, "claims.patch"), "utf8");
+  assert.match(patch, /^--- a\/anchors-stale\.txt$/m);
+  assert.match(patch, /^\+frob\.cached\tA second run of an unchanged tree is fully cached\.$/m);
+  const applies = spawnSync("git", ["apply", "--check", "claims.patch"], { cwd: dir, encoding: "utf8" });
+  assert.equal(applies.status, 0, `git apply --check failed:\n${applies.stderr}`);
+
+  rmSync(join(dir, "claims.patch"), { force: true });
+});
+
 test("basic-node-package: verify runs, re-runs cached, and sync artifacts are current", () => {
   assertJobPasses("basic-node-package", "verify");
   assertSyncCurrent("basic-node-package");

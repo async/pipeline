@@ -1,0 +1,3 @@
+frob.exit-zero	The frobnicate command always exits zero on a clean tree.
+frob.cached	A second run of an unchanged tree is fully cached.
+frob.retries	Retries back off exponentially up to five attempts.

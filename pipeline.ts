@@ -1,8 +1,21 @@
-import { definePipeline, env, job, sh, task, trigger } from "./packages/pipeline/dist/index.js";
+import { agent, definePipeline, env, job, sh, task, trigger } from "./packages/pipeline/dist/index.js";
 
 export default definePipeline({
   name: "async-pipeline",
   cache: "file:local",
+  // ADR-0006: adapter profiles for the propose-only claims-repair task.
+  // `claude` runs locally where credentials live; `mock` is the deterministic
+  // stand-in (ASYNC_AGENT=mock) used anywhere without a model.
+  agents: {
+    claude: {
+      command: ["claude", "-p"],
+      model: env.var("ASYNC_AGENT_MODEL", { default: "claude-sonnet-4-6" })
+    },
+    mock: {
+      command: ["node", "scripts/mock-claims-repair.mjs"],
+      model: "mock"
+    }
+  },
   triggers: {
     pr: trigger.github({ events: ["pull_request"] }),
     main: trigger.github({ events: ["push"], branches: ["main"] }),
@@ -72,6 +85,36 @@ export default definePipeline({
       ],
       cache: false,
       run: sh`pnpm async-pipeline sync check`
+    }),
+    // ADR-0006: propose-only repair for a failing claims task. Not part of
+    // any job — run it by hand after a claims failure:
+    //   async-pipeline run-task claims-repair        (claude, local)
+    //   ASYNC_AGENT=mock async-pipeline run-task claims-repair
+    // Review claims.patch, `git apply claims.patch`, re-run `pnpm claims:check`.
+    // The checker stays the only authority; this task never edits anything.
+    "claims-repair": task({
+      description: "Draft a unified diff (claims.patch) updating stale anchors in tests/claims.json to the docs' current wording. Propose-only: a human reviews and applies.",
+      inputs: [
+        "tests/claims.json",
+        "README.md",
+        "AGENTS.md",
+        "CHANGELOG.md",
+        "docs/**/*.md",
+        "scripts/check-claims.mjs"
+      ],
+      outputs: ["claims.patch"],
+      cache: true,
+      run: agent({
+        use: env.var("ASYNC_AGENT", { default: "claude" }),
+        stdoutTo: "claims.patch",
+        prompt: [
+          "You are repairing this repository's claims registry (tests/claims.json).",
+          "scripts/check-claims.mjs requires every claim's `anchor` to appear verbatim in its `source` file.",
+          "Find each anchor that no longer appears verbatim, locate the reworded sentence in the source doc, and update the anchor to the current exact text.",
+          "Output ONLY a unified diff against tests/claims.json (no prose, no code fences) so it can be applied with `git apply claims.patch`.",
+          "Preserve claim ids and tests arrays. Never delete a claim entry: if a promise was removed from the docs entirely, leave its entry unchanged — deletions are a human decision."
+        ].join("\n")
+      })
     }),
     claims: task({
       description: "Claim coverage checks: every registered doc claim still exists verbatim and is enforced by a named test; every PROMISE test is registered.",

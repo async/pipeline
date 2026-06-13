@@ -803,7 +803,8 @@ function serializeSteps(steps: readonly TaskStep[]): unknown[] {
         kind: "agent",
         use: serializeAgentValue(step.use),
         model: step.model === undefined ? undefined : serializeAgentValue(step.model),
-        prompt: step.prompt
+        prompt: step.prompt,
+        stdoutTo: step.stdoutTo
       };
     }
     return step;

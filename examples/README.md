@@ -13,6 +13,7 @@ Every example runs from its own directory and is exercised by this repo's `relea
 | [many-repo-impact-run](many-repo-impact-run/README.md) | Ready | Explicit source repos, namespaced tasks, candidate wiring through `prepare`, and GitHub matrix planning. |
 | [custom-cache-registry](custom-cache-registry/README.md) | Ready | File, memory, and placeholder remote cache registry definitions, with observable cache behavior per store. |
 | [runtime-middleware-stack](runtime-middleware-stack/README.md) | Ready | `defineRuntime(...)` and `createRuntime(...)` for app/background workflow composition. |
+| [agent-claims-repair](agent-claims-repair/README.md) | Ready | The propose-only agent pattern (ADR-0006): an `agent()` step drafts a patch via `stdoutTo`, a deterministic checker stays the authority, mock profile in CI. |
 
 ## Safety
 

@@ -13,7 +13,7 @@ The records share one thesis: the repo already has the right primitives — [com
 | [ADR-0003](0003-failure-context-packs.md) | Failure context packs and per-file input digests | Accepted (v1 in 0.2.3) | — |
 | [ADR-0004](0004-self-healing.md) | Bounded self-healing via `onFail` agent hooks | Proposed | 0001, 0003 |
 | [ADR-0005](0005-adversarial-review.md) | Adversarial review as a pipeline pattern | Proposed | 0001 |
-| [ADR-0006](0006-claims-triage.md) | Claims triage automation | Proposed | 0001, 0003 |
+| [ADR-0006](0006-claims-triage.md) | Claims triage automation | Accepted (repair in 0.2.4; scout open) | 0001, 0003 |
 
 ## Suggested Order
 

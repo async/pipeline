@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { agent, definePipeline, env, job, sh, task } from "../packages/pipeline-core/dist/index.js";
+import { runDoctor } from "../packages/pipeline-node/dist/doctor.js";
 import { runJob } from "../packages/pipeline-node/dist/runner.js";
 
 const MOCK_AGENT = `import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
@@ -195,6 +196,78 @@ test("PROMISE: env.var(...) selects the agent profile and model at run time", as
   }
 });
 
+test("PROMISE: agent stdoutTo lands the adapter's stdout as a task artifact and caches it like any output", async () => {
+  const dir = await scratchDir("async-pipeline-agent-stdout-");
+  try {
+    await seedScratch(dir);
+    const pipeline = () => definePipeline({
+      name: "agent-test",
+      cache: "file:local",
+      env: { MARKER_FILE: join(dir, "marker.log") },
+      agents: { mock: { command: ["node", join(dir, "mock-agent.mjs")], model: "mock-1" } },
+      tasks: {
+        draft: task({
+          inputs: ["seed.txt"],
+          outputs: ["out.txt", "draft.txt"],
+          cache: true,
+          run: agent({ use: "mock", prompt: "write the file", stdoutTo: "draft.txt" })
+        })
+      },
+      jobs: { generate: job({ target: "draft" }) }
+    });
+
+    const first = await runJob(pipeline(), { id: "generate", cwd: dir, env: { PATH: process.env.PATH } });
+    assert.equal(first.tasks[0]?.status, "passed");
+    const draft = await readFile(join(dir, "draft.txt"), "utf8");
+    assert.match(draft, /adapter done/);
+
+    // Declared as an output, the artifact replays from cache without the adapter.
+    await rm(join(dir, "draft.txt"));
+    const second = await runJob(pipeline(), { id: "generate", cwd: dir, env: { PATH: process.env.PATH } });
+    assert.equal(second.tasks[0]?.status, "cached");
+    assert.equal((await markerLines(dir)).length, 1, "adapter must not run on a cache hit");
+    assert.equal(await readFile(join(dir, "draft.txt"), "utf8"), draft);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("PROMISE: doctor warns when an agent task declares no outputs", async () => {
+  const withOutputs = definePipeline({
+    name: "p",
+    agents: { mock: { command: ["node", "x.mjs"], model: "m" } },
+    tasks: { gen: task({ outputs: ["out.txt"], run: agent({ use: "mock", prompt: "p" }) }) },
+    jobs: { g: job({ target: "gen" }) }
+  });
+  const withoutOutputs = definePipeline({
+    name: "p",
+    agents: { mock: { command: ["node", "x.mjs"], model: "m" } },
+    tasks: { gen: task({ run: agent({ use: "mock", prompt: "p" }) }) },
+    jobs: { g: job({ target: "gen" }) }
+  });
+  const noAgents = definePipeline({
+    name: "p",
+    tasks: { build: task({ run: sh`true` }) },
+    jobs: { g: job({ target: "build" }) }
+  });
+
+  const dir = await scratchDir("async-pipeline-agent-doctor-");
+  try {
+    const pass = (await runDoctor(dir, withOutputs)).find((check) => check.name === "agent-outputs");
+    assert.equal(pass?.status, "pass");
+
+    const warn = (await runDoctor(dir, withoutOutputs)).find((check) => check.name === "agent-outputs");
+    assert.equal(warn?.status, "warn");
+    assert.match(warn?.message ?? "", /gen/);
+    assert.match(warn?.message ?? "", /stdoutTo/);
+
+    const absent = (await runDoctor(dir, noAgents)).find((check) => check.name === "agent-outputs");
+    assert.equal(absent, undefined);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test("agent config rejects unknown fields, missing models, and unknown profiles", async () => {
   assert.throws(
     () => agent({ use: "mock", prompt: "p", timout: 5 }),
@@ -204,6 +277,16 @@ test("agent config rejects unknown fields, missing models, and unknown profiles"
   assert.throws(
     () => agent({ use: "mock", prompt: "" }),
     (error) => error.code === "ASYNC_PIPELINE_AGENT_INVALID"
+  );
+
+  assert.throws(
+    () => agent({ use: "mock", prompt: "p", stdoutTo: "/etc/evil" }),
+    (error) => error.code === "ASYNC_PIPELINE_AGENT_INVALID" && /relative/.test(error.message)
+  );
+
+  assert.throws(
+    () => agent({ use: "mock", prompt: "p", stdoutTo: "../outside.txt" }),
+    (error) => error.code === "ASYNC_PIPELINE_AGENT_INVALID" && /relative/.test(error.message)
   );
 
   assert.throws(

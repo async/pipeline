@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.4 - 2026-06-13
+
+### Features
+
+- Propose-only agent artifacts: `agent({ stdoutTo })` lands the adapter's stdout as a task artifact (relative paths only; declare it in `outputs` to cache and restore it). The transcript keeps the redacted copy; the artifact is the agent's product. `doctor` gains an `agent-outputs` check that warns when an agent task declares no outputs.
+- Claims triage (ADR-0006, repair half): the self pipeline's `claims-repair` task drafts `claims.patch` — a unified diff updating stale anchors in `tests/claims.json` to the docs' current wording — via the `claude` profile locally or a deterministic mechanical mock (`ASYNC_AGENT=mock`, `scripts/mock-claims-repair.mjs`). Propose-only: a human reviews and `git apply`s; `claims:check` stays the only authority. The promise-discovery half (claims-scout) is not yet built.
+- New example [agent-claims-repair](examples/agent-claims-repair/README.md): the propose/dispose agent pattern end to end — mini checker as deterministic authority, mock adapter profile emitting an applicable unified diff with one line of context per hunk, full circle exercised by the examples suite. Doubles as ADR-0001's canonical `agent()` example.
+
 ## 0.2.3 - 2026-06-12
 
 ### Features

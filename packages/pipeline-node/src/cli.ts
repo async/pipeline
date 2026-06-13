@@ -103,7 +103,10 @@ async function runPipelineCliBuffered(options: Omit<PipelineCliOptions, "stdout"
     };
 
     if (commandName === "doctor") {
-      const checks = await runDoctor(cwd);
+      // Best-effort pipeline load: doctor must still work in projects where
+      // the config is missing or broken — pipeline-aware checks just skip.
+      const doctorPipeline = configPath ? await loadPipeline(configPath).catch(() => undefined) : undefined;
+      const checks = await runDoctor(cwd, doctorPipeline);
       for (const check of checks) out(`${check.status.toUpperCase()} ${check.name}: ${check.message}\n`);
       return { code: checks.some((check) => check.status === "fail") ? 1 : 0, stdout, stderr };
     }

@@ -1,0 +1,19 @@
+{
+  "name": "@async-framework/example-agent-claims-repair",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.20.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/async/pipeline.git",
+    "directory": "examples/agent-claims-repair"
+  },
+  "scripts": {
+    "async-pipeline": "async-pipeline",
+    "claims:check": "node scripts/check-claims.mjs anchors.txt"
+  },
+  "devDependencies": {
+    "@async/pipeline": "workspace:*"
+  }
+}
