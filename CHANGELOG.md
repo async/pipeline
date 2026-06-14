@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0 - 2026-06-14
+
+### Breaking
+
+- Change default pipeline config discovery order to `pipeline.ts`, `pipeline.js`, `pipeline.mjs`, `pipeline.mts`. Projects that keep both `pipeline.js` and `pipeline.mjs` in the same config root now select `pipeline.js`.
+
+### Features
+
+- Add `pipeline.mts` as a discovered config filename for root CLI commands, source pipeline loading, and candidate cache fingerprints.
+- Source declarations that omit `pipeline` now use the same default discovery order as the root CLI. Keep `pipeline` explicit for non-default filenames or when multiple default names exist and one file must win.
+
 ## 0.3.0 - 2026-06-14
 
 ### Features
