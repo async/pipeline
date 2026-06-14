@@ -120,6 +120,42 @@ test("PROMISE: a cached agent task replays declared outputs without re-invoking 
   }
 });
 
+test("PROMISE: agent tasks do not inherit broad cache defaults", async () => {
+  const dir = await scratchDir("async-pipeline-agent-cache-default-");
+  try {
+    await seedScratch(dir);
+    const pipeline = () => definePipeline({
+      name: "agent-test",
+      cache: "file:local",
+      taskDefaults: {
+        gen: { cache: true }
+      },
+      env: { MARKER_FILE: join(dir, "marker.log") },
+      agents: { mock: { command: ["node", join(dir, "mock-agent.mjs")], model: "mock-1" } },
+      tasks: {
+        gen: task({
+          inputs: ["seed.txt"],
+          outputs: ["out.txt"],
+          run: agent({ use: "mock", prompt: "write the file" })
+        })
+      },
+      jobs: { generate: job({ target: "gen" }) }
+    });
+
+    const first = await runJob(pipeline(), { id: "generate", cwd: dir, env: { PATH: process.env.PATH } });
+    assert.equal(first.tasks[0]?.status, "passed");
+    assert.equal(first.tasks[0]?.cacheHit, false);
+    assert.equal((await markerLines(dir)).length, 1);
+
+    const second = await runJob(pipeline(), { id: "generate", cwd: dir, env: { PATH: process.env.PATH } });
+    assert.equal(second.tasks[0]?.status, "passed");
+    assert.equal(second.tasks[0]?.cacheHit, false);
+    assert.equal((await markerLines(dir)).length, 2, "broad taskDefaults.cache must not cache agent output");
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test("PROMISE: agent cache keys ignore the adapter binary path and change with model or prompt", async () => {
   const dir = await scratchDir("async-pipeline-agent-key-");
   try {

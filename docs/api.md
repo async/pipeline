@@ -220,7 +220,7 @@ Fields:
 | `dependsOn` | Task ids that must run first. Use `<source>:<task>` for declared source tasks. |
 | `inputs` | Files or named input groups that affect cache keys. `.git/`, `.async/`, `node_modules/`, and this task's declared outputs are ignored by input resolution. |
 | `outputs` | Files produced by the task. File cache snapshots and restores these files on a cache hit. |
-| `cache` | `true`, `false`, a cache ref such as `"file:local"`, or cache options. |
+| `cache` | `true`, `false`, a cache ref such as `"file:local"`, or cache options. Agent tasks default to uncached unless the task itself opts in. |
 | `retry` | Total attempts as a number, or `{ attempts, delayMs }`. `retry: 2` means at most two attempts (one retry); `retry: 1` or omitting it disables retries. |
 | `timeout` | Milliseconds or a duration string such as `500ms`, `30s`, `5m`, `1h`. |
 | `requires` | Tool, secret, or runtime declarations. |
@@ -751,7 +751,7 @@ Execution: the resolved prompt is written to `.async/runs/<run-id>/agents/<task>
 
 Propose-only artifacts: `stdoutTo` lands the adapter's stdout as a task artifact after a successful step — a relative path inside the task's cwd (absolute paths and `..` segments are rejected). Declare the path in `outputs` so the cache restores it like any artifact; the transcript keeps the redacted copy of the same stdout. This is the mechanism behind the propose/dispose pattern: an agent emits a patch or report, a human or deterministic task decides — see [examples/agent-claims-repair](../examples/agent-claims-repair/README.md). `doctor` warns when an agent task declares no outputs, because an agent task without declared outputs is unverifiable side effects.
 
-Cache semantics: an agent step's output is an artifact, keyed like any task. Agent cache keys include the resolved profile id, model, and prompt — never the adapter's command path. Moving a binary must not dirty the cache; a different profile, model, prompt, or declared input must. A cached agent task replays its declared outputs without invoking the adapter. Use `--force` for a deliberately fresh sample with unchanged inputs.
+Cache semantics: an agent step's output is an artifact, keyed like any task when caching is explicitly enabled. By default, a task that contains an `agent(...)` step normalizes to `cache: false`; it does not inherit `taskDefaults.cache`. To replay model artifacts, opt in on the task itself with `cache: true`, a cache ref/options object, or a task-owned `cache.use(...)` directive. Agent cache keys include the resolved profile id, model, and prompt — never the adapter's command path. Moving a binary must not dirty the cache; a different profile, model, prompt, or declared input must. A cached agent task replays its declared outputs without invoking the adapter. Use `--force` for a deliberately fresh sample with unchanged inputs.
 
 Selection per environment: both `use` and `model` accept `env.var(...)`, resolved at run time from the task env. A profile that resolves to an undeclared id fails with `ASYNC_PIPELINE_AGENT_UNKNOWN`; statically referencing an undeclared profile fails at `definePipeline` time with the same code. Profiles reject unknown fields with `ASYNC_PIPELINE_UNKNOWN_FIELD`; `command` must be a non-empty argv array and `model` is required, because the model — not the binary location — is the profile's cache identity. Credentials belong in task `env` via `env.secret(...)`, never in the profile command line.
 

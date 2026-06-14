@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ASYNC_PIPELINE_DECLARATION, brandDeclaration, buildGraph, cache, command, composePipelines, defineCache, definePipeline, dependsOn, env, execution, fileCache, githubConfigForJob, job, jobs as jobSection, parseTaskRef, readDeclaration, sh, source, task, tasks as taskSection, tasksForJob, trigger, sandbox } from "../packages/pipeline-core/dist/index.js";
+import { ASYNC_PIPELINE_DECLARATION, agent, brandDeclaration, buildGraph, cache, command, composePipelines, defineCache, definePipeline, dependsOn, env, execution, fileCache, githubConfigForJob, job, jobs as jobSection, parseTaskRef, readDeclaration, sh, source, task, tasks as taskSection, tasksForJob, trigger, sandbox } from "../packages/pipeline-core/dist/index.js";
 
 test("declaration factories expose non-enumerable metadata without changing JSON output", () => {
   const examples = [
@@ -246,6 +246,122 @@ test("normalizes cache refs and custom registries", () => {
   assert.equal(pipeline.tasks.build.cache.ref, "custom:local");
   assert.equal(pipeline.tasks.build.cache.store, "custom");
   assert.equal(pipeline.tasks.build.cache.policy, "local");
+});
+
+test("agent tasks normalize uncached unless the task explicitly opts in", () => {
+  const pipeline = definePipeline({
+    name: "test",
+    agents: { mock: { command: ["node", "mock-agent.mjs"], model: "mock" } },
+    tasks: {
+      gen: task({ run: agent({ use: "mock", prompt: "write the file" }) })
+    },
+    jobs: {
+      verify: job({ target: "gen" })
+    }
+  });
+
+  assert.equal(pipeline.tasks.gen.cache.enabled, false);
+});
+
+test("agent tasks ignore taskDefaults cache true unless the task opts in", () => {
+  const pipeline = definePipeline({
+    name: "test",
+    agents: { mock: { command: ["node", "mock-agent.mjs"], model: "mock" } },
+    taskDefaults: {
+      gen: { cache: true }
+    },
+    tasks: {
+      gen: task({ run: agent({ use: "mock", prompt: "write the file" }) })
+    },
+    jobs: {
+      verify: job({ target: "gen" })
+    }
+  });
+
+  assert.equal(pipeline.tasks.gen.cache.enabled, false);
+});
+
+test("agent tasks with explicit cache true stay cached", () => {
+  const pipeline = definePipeline({
+    name: "test",
+    agents: { mock: { command: ["node", "mock-agent.mjs"], model: "mock" } },
+    tasks: {
+      gen: task({
+        cache: true,
+        outputs: ["draft.txt"],
+        run: agent({ use: "mock", prompt: "write the file" })
+      })
+    },
+    jobs: {
+      verify: job({ target: "gen" })
+    }
+  });
+
+  assert.equal(pipeline.tasks.gen.cache.enabled, true);
+  assert.equal(pipeline.tasks.gen.cache.store, "file");
+  assert.equal(pipeline.tasks.gen.cache.policy, "local");
+});
+
+test("agent tasks with task-owned cache directives stay cached", () => {
+  const pipeline = definePipeline({
+    name: "test",
+    agents: { mock: { command: ["node", "mock-agent.mjs"], model: "mock" } },
+    tasks: {
+      gen: task({}, [
+        cache.use("file:local"),
+        agent({ use: "mock", prompt: "write the file" })
+      ])
+    },
+    jobs: {
+      verify: job({ target: "gen" })
+    }
+  });
+
+  assert.equal(pipeline.tasks.gen.cache.enabled, true);
+  assert.equal(pipeline.tasks.gen.cache.store, "file");
+  assert.equal(pipeline.tasks.gen.cache.policy, "local");
+});
+
+test("non-agent tasks still inherit taskDefaults cache", () => {
+  const pipeline = definePipeline({
+    name: "test",
+    taskDefaults: {
+      build: { cache: true }
+    },
+    tasks: {
+      build: task({ run: sh`echo build` })
+    },
+    jobs: {
+      verify: job({ target: "build" })
+    }
+  });
+
+  assert.equal(pipeline.tasks.build.cache.enabled, true);
+  assert.equal(pipeline.tasks.build.cache.store, "file");
+  assert.equal(pipeline.tasks.build.cache.policy, "local");
+});
+
+test("mixed shell and agent tasks follow agent cache inference", () => {
+  const pipeline = definePipeline({
+    name: "test",
+    agents: { mock: { command: ["node", "mock-agent.mjs"], model: "mock" } },
+    taskDefaults: {
+      gen: { cache: true }
+    },
+    tasks: {
+      gen: task({
+        run: [
+          sh`echo prepare`,
+          agent({ use: "mock", prompt: "write the file" })
+        ]
+      })
+    },
+    jobs: {
+      verify: job({ target: "gen" })
+    }
+  });
+
+  assert.equal(pipeline.tasks.gen.cache.enabled, false);
 });
 
 test("rejects stale cache-first refs", () => {

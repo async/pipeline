@@ -848,6 +848,14 @@
       ]
     },
     {
+      "id": "api.agent-cache-default",
+      "source": "docs/api.md",
+      "anchor": "By default, a task that contains an `agent(...)` step normalizes to `cache: false`; it does not inherit `taskDefaults.cache`.",
+      "tests": [
+        "PROMISE: agent tasks do not inherit broad cache defaults"
+      ]
+    },
+    {
       "id": "api.agent-cache-replay",
       "source": "docs/api.md",
       "anchor": "A cached agent task replays its declared outputs without invoking the adapter.",

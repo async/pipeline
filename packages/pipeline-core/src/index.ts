@@ -1026,12 +1026,18 @@ export function normalizePipeline(definition: PipelineDefinition): NormalizedPip
     const defaults = definition.taskDefaults?.[id] ?? definition.taskDefaults?.[taskName(id)] ?? {};
     const merged = { ...defaults, ...taskDefinition };
     const runItems = merged.steps ? [...merged.steps] : runItemsFromDefinition(merged.run);
+    const runItemsOwnedByTask = merged.steps !== undefined ? taskDefinition.steps !== undefined : taskDefinition.run !== undefined;
     const { steps, cacheDirectives, dependsOnDirectives } = partitionRunItems(runItems);
     const liftedDependsOn = resolveTaskDependencies(id, groupPath, uniqueTaskIds([
       ...(merged.dependsOn ?? []),
       ...dependsOnDirectives.flatMap((directive) => directive.taskIds)
     ]), knownTaskIds);
-    const cache = normalizeCache(merged.cache ?? cacheDirectives[0], cacheRegistry);
+    const taskOwnedCacheDirective = runItemsOwnedByTask ? cacheDirectives[0] : undefined;
+    const taskContainsAgentStep = steps.some(isAgentStep);
+    const cacheInput = taskDefinition.cache !== undefined
+      ? taskDefinition.cache
+      : taskOwnedCacheDirective ?? (taskContainsAgentStep ? false : merged.cache ?? cacheDirectives[0]);
+    const cache = normalizeCache(cacheInput, cacheRegistry);
     const retry = normalizeRetry(merged.retry);
     const timeoutMs = normalizeTimeout(merged.timeout);
 

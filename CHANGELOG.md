@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0 - 2026-06-14
+
+### Breaking
+
+- Agent tasks now default to uncached by inspection. A task containing `agent(...)` no longer inherits broad `taskDefaults.cache`; cache model output only by opting in on the task itself with `cache: true`, a cache ref/options object, or a task-owned `cache.use(...)` directive.
+
 ## 0.4.4 - 2026-06-14
 
 ### Fixes
