@@ -29,6 +29,7 @@ export default definePipeline({
       runners: ["package"],
       targets: [{ package: "async-pipeline-workspace" }],
       jobs: ["pages", "preview", "publish", "snapshot", "verify"],
+      tasks: ["docs.site"],
       scripts: {
         "api-surface": "run-task api-surface",
         "api-surface:generate": "run-task api-surface-generate",
@@ -182,6 +183,13 @@ export default definePipeline({
       cache: true,
       run: sh`pnpm typecheck`
     }),
+    "docs.site": task({
+      description: "Build the standardized GitHub Pages documentation site.",
+      inputs: ["README.md", "docs/**/*.md", "scripts/build-pages.js"],
+      outputs: [".async/pages/**"],
+      cache: true,
+      run: sh`node scripts/build-pages.js`
+    }),
     test: task({
       dependsOn: ["typecheck"],
       inputs: ["default"],
@@ -263,11 +271,11 @@ export default definePipeline({
       }
     }),
     pages: job({
-      target: "docs",
+      target: "docs.site",
       trigger: ["pr", "main", "manual"],
       github: {
         pages: {
-          build: { kind: "jekyll", source: "./docs", destination: "./_site" }
+          build: { kind: "static", path: ".async/pages" }
         }
       }
     }),

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.4 - 2026-06-14
+
+### Fixes
+
+- Prune previously generated task-sync package scripts when they are removed from `pipeline.ts`, and report obsolete managed commands during `async-pipeline sync check`.
+
 ## 0.4.3 - 2026-06-14
 
 ### Fixes
