@@ -122,6 +122,13 @@ export async function checkTaskSync(result: TaskSyncRenderResult, cwd: string, o
         issues.push(`Generated ${manifest.field.slice(0, -1)} ${command.name} in ${manifest.path} is stale. Run async-pipeline sync tasks generate.`);
       }
     }
+
+    const nextCommandNames = new Set(manifest.commands.map((command) => command.name));
+    for (const commandName of managedCommandsForManifest(existingLock, manifest.path)) {
+      if (!nextCommandNames.has(commandName) && current[commandName] !== undefined) {
+        issues.push(`Generated ${manifest.field.slice(0, -1)} ${commandName} in ${manifest.path} is obsolete. Run async-pipeline sync tasks generate.`);
+      }
+    }
   }
 
   if (!existingLock) {
@@ -284,7 +291,14 @@ async function writeManifestCommands(cwd: string, manifest: TaskSyncManifest, ex
     }
   }
 
+  const nextCommandNames = new Set(manifest.commands.map((command) => command.name));
   const nextCommands = { ...current };
+  for (const commandName of managed) {
+    if (!nextCommandNames.has(commandName)) {
+      delete nextCommands[commandName];
+    }
+  }
+
   for (const command of manifest.commands) {
     nextCommands[command.name] = command.value;
   }

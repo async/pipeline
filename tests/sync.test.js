@@ -219,6 +219,67 @@ test("detects stale synced task manifests and locks", async () => {
   }
 });
 
+test("prunes obsolete commands that were managed by the previous sync lock", async () => {
+  const dir = mkdtempSyncCompat("async-pipeline-sync-prune-");
+  try {
+    writeJson(join(dir, "package.json"), {
+      name: "fixture",
+      scripts: {
+        custom: "echo keep"
+      }
+    });
+    const pipelineWithOldTask = definePipeline({
+      name: "test",
+      sync: {
+        tasks: {
+          prefix: "pipeline",
+          runners: ["package"],
+          targets: "root",
+          jobs: [],
+          tasks: ["pages-build"]
+        }
+      },
+      tasks: {
+        "pages-build": task({ run: sh`echo old` }),
+        "docs.site": task({ run: sh`echo new` })
+      },
+      jobs: {}
+    });
+    const oldRendered = await renderTaskSync(pipelineWithOldTask, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+    await writeTaskSync(oldRendered, dir);
+
+    const pipelineWithNewTask = definePipeline({
+      name: "test",
+      sync: {
+        tasks: {
+          prefix: "pipeline",
+          runners: ["package"],
+          targets: "root",
+          jobs: [],
+          tasks: ["docs.site"]
+        }
+      },
+      tasks: {
+        "pages-build": task({ run: sh`echo old` }),
+        "docs.site": task({ run: sh`echo new` })
+      },
+      jobs: {}
+    });
+    const newRendered = await renderTaskSync(pipelineWithNewTask, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+    const staleIssues = await checkTaskSync(newRendered, dir);
+    assert.equal(staleIssues.some((issue) => issue.includes("pipeline:task:pages-build") && issue.includes("obsolete")), true);
+
+    await writeTaskSync(newRendered, dir);
+    const packageJson = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    assert.equal(packageJson.scripts.custom, "echo keep");
+    assert.equal(packageJson.scripts["pipeline:task:pages-build"], undefined);
+    assert.equal(packageJson.scripts["pipeline:task:docs.site"], "async-pipeline run-task docs.site");
+    assert.deepEqual(await checkTaskSync(newRendered, dir), []);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
 test("sync CLI generates and checks configured targets", () => {
   const dir = mkdtempSyncCompat("async-pipeline-sync-cli-");
   try {

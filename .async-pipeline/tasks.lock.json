@@ -38,6 +38,10 @@
           "value": "async-pipeline run verify"
         },
         {
+          "name": "pipeline:task:docs.site",
+          "value": "async-pipeline run-task docs.site"
+        },
+        {
           "name": "pipeline:api-surface",
           "value": "async-pipeline run-task api-surface"
         },
@@ -106,6 +110,10 @@
       "value": "async-pipeline run verify"
     },
     {
+      "name": "pipeline:task:docs.site",
+      "value": "async-pipeline run-task docs.site"
+    },
+    {
       "name": "pipeline:api-surface",
       "value": "async-pipeline run-task api-surface"
     },
@@ -150,6 +158,6 @@
       "value": "async-pipeline sync check"
     }
   ],
-  "hash": "sha256:7719187f502533330bcdae1dede6bfee1b598f044a09071d3d4725a5f71a3036",
-  "generatedAt": "2026-06-14T10:18:14.381Z"
+  "hash": "sha256:aac0659010424a7eda5f4036d8e8b82e65c95c385011ca54eb0e908ab22363d6",
+  "generatedAt": "2026-06-14T19:51:34.507Z"
 }
