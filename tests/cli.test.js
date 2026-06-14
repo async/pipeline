@@ -178,7 +178,7 @@ export default definePipeline({
   },
   tasks: {
     claims: {
-      index: task({ cache: false, run: sh\`echo claims\` }),
+      default: task({ cache: false, run: sh\`echo claims\` }),
       report: task({ cache: false, run: sh\`echo report\` })
     }
   },
@@ -194,7 +194,7 @@ export default definePipeline({
   name: "app",
   tasks: {
     claims: {
-      index: task({ cache: false, run: sh\`echo app claims\` }),
+      default: task({ cache: false, run: sh\`echo app claims\` }),
       report: task({ cache: false, run: sh\`echo app report\` })
     }
   },

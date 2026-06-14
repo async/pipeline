@@ -220,9 +220,9 @@
     {
       "id": "readme.task-group-flattening",
       "source": "README.md",
-      "anchor": "Nested task groups flatten with `.`: `claims.index` runs as `claims`, and `claims.report` runs as `claims.report`.",
+      "anchor": "Nested task groups flatten with `.`: `claims.default` runs as `claims`, and `claims.report` runs as `claims.report`.",
       "tests": [
-        "task groups flatten index paths and resolve group-local dependencies",
+        "task groups flatten default paths and resolve group-local dependencies",
         "run-task dry-run accepts local and source task group ids"
       ]
     },
@@ -278,9 +278,9 @@
     {
       "id": "api.task-group-flattening",
       "source": "docs/api.md",
-      "anchor": "Nested task groups flatten with `.`. A child named `index` is the group default, so `tasks.claims.index` normalizes to task id `claims`, while `tasks.claims.report` normalizes to `claims.report`.",
+      "anchor": "Nested task groups flatten with `.`. A child named `default` is the group default, so `tasks.claims.default` normalizes to task id `claims`, while `tasks.claims.report` normalizes to `claims.report`. `index` remains accepted as a compatibility alias for older task groups.",
       "tests": [
-        "task groups flatten index paths and resolve group-local dependencies"
+        "task groups flatten default paths and resolve group-local dependencies"
       ]
     },
     {
@@ -288,7 +288,7 @@
       "source": "docs/api.md",
       "anchor": "Within a task group, a dependency like `dependsOn: [\"report\"]` resolves to the group-local task `claims.report` when that task exists; source refs such as `storefront:claims.report` keep using `:` for the source namespace.",
       "tests": [
-        "task groups flatten index paths and resolve group-local dependencies",
+        "task groups flatten default paths and resolve group-local dependencies",
         "task groups keep source namespace parsing unchanged"
       ]
     },
@@ -297,7 +297,7 @@
       "source": "docs/api.md",
       "anchor": "Raw task objects still work, but branded `task({})` removes the empty-task ambiguity inside a group.",
       "tests": [
-        "task groups flatten index paths and resolve group-local dependencies"
+        "task groups flatten default paths and resolve group-local dependencies"
       ]
     },
     {

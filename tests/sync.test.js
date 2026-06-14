@@ -76,7 +76,7 @@ test("renders opt-in raw task scripts for flattened task group ids", async () =>
       },
       tasks: {
         claims: {
-          index: task({ run: sh`echo claims` }),
+          default: task({ run: sh`echo claims` }),
           report: task({ run: sh`echo report` })
         }
       },

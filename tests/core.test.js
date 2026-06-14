@@ -80,13 +80,13 @@ test("portable branded task and shell nodes normalize through validation", () =>
   }), /unknown field "extra"/);
 });
 
-test("task groups flatten index paths and resolve group-local dependencies", () => {
+test("task groups flatten default paths and resolve group-local dependencies", () => {
   const pipeline = definePipeline({
     name: "groups",
     tasks: {
       build: task({ run: sh`echo build` }),
       claims: {
-        index: task({ run: sh`echo claims` }),
+        default: task({ run: sh`echo claims` }),
         report: task({ run: sh`echo report` }),
         repair: task({ dependsOn: ["report"], run: sh`echo repair` })
       }
@@ -99,6 +99,23 @@ test("task groups flatten index paths and resolve group-local dependencies", () 
   assert.deepEqual(Object.keys(pipeline.tasks).sort(), ["build", "claims", "claims.repair", "claims.report"]);
   assert.deepEqual(pipeline.tasks["claims.repair"].dependsOn, ["claims.report"]);
   assert.deepEqual(tasksForJob(pipeline, "verify").executionOrder, ["claims.report", "claims.repair"]);
+});
+
+test("task groups keep index as a compatibility alias for group defaults", () => {
+  const pipeline = definePipeline({
+    name: "groups-index-alias",
+    tasks: {
+      claims: {
+        index: task({ run: sh`echo claims` })
+      }
+    },
+    jobs: {
+      verify: job({ target: "claims" })
+    }
+  });
+
+  assert.deepEqual(Object.keys(pipeline.tasks), ["claims"]);
+  assert.deepEqual(tasksForJob(pipeline, "verify").executionOrder, ["claims"]);
 });
 
 test("task groups reject invalid keys, collisions, and ambiguous dependencies", () => {

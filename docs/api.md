@@ -223,7 +223,7 @@ Fields:
 
 `dependsOn` is the author-facing dependency keyword.
 
-Nested task groups flatten with `.`. A child named `index` is the group default, so `tasks.claims.index` normalizes to task id `claims`, while `tasks.claims.report` normalizes to `claims.report`.
+Nested task groups flatten with `.`. A child named `default` is the group default, so `tasks.claims.default` normalizes to task id `claims`, while `tasks.claims.report` normalizes to `claims.report`. `index` remains accepted as a compatibility alias for older task groups.
 
 Within a task group, a dependency like `dependsOn: ["report"]` resolves to the group-local task `claims.report` when that task exists; source refs such as `storefront:claims.report` keep using `:` for the source namespace.
 

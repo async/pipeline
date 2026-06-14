@@ -940,7 +940,7 @@ function validateTaskTreeKey(key: string, path: string[]): void {
 }
 
 function taskTreeId(path: string[], key: string): TaskId {
-  const segments = key === "index" && path.length > 0 ? path : [...path, key];
+  const segments = path.length > 0 && (key === "default" || key === "index") ? path : [...path, key];
   return segments.join(".");
 }
 
