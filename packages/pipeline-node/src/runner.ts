@@ -5,8 +5,10 @@ import { availableParallelism } from "node:os";
 import { dirname, join, posix, relative } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { AgentStep, CandidateContext, CommandAction, CommandOutputPolicy, CommandPolicy, ContainerProvider, EnvValue, EnvVarRef, ExecutionProfileId, ExecutionRecord, NormalizedPipeline, NormalizedTask, ResolvedAgentStep, SandboxDefinition, SandboxId, ShellCommand, TaskContext, TaskResult, TaskRunFunction, TaskSourceContext, TaskStep } from "@async/pipeline-core";
-import { isAgentStep, isResolvedAgentStep, pipelineError, sh, tasksForJob } from "@async/pipeline-core";
-import { acquireRunLock, computeTaskCacheKey, computeTaskCacheKeyDetailed, createStore, diffInputManifests, outputFilesExist, readCacheEntry, readCacheInputManifest, readTaskBaseline, resolveOutputFiles, restoreCacheOutputs, writeAgentPrompt, writeAgentTranscript, writeCacheEntry, writeCacheInputManifest, writeContextPack, writeExecution, writeTaskBaseline, writeTaskLog, type PipelineStore, type TaskContextPack, type TaskInputManifest } from "./store.js";
+import { isAgentStep, isResolvedAgentStep, pipelineError, sh } from "@async/pipeline-core";
+import type { DefinitionGraphNode, ExecutionGraph } from "@async/pipeline-core/graph";
+import { selectJobExecutionGraph, snapshotExecutionGraph } from "@async/pipeline-core/graph";
+import { acquireRunLock, computeTaskCacheKey, computeTaskCacheKeyDetailed, createStore, diffInputManifests, outputFilesExist, readCacheEntry, readCacheInputManifest, readTaskBaseline, resolveOutputFiles, restoreCacheOutputs, writeAgentPrompt, writeAgentTranscript, writeCacheEntry, writeCacheInputManifest, writeContextPack, writeExecution, writeGraphSnapshot, writeTaskBaseline, writeTaskCacheReceipt, writeTaskLog, type PipelineStore, type TaskCacheReceipt, type TaskContextPack, type TaskInputManifest } from "./store.js";
 import { createRunPlan, sourceContext, type ResolvedSource } from "./sources.js";
 
 export interface CommandResult {
@@ -342,6 +344,14 @@ interface ScheduledTaskExecution {
   taskResult?: TaskResult;
 }
 
+interface ExecutionSchedule {
+  graph: ExecutionGraph;
+  executionOrder: ExecutionGraph["executionOrder"];
+  runnableTaskIds: string[];
+  graphIndex: Map<string, number>;
+  graphNodes: Map<string, DefinitionGraphNode>;
+}
+
 export interface RunTarget {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
@@ -385,7 +395,7 @@ async function runJobLocked(
   store: PipelineStore
 ): Promise<ExecutionRecord> {
   const plan = await createRunPlan(pipeline, context.cwd, store);
-  const graph = tasksForJob(plan.pipeline, options.id);
+  const schedule = executionScheduleForJob(plan.pipeline, options.id);
   const record: ExecutionRecord = {
     schemaVersion: 1,
     id: `${new Date().toISOString().replaceAll(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`,
@@ -401,6 +411,7 @@ async function runJobLocked(
   };
 
   await writeExecution(store, record);
+  await writeGraphSnapshot(store, record.id, snapshotExecutionGraph(schedule.graph, { jobId: options.id }));
   const jobDefinition = plan.pipeline.jobs[options.id];
   const envDefinitions = {
     ...plan.pipeline.env,
@@ -408,9 +419,7 @@ async function runJobLocked(
   };
   const taskFingerprints = new Map<string, string>();
   const concurrency = normalizeTaskConcurrency(options.concurrency);
-  const graphIndex = new Map(graph.executionOrder.map((taskId, index) => [taskId, index]));
-  const graphNodes = new Map(graph.tasks.map((node) => [node.id, node]));
-  const runnableTaskIds = graph.executionOrder.filter((taskId) => Boolean(plan.pipeline.tasks[taskId]));
+  const { graphIndex, graphNodes, runnableTaskIds } = schedule;
   const dependencyCounts = new Map<string, number>();
   const sourcePrepareOrder = new Map<string, number>();
   const recordedResults = new Map<string, { order: number; result: TaskResult }>();
@@ -478,6 +487,7 @@ async function runJobLocked(
       }
     }
 
+    const graphNode = graphNodes.get(taskId);
     const result = await runTask(plan.pipeline, taskDefinition, {
       candidate: plan.candidate,
       cwd: taskDefinition.source?.dir || context.cwd,
@@ -493,10 +503,8 @@ async function runJobLocked(
         runId: record.id,
         contextEnv: context.env
       }) : [],
-      dependencyFingerprints: Object.fromEntries(taskDefinition.dependsOn.map((dependency) => [
-        dependency,
-        taskFingerprints.get(dependency) ?? null
-      ])),
+      dependencyFingerprints: dependencyFingerprintsForTask(graphNodes, taskId, taskDefinition.dependsOn, taskFingerprints),
+      graphNodeFingerprint: graphNode?.fingerprint,
       force: options.force,
       echo: options.echo,
       store
@@ -602,7 +610,7 @@ export async function planJob(pipeline: NormalizedPipeline, options: { id: strin
   const context = resolveExecutionContext(pipeline, options);
   const store = await createStore(context.cwd);
   const plan = await createRunPlan(pipeline, context.cwd, store);
-  const graph = tasksForJob(plan.pipeline, options.id);
+  const schedule = executionScheduleForJob(plan.pipeline, options.id);
   const jobDefinition = plan.pipeline.jobs[options.id];
   const envDefinitions = {
     ...plan.pipeline.env,
@@ -611,7 +619,7 @@ export async function planJob(pipeline: NormalizedPipeline, options: { id: strin
   const fingerprints = new Map<string, string | null>();
   const entries: TaskPlanEntry[] = [];
 
-  for (const taskId of graph.executionOrder) {
+  for (const taskId of schedule.executionOrder) {
     const taskDefinition = plan.pipeline.tasks[taskId];
     if (!taskDefinition) continue;
     try {
@@ -645,10 +653,7 @@ export async function planJob(pipeline: NormalizedPipeline, options: { id: strin
         : [];
       const cacheKey = await computeTaskCacheKey(plan.pipeline, taskDefinition, taskCwd, {
         candidate: plan.candidate,
-        dependencyFingerprints: Object.fromEntries(taskDefinition.dependsOn.map((dependency) => [
-          dependency,
-          fingerprints.get(dependency) ?? null
-        ])),
+        dependencyFingerprints: dependencyFingerprintsForTask(schedule.graphNodes, taskId, taskDefinition.dependsOn, fingerprints),
         prepareCommands,
         source: taskDefinition.source,
         steps
@@ -678,7 +683,33 @@ export async function planJob(pipeline: NormalizedPipeline, options: { id: strin
     }
   }
 
-  return { jobId: options.id, executionOrder: graph.executionOrder, entries };
+  return { jobId: options.id, executionOrder: schedule.executionOrder, entries };
+}
+
+function executionScheduleForJob(pipeline: NormalizedPipeline, jobId: string): ExecutionSchedule {
+  const graph = selectJobExecutionGraph(pipeline, jobId);
+  const executionOrder = graph.executionOrder;
+  return {
+    graph,
+    executionOrder,
+    runnableTaskIds: executionOrder.filter((taskId) => Boolean(pipeline.tasks[taskId])),
+    graphIndex: new Map(executionOrder.map((taskId, index) => [taskId, index])),
+    graphNodes: new Map(Object.values(graph.nodes).map((node) => [node.id, node]))
+  };
+}
+
+function dependencyFingerprintsForTask(
+  graphNodes: Map<string, DefinitionGraphNode>,
+  taskId: string,
+  fallbackDependsOn: readonly string[],
+  fingerprints: ReadonlyMap<string, string | null>
+): Record<string, string | null> {
+  const graphDependsOn = graphNodes.get(taskId)?.dependsOn;
+  const dependencies = graphDependsOn ?? [...fallbackDependsOn];
+  return Object.fromEntries(dependencies.map((dependency) => [
+    dependency,
+    fingerprints.get(dependency) ?? null
+  ]));
 }
 
 export async function runSingleTask(pipeline: NormalizedPipeline, taskId: string, options: RunSingleTaskOptions = {}): Promise<ExecutionRecord> {
@@ -706,6 +737,7 @@ async function runTask(
     envDefinitions: Record<string, EnvValue>;
     sourcePrepareCommands?: ShellCommand[];
     dependencyFingerprints?: Record<string, string | null>;
+    graphNodeFingerprint?: string;
     force?: boolean;
     echo?: boolean;
     contextEnv: NodeJS.ProcessEnv;
@@ -716,6 +748,21 @@ async function runTask(
   const startedAt = new Date().toISOString();
   const metadata: Record<string, string | number | boolean | null> = {};
   const taskLog = cappedBuffer(resolveMaxLogBytes(options.contextEnv));
+  const writeCacheReceipt = (receipt: Pick<TaskCacheReceipt, "decision"> & Partial<Omit<TaskCacheReceipt, "schemaVersion" | "task" | "runId" | "cacheEnabled" | "decision" | "dependencyFingerprints" | "recordedAt">>): Promise<void> =>
+    writeTaskCacheReceipt(options.store, options.runId, taskDefinition.id, {
+      schemaVersion: 1,
+      task: taskDefinition.id,
+      runId: options.runId,
+      cacheEnabled: Boolean(taskDefinition.cache.enabled),
+      decision: receipt.decision,
+      dependencyFingerprints: options.dependencyFingerprints ?? {},
+      recordedAt: new Date().toISOString(),
+      ...(options.graphNodeFingerprint === undefined ? {} : { graphNodeFingerprint: options.graphNodeFingerprint }),
+      ...(receipt.cacheKey === undefined ? {} : { cacheKey: receipt.cacheKey }),
+      ...(receipt.reason === undefined ? {} : { reason: receipt.reason }),
+      ...(receipt.restoredOutputs === undefined ? {} : { restoredOutputs: receipt.restoredOutputs }),
+      ...(receipt.inputManifestRecorded === undefined ? {} : { inputManifestRecorded: receipt.inputManifestRecorded })
+    });
   let taskEnv: NodeJS.ProcessEnv;
   let envSecretValues: string[] = [];
   let forwardEnvKeys: string[] = [];
@@ -733,6 +780,7 @@ async function runTask(
   } catch (error) {
     const lastError = error instanceof Error ? error.message : String(error);
     await writeTaskLog(options.store, options.runId, taskDefinition.id, `[env] ${lastError}\n`);
+    await writeCacheReceipt({ decision: "unknown", reason: lastError });
     return {
       id: taskDefinition.id,
       status: "failed",
@@ -764,15 +812,38 @@ async function runTask(
       .filter((value): value is string => typeof value === "string" && value.length > 0)
   ];
   const redactLog = (log: string): string => redactKnownValues(log, redactValues);
-  const resolvedSteps = await resolveTaskSteps(pipeline.agents, taskDefinition.steps, context);
-  const { cacheKey, inputs: inputManifest } = await computeTaskCacheKeyDetailed(pipeline, taskDefinition, options.cwd, {
-    candidate: options.candidate,
-    dependencyFingerprints: options.dependencyFingerprints,
-    prepareCommands: (options.sourcePrepareCommands ?? []).map((command) => command.command),
-    source: options.source,
-    steps: resolvedSteps
-  });
+  let resolvedSteps: TaskStep[];
+  let cacheKey: string;
+  let inputManifest: TaskInputManifest;
+  try {
+    resolvedSteps = await resolveTaskSteps(pipeline.agents, taskDefinition.steps, context);
+    const detailedCacheKey = await computeTaskCacheKeyDetailed(pipeline, taskDefinition, options.cwd, {
+      candidate: options.candidate,
+      dependencyFingerprints: options.dependencyFingerprints,
+      prepareCommands: (options.sourcePrepareCommands ?? []).map((command) => command.command),
+      source: options.source,
+      steps: resolvedSteps
+    });
+    cacheKey = detailedCacheKey.cacheKey;
+    inputManifest = detailedCacheKey.inputs;
+  } catch (error) {
+    const lastError = redactLog(error instanceof Error ? error.message : String(error));
+    await writeTaskLog(options.store, options.runId, taskDefinition.id, `[cache] ${lastError}\n`);
+    await writeCacheReceipt({ decision: "unknown", reason: lastError });
+    return {
+      id: taskDefinition.id,
+      status: "failed",
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      durationMs: Date.now() - started,
+      attempts: 0,
+      cacheHit: false,
+      error: lastError,
+      metadata
+    };
+  }
 
+  let cacheReceipt: (Pick<TaskCacheReceipt, "decision" | "cacheKey"> & Partial<Pick<TaskCacheReceipt, "reason" | "restoredOutputs" | "inputManifestRecorded">>) | null = null;
   if (taskDefinition.cache.enabled && !options.force) {
     const cached = await readTaskCacheEntry(taskDefinition, options.store, cacheKey);
     if (cached?.status === "passed") {
@@ -796,11 +867,30 @@ async function runTask(
           await writeCacheInputManifest(options.store, cacheKey, inputManifest);
         }
         await writeTaskBaseline(options.store, taskDefinition.id, cacheKey);
+        await writeCacheReceipt({
+          decision: "hit",
+          cacheKey,
+          inputManifestRecorded: true,
+          ...(taskDefinition.outputs.length > 0 ? { restoredOutputs: true } : {})
+        });
         return result;
       }
+      cacheReceipt = { decision: "miss", cacheKey, reason: cacheHit.reason, inputManifestRecorded: false };
       taskLog.append(`[cache miss] ${cacheHit.reason}\n`);
+    } else {
+      cacheReceipt = {
+        decision: "miss",
+        cacheKey,
+        reason: cached ? `cache entry status ${cached.status}` : "no cache entry",
+        inputManifestRecorded: false
+      };
     }
+  } else if (taskDefinition.cache.enabled && options.force) {
+    cacheReceipt = { decision: "bypassed", cacheKey, reason: "forced run", inputManifestRecorded: false };
+  } else {
+    cacheReceipt = { decision: "disabled", cacheKey, reason: "task cache disabled", inputManifestRecorded: false };
   }
+  await writeCacheReceipt(cacheReceipt);
 
   let attempts = 0;
   let lastError = "";
@@ -882,6 +972,9 @@ async function runTask(
         await writeTaskCacheEntry(taskDefinition, options.store, cacheKey, result, options.cwd);
         await writeCacheInputManifest(options.store, cacheKey, inputManifest);
         await writeTaskBaseline(options.store, taskDefinition.id, cacheKey);
+        if (cacheReceipt) {
+          await writeCacheReceipt({ ...cacheReceipt, inputManifestRecorded: true });
+        }
       }
       return result;
     } catch (error) {

@@ -4,6 +4,7 @@ import { copyFile, mkdir, open, readdir, readFile, rename, rm, stat, utimes, wri
 import { dirname, isAbsolute, join, relative } from "node:path";
 import type { CandidateContext, EnvVarRef, ExecutionRecord, NormalizedPipeline, NormalizedTask, TaskCacheOptions, TaskResult, TaskSourceContext, TaskStep } from "@async/pipeline-core";
 import { DEFAULT_PIPELINE_CONFIG_FILES, expandInputs } from "@async/pipeline-core";
+import type { ExecutionGraphSnapshot } from "@async/pipeline-core/graph";
 
 export interface PipelineStore {
   root: string;
@@ -81,6 +82,12 @@ export async function writeExecution(store: PipelineStore, record: ExecutionReco
   await mkdir(runDir, { recursive: true });
   await writeFileAtomic(join(runDir, "execution.json"), `${JSON.stringify(record, null, 2)}\n`);
   await writeFileAtomic(join(runDir, "summary.md"), renderSummary(record));
+}
+
+export async function writeGraphSnapshot(store: PipelineStore, runId: string, snapshot: ExecutionGraphSnapshot): Promise<void> {
+  const runDir = join(store.runsDir, runId);
+  await mkdir(runDir, { recursive: true });
+  await writeFileAtomic(join(runDir, "graph.json"), `${JSON.stringify(snapshot, null, 2)}\n`);
 }
 
 export async function writeTaskLog(store: PipelineStore, runId: string, taskId: string, log: string): Promise<void> {
@@ -364,6 +371,49 @@ export async function readContextPacks(store: PipelineStore, runId: string): Pro
     }
   }
   return packs;
+}
+
+export type TaskCacheDecision = "hit" | "miss" | "disabled" | "bypassed" | "unknown";
+
+export interface TaskCacheReceipt {
+  schemaVersion: 1;
+  task: string;
+  runId: string;
+  cacheEnabled: boolean;
+  decision: TaskCacheDecision;
+  dependencyFingerprints: Record<string, string | null>;
+  recordedAt: string;
+  cacheKey?: string;
+  graphNodeFingerprint?: string;
+  reason?: string;
+  restoredOutputs?: boolean;
+  inputManifestRecorded?: boolean;
+}
+
+export async function writeTaskCacheReceipt(store: PipelineStore, runId: string, taskId: string, receipt: TaskCacheReceipt): Promise<void> {
+  const cacheDir = join(store.runsDir, runId, "cache");
+  await mkdir(cacheDir, { recursive: true });
+  await writeFileAtomic(join(cacheDir, `${safeFileName(taskId)}.json`), `${JSON.stringify(receipt, null, 2)}\n`);
+}
+
+export async function readTaskCacheReceipts(store: PipelineStore, runId: string): Promise<TaskCacheReceipt[]> {
+  const cacheDir = join(store.runsDir, runId, "cache");
+  let entries: string[];
+  try {
+    entries = await readdir(cacheDir);
+  } catch {
+    return [];
+  }
+  const receipts: TaskCacheReceipt[] = [];
+  for (const entry of entries.sort()) {
+    if (!entry.endsWith(".json")) continue;
+    try {
+      receipts.push(JSON.parse(await readFile(join(cacheDir, entry), "utf8")) as TaskCacheReceipt);
+    } catch {
+      // Unreadable receipts are skipped, not fatal: receipts are evidence, not state.
+    }
+  }
+  return receipts;
 }
 
 export interface TaskInputManifest {

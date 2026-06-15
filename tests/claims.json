@@ -76,6 +76,38 @@
       ]
     },
     {
+      "id": "how-it-works.graph-snapshot",
+      "source": "docs/how-it-works.md",
+      "anchor": "`graph.json` is the selected job's graph snapshot.",
+      "tests": [
+        "PROMISE: run records include a graph snapshot with node fingerprints"
+      ]
+    },
+    {
+      "id": "local-runs.graph-snapshot",
+      "source": "docs/local-runs.md",
+      "anchor": "`graph.json` records the selected job's execution order and node fingerprints.",
+      "tests": [
+        "PROMISE: run records include a graph snapshot with node fingerprints"
+      ]
+    },
+    {
+      "id": "how-it-works.cache-receipts",
+      "source": "docs/how-it-works.md",
+      "anchor": "Cache receipts under `.async/runs/<run-id>/cache/` record hit, miss, disabled, or forced-bypass decisions with the task cache key, dependency fingerprints, and graph node fingerprint, without storing file contents or secret values.",
+      "tests": [
+        "PROMISE: cache receipts record cache decisions without file contents"
+      ]
+    },
+    {
+      "id": "local-runs.cache-receipts",
+      "source": "docs/local-runs.md",
+      "anchor": "Per-task cache receipts under `.async/runs/<run-id>/cache/` explain whether each task was a cache hit, cache miss, cache-disabled run, or forced bypass, including dependency fingerprints without recording input file contents or secret values.",
+      "tests": [
+        "PROMISE: cache receipts record cache decisions without file contents"
+      ]
+    },
+    {
       "id": "readme.config-walk-up",
       "source": "README.md",
       "anchor": "The CLI finds `pipeline.ts`, `pipeline.js`, `pipeline.mjs`, or `pipeline.mts` from any subdirectory by walking up.",
@@ -117,6 +149,22 @@
       "anchor": "Generate and check a pinned GitHub Actions workflow from `pipeline.ts`.",
       "tests": [
         "github generate writes a current workflow and lock",
+        "renders github workflow triggers and bootloader steps"
+      ]
+    },
+    {
+      "id": "github-actions.run-evidence-artifact",
+      "source": "docs/github-actions.md",
+      "anchor": "Each generated job also runs `async-pipeline explain --run latest` on failure and uploads `.async/runs` with a pinned `actions/upload-artifact` step.",
+      "tests": [
+        "renders github workflow triggers and bootloader steps"
+      ]
+    },
+    {
+      "id": "github-actions.task-cache-step",
+      "source": "docs/github-actions.md",
+      "anchor": "The generated workflow persists `.async/cache` through the generated `actions/cache` step when `sync.github.cache` is true.",
+      "tests": [
         "renders github workflow triggers and bootloader steps"
       ]
     },
@@ -913,11 +961,27 @@
       ]
     },
     {
+      "id": "api.cache-receipts",
+      "source": "docs/api.md",
+      "anchor": "Every run also writes cache receipts under `.async/runs/<run-id>/cache/<task>.json`.",
+      "tests": [
+        "PROMISE: cache receipts record cache decisions without file contents"
+      ]
+    },
+    {
       "id": "api.explain-diff-inputs",
       "source": "docs/api.md",
       "anchor": "`explain <task> --diff-inputs` reports the files that changed since the task last passed",
       "tests": [
-        "PROMISE: explain --diff-inputs reports the files that changed since a task last passed"
+        "PROMISE: explain reports changed inputs and run evidence"
+      ]
+    },
+    {
+      "id": "api.explain-run-evidence",
+      "source": "docs/api.md",
+      "anchor": "async-pipeline explain --run <run-id|latest>      # human summary of run evidence",
+      "tests": [
+        "PROMISE: explain reports changed inputs and run evidence"
       ]
     },
     {

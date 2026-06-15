@@ -127,7 +127,7 @@ test("context packs name registered claims whose test titles appear in the faili
   }
 });
 
-test("PROMISE: explain --diff-inputs reports the files that changed since a task last passed", async () => {
+test("PROMISE: explain reports changed inputs and run evidence", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-explain-diff-"));
   try {
     await writeFile(join(dir, "pipeline.mjs"), `import { definePipeline, job, sh, task } from ${JSON.stringify(DIST)};
@@ -154,15 +154,19 @@ export default definePipeline({
     assert.deepEqual(diff.changed, ["seed.txt"]);
     assert.deepEqual(diff.added, []);
 
-    // explain --run surfaces the context packs of a failing run.
+    // explain --run surfaces the run evidence and context packs of a failing run.
     await writeFile(join(dir, "seed.txt"), "FAIL\n");
     const failed = await execFileAsync(process.execPath, [CLI, "run", "verify", "--format", "json"], { cwd: dir, env: RUN_ENV }).catch((error) => error);
     const record = JSON.parse(failed.stdout);
     assert.equal(record.status, "failed");
-    const packs = JSON.parse((await execFileAsync(process.execPath, [CLI, "explain", "--run", record.id, "--format", "json"], { cwd: dir, env: RUN_ENV })).stdout);
-    assert.equal(packs.length, 1);
-    assert.equal(packs[0].task, "check");
-    assert.deepEqual(packs[0].inputDiff.changed, ["seed.txt"]);
+    const evidence = JSON.parse((await execFileAsync(process.execPath, [CLI, "explain", "--run", record.id, "--format", "json"], { cwd: dir, env: RUN_ENV })).stdout);
+    assert.equal(evidence.runId, record.id);
+    assert.equal(evidence.contextPacks.length, 1);
+    assert.equal(evidence.contextPacks[0].task, "check");
+    assert.deepEqual(evidence.contextPacks[0].inputDiff.changed, ["seed.txt"]);
+    assert.equal(evidence.tasks.find((entry) => entry.id === "check").contextPack.task, "check");
+    const latest = JSON.parse((await execFileAsync(process.execPath, [CLI, "explain", "--run", "latest", "--format", "json"], { cwd: dir, env: RUN_ENV })).stdout);
+    assert.equal(latest.runId, record.id);
   } finally {
     await rm(dir, { force: true, recursive: true });
   }

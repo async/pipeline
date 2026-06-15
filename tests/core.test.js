@@ -182,6 +182,29 @@ test("orders tasks deterministically with dependencies before dependents", () =>
   assert.deepEqual(tasksForJob(pipeline, "verify").executionOrder, ["typecheck", "test", "build"]);
 });
 
+test("buildGraph projection preserves public dependency and dependent shape", () => {
+  const pipeline = definePipeline({
+    name: "graph-projection",
+    tasks: {
+      build: task({ dependsOn: ["typecheck", "test"], run: sh`echo build` }),
+      typecheck: task({ run: sh`echo typecheck` }),
+      test: task({ dependsOn: ["typecheck"], run: sh`echo test` })
+    },
+    jobs: {
+      verify: job({ target: "build" })
+    }
+  });
+
+  assert.deepEqual(buildGraph(pipeline), {
+    tasks: [
+      { id: "build", dependsOn: ["test", "typecheck"], dependents: [] },
+      { id: "test", dependsOn: ["typecheck"], dependents: ["build"] },
+      { id: "typecheck", dependsOn: [], dependents: ["build", "test"] }
+    ],
+    executionOrder: ["typecheck", "test", "build"]
+  });
+});
+
 test("rejects missing dependencies", () => {
   assert.throws(() => definePipeline({
     name: "test",

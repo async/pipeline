@@ -73,6 +73,18 @@ jobs:
         with:
           path: ".async/pages"
 
+      - name: Explain async-pipeline run
+        if: failure()
+        run: pnpm async-pipeline explain --run latest || true
+
+      - name: Upload async-pipeline run evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: async-pipeline-${{ github.job }}-runs
+          path: .async/runs
+          if-no-files-found: ignore
+
   pages-deploy:
     name: pages-deploy
     needs: "pages"
@@ -137,6 +149,18 @@ jobs:
           CI: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Explain async-pipeline run
+        if: failure()
+        run: pnpm async-pipeline explain --run latest || true
+
+      - name: Upload async-pipeline run evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: async-pipeline-${{ github.job }}-runs
+          path: .async/runs
+          if-no-files-found: ignore
+
   publish:
     name: publish
     if: (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'publish') || (github.event_name == 'release')
@@ -191,6 +215,18 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Explain async-pipeline run
+        if: failure()
+        run: pnpm async-pipeline explain --run latest || true
+
+      - name: Upload async-pipeline run evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: async-pipeline-${{ github.job }}-runs
+          path: .async/runs
+          if-no-files-found: ignore
+
   snapshot:
     name: snapshot
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main')
@@ -236,6 +272,18 @@ jobs:
         env:
           CI: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Explain async-pipeline run
+        if: failure()
+        run: pnpm async-pipeline explain --run latest || true
+
+      - name: Upload async-pipeline run evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: async-pipeline-${{ github.job }}-runs
+          path: .async/runs
+          if-no-files-found: ignore
 
   verify:
     name: verify (${{ join(matrix.runner, ' ') }})
@@ -284,3 +332,15 @@ jobs:
         run: pnpm async-pipeline run verify
         env:
           CI: true
+
+      - name: Explain async-pipeline run
+        if: failure()
+        run: pnpm async-pipeline explain --run latest || true
+
+      - name: Upload async-pipeline run evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: async-pipeline-${{ github.job }}-runs
+          path: .async/runs
+          if-no-files-found: ignore

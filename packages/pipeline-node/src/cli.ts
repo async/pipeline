@@ -3,14 +3,14 @@ import { existsSync, realpathSync } from "node:fs";
 import { readFile, readdir, rm } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { DEFAULT_PIPELINE_CONFIG_FILES, buildGraph, composePipelines, tasksForJob, type ContainerProvider, type NormalizedPipeline } from "@async/pipeline-core";
+import { DEFAULT_PIPELINE_CONFIG_FILES, buildGraph, composePipelines, tasksForJob, type ContainerProvider, type ExecutionRecord, type NormalizedPipeline, type TaskResult } from "@async/pipeline-core";
 import { runDoctor } from "./doctor.js";
 import { checkGitHubWorkflow, jobsForGitHubEvent, readGitHubEventContext, renderGitHubWorkflow, writeGitHubWorkflow } from "./github.js";
 import { loadPipeline } from "./loader.js";
 import { beginShutdown, commandProxy, planJob, runJob, runSingleTask, shutdownExitCode, type CommandResult, type PipelineCommands } from "./runner.js";
 import { runMcpServer } from "./mcp.js";
 import { ensureGitHubRelease, publishGitHubPackage, publishNpmPackage, runLifecycleCli, runReleaseDoctor, type GitHubPackagePublishMode } from "./package-lifecycle.js";
-import { computeTaskInputManifest, createStore, diffInputManifests, pruneCacheEntries, readCacheInputManifest, readContextPacks, readTaskBaseline } from "./store.js";
+import { computeTaskInputManifest, createStore, diffInputManifests, pruneCacheEntries, readCacheInputManifest, readContextPacks, readTaskBaseline, readTaskCacheReceipts, type TaskCacheReceipt, type TaskContextPack } from "./store.js";
 import { matrixForJob, readPipelineMetadata, resolveSources, sourceContext } from "./sources.js";
 import { checkTaskSync, describeTaskSync, renderTaskSync, writeTaskSync } from "./sync.js";
 
@@ -270,30 +270,13 @@ async function dispatchCommand(commandName: string, args: string[], context: Pip
     const runIndex = args.indexOf("--run");
     if (runIndex >= 0) {
       const runId = args[runIndex + 1];
-      if (!runId || runId.startsWith("--")) throw new Error(`Usage: ${program} explain --run <run-id> [--format json]`);
-      const packs = await readContextPacks(store, runId);
+      if (!runId || runId.startsWith("--")) throw new Error(`Usage: ${program} explain --run <run-id|latest> [--format json]`);
+      const evidence = await readRunEvidence(store, runId);
       if (explainFormat === "json") {
-        context.stdout(`${JSON.stringify(packs, null, 2)}\n`);
+        context.stdout(`${JSON.stringify(evidence, null, 2)}\n`);
         return 0;
       }
-      if (packs.length === 0) {
-        context.stdout(`No context packs recorded for run ${runId}.\n`);
-        return 0;
-      }
-      for (const pack of packs) {
-        context.stdout(`Task ${pack.task} failed after ${pack.attempts} attempt${pack.attempts === 1 ? "" : "s"}: ${pack.error}\n`);
-        if ("baselineMissing" in pack.inputDiff) {
-          context.stdout("  inputs: no passing baseline recorded\n");
-        } else {
-          const diff = pack.inputDiff;
-          context.stdout(`  inputs vs last pass: ${diff.changed.length} changed, ${diff.added.length} added, ${diff.removed.length} removed\n`);
-          for (const path of diff.changed) context.stdout(`    ~ ${path}\n`);
-          for (const path of diff.added) context.stdout(`    + ${path}\n`);
-          for (const path of diff.removed) context.stdout(`    - ${path}\n`);
-        }
-        if (pack.claims?.length) context.stdout(`  claims touched: ${pack.claims.join(", ")}\n`);
-        context.stdout(`  reproduce: ${pack.reproduce}\n`);
-      }
+      context.stdout(renderRunEvidenceText(evidence));
       return 0;
     }
 
@@ -621,6 +604,228 @@ async function handleSourcesCommand(args: string[], context: PipelineCliContext)
   throw new Error(`Unknown sources command "${subcommand}".`);
 }
 
+interface RunGraphEvidenceNode {
+  id: string;
+  kind?: string;
+  fingerprint?: string;
+  dependsOn?: string[];
+  dependents?: string[];
+  inputs?: string[];
+  outputs?: string[];
+  effects?: Array<Record<string, unknown>>;
+  source?: string;
+}
+
+interface RunGraphEvidence {
+  schemaVersion?: number;
+  pipelineName?: string;
+  jobId?: string;
+  executionOrder?: string[];
+  nodes?: RunGraphEvidenceNode[];
+}
+
+interface RunEvidenceTask {
+  id: string;
+  status?: TaskResult["status"];
+  attempts?: number;
+  cacheKey?: string;
+  cacheHit?: boolean;
+  durationMs?: number;
+  graphNodeFingerprint?: string;
+  dependsOn: string[];
+  dependents: string[];
+  effects: Array<Record<string, unknown>>;
+  cache?: TaskCacheReceipt;
+  error?: string;
+  contextPack?: TaskContextPack;
+  logPath: string;
+}
+
+interface RunEvidence {
+  schemaVersion: 1;
+  runId: string;
+  requestedRunId: string;
+  pipelineName: string;
+  jobId: string;
+  status: ExecutionRecord["status"];
+  startedAt: string;
+  finishedAt?: string;
+  executionOrder: string[];
+  tasks: RunEvidenceTask[];
+  cacheReceipts: TaskCacheReceipt[];
+  contextPacks: TaskContextPack[];
+  paths: {
+    execution: string;
+    graph: string;
+    cache: string;
+    context: string;
+    logs: string;
+  };
+}
+
+async function readRunEvidence(store: ReturnType<typeof virtualStore>, requestedRunId: string): Promise<RunEvidence> {
+  const runId = await resolveRunId(store, requestedRunId);
+  const runDir = join(store.runsDir, runId);
+  const executionPath = join(runDir, "execution.json");
+  const execution = await readJsonFile<ExecutionRecord>(executionPath);
+  if (!execution) throw new Error(`Run "${runId}" was not found or has no execution record.`);
+  const graph = await readJsonFile<RunGraphEvidence>(join(runDir, "graph.json"));
+  const cacheReceipts = await readTaskCacheReceipts(store, runId);
+  const contextPacks = await readContextPacks(store, runId);
+  const paths = {
+    execution: `.async/runs/${runId}/execution.json`,
+    graph: `.async/runs/${runId}/graph.json`,
+    cache: `.async/runs/${runId}/cache`,
+    context: `.async/runs/${runId}/context`,
+    logs: `.async/runs/${runId}/logs`
+  };
+  return {
+    schemaVersion: 1,
+    runId,
+    requestedRunId,
+    pipelineName: execution.pipelineName,
+    jobId: execution.jobId,
+    status: execution.status,
+    startedAt: execution.startedAt,
+    ...(execution.finishedAt === undefined ? {} : { finishedAt: execution.finishedAt }),
+    executionOrder: graph?.executionOrder ?? execution.tasks.map((task) => task.id),
+    tasks: buildRunEvidenceTasks(execution, graph, cacheReceipts, contextPacks, paths.logs),
+    cacheReceipts,
+    contextPacks,
+    paths
+  };
+}
+
+async function resolveRunId(store: ReturnType<typeof virtualStore>, requestedRunId: string): Promise<string> {
+  if (requestedRunId !== "latest") return requestedRunId;
+  let entries: Array<{ isDirectory(): boolean; name: string }>;
+  try {
+    entries = await readdir(store.runsDir, { withFileTypes: true });
+  } catch {
+    throw new Error("No run records found.");
+  }
+  const candidates = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+    .reverse();
+  for (const candidate of candidates) {
+    if (existsSync(join(store.runsDir, candidate, "execution.json"))) return candidate;
+  }
+  throw new Error("No run records found.");
+}
+
+async function readJsonFile<T>(path: string): Promise<T | null> {
+  try {
+    return JSON.parse(await readFile(path, "utf8")) as T;
+  } catch {
+    return null;
+  }
+}
+
+function buildRunEvidenceTasks(
+  execution: ExecutionRecord,
+  graph: RunGraphEvidence | null,
+  cacheReceipts: TaskCacheReceipt[],
+  contextPacks: TaskContextPack[],
+  logsPath: string
+): RunEvidenceTask[] {
+  const graphNodes = new Map((graph?.nodes ?? []).map((node) => [node.id, node]));
+  const taskResults = new Map(execution.tasks.map((task) => [task.id, task]));
+  const cacheByTask = new Map(cacheReceipts.map((receipt) => [receipt.task, receipt]));
+  const packByTask = new Map(contextPacks.map((pack) => [pack.task, pack]));
+  const graphIndex = new Map((graph?.executionOrder ?? []).map((taskId, index) => [taskId, index]));
+  const resultIndex = new Map(execution.tasks.map((task, index) => [task.id, index]));
+  const taskIds = new Set<string>([
+    ...(graph?.executionOrder ?? []),
+    ...execution.tasks.map((task) => task.id),
+    ...cacheReceipts.map((receipt) => receipt.task),
+    ...contextPacks.map((pack) => pack.task)
+  ]);
+
+  return [...taskIds]
+    .sort((left, right) => taskEvidenceSort(left, right, graphIndex, resultIndex))
+    .map((taskId) => {
+      const task = taskResults.get(taskId);
+      const graphNode = graphNodes.get(taskId);
+      const cache = cacheByTask.get(taskId);
+      const pack = packByTask.get(taskId);
+      return {
+        id: taskId,
+        ...(task?.status === undefined ? {} : { status: task.status }),
+        ...(task?.attempts === undefined ? {} : { attempts: task.attempts }),
+        ...(task?.cacheKey === undefined && cache?.cacheKey === undefined ? {} : { cacheKey: task?.cacheKey ?? cache?.cacheKey }),
+        ...(task?.cacheHit === undefined ? {} : { cacheHit: task.cacheHit }),
+        ...(task?.durationMs === undefined ? {} : { durationMs: task.durationMs }),
+        ...(graphNode?.fingerprint === undefined && cache?.graphNodeFingerprint === undefined ? {} : { graphNodeFingerprint: graphNode?.fingerprint ?? cache?.graphNodeFingerprint }),
+        dependsOn: graphNode?.dependsOn ?? [],
+        dependents: graphNode?.dependents ?? [],
+        effects: graphNode?.effects ?? [],
+        ...(cache === undefined ? {} : { cache }),
+        ...(task?.error === undefined && pack?.error === undefined ? {} : { error: task?.error ?? pack?.error }),
+        ...(pack === undefined ? {} : { contextPack: pack }),
+        logPath: `${logsPath}/${taskId.replaceAll(/[^a-zA-Z0-9._-]/g, "_")}.log`
+      };
+    });
+}
+
+function taskEvidenceSort(
+  left: string,
+  right: string,
+  graphIndex: ReadonlyMap<string, number>,
+  resultIndex: ReadonlyMap<string, number>
+): number {
+  const leftRank = graphIndex.get(left) ?? resultIndex.get(left) ?? Number.MAX_SAFE_INTEGER;
+  const rightRank = graphIndex.get(right) ?? resultIndex.get(right) ?? Number.MAX_SAFE_INTEGER;
+  return leftRank - rightRank || left.localeCompare(right);
+}
+
+function renderRunEvidenceText(evidence: RunEvidence): string {
+  const lines = [
+    `Run ${evidence.runId} (${evidence.pipelineName}/${evidence.jobId}) ${evidence.status}`,
+    "",
+    "Evidence:",
+    `  execution: ${evidence.paths.execution}`,
+    `  graph: ${evidence.paths.graph}`,
+    `  cache receipts: ${evidence.paths.cache}`,
+    `  context packs: ${evidence.paths.context}`,
+    `  logs: ${evidence.paths.logs}`,
+    "",
+    "Tasks:"
+  ];
+
+  if (evidence.tasks.length === 0) {
+    lines.push("  none recorded");
+  }
+
+  for (const task of evidence.tasks) {
+    const status = task.status ?? "not-recorded";
+    const attempts = task.attempts === undefined ? "" : `, ${task.attempts} attempt${task.attempts === 1 ? "" : "s"}`;
+    const cache = task.cache ? `, cache ${task.cache.decision}${task.cache.reason ? ` (${task.cache.reason})` : ""}` : "";
+    lines.push(`  ${task.id}: ${status}${attempts}${cache}`);
+    if (task.cacheKey) lines.push(`    cache key: ${task.cacheKey}`);
+    if (task.graphNodeFingerprint) lines.push(`    graph fingerprint: ${task.graphNodeFingerprint}`);
+    if (task.dependsOn.length > 0) lines.push(`    depends on: ${task.dependsOn.join(", ")}`);
+    if (task.error) lines.push(`    error: ${task.error}`);
+    if (task.contextPack) {
+      const pack = task.contextPack;
+      if ("baselineMissing" in pack.inputDiff) {
+        lines.push("    inputs: no passing baseline recorded");
+      } else {
+        const diff = pack.inputDiff;
+        lines.push(`    inputs vs last pass: ${diff.changed.length} changed, ${diff.added.length} added, ${diff.removed.length} removed`);
+        for (const path of diff.changed) lines.push(`      ~ ${path}`);
+        for (const path of diff.added) lines.push(`      + ${path}`);
+        for (const path of diff.removed) lines.push(`      - ${path}`);
+      }
+      if (pack.claims?.length) lines.push(`    claims touched: ${pack.claims.join(", ")}`);
+      lines.push(`    reproduce: ${pack.reproduce}`);
+    }
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
 function printHelp(program: string): string {
   return `Usage:
   ${program} run <job> [--execution <id>] [--sandbox <id>] [--provider auto|docker|apple-container|lima] [--concurrency <n>] [--force] [--dry-run] [--format text|json]
@@ -628,7 +833,7 @@ function printHelp(program: string): string {
   ${program} list
   ${program} graph --format json|dot
   ${program} explain <task> [--diff-inputs] [--format text|json]
-  ${program} explain --run <run-id> [--format text|json]
+  ${program} explain --run <run-id|latest> [--format text|json]
   ${program} mcp [--allow-run]
   ${program} sources list
   ${program} sources sync

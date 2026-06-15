@@ -7,7 +7,7 @@ import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 2;
+const GENERATOR_VERSION = 3;
 const DEFAULT_NODE_VERSION = "24";
 
 export interface GitHubRenderOptions {
@@ -372,6 +372,24 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
     renderPagesBuildSteps(lines, job.github.pages);
   }
   lines.push("");
+  renderRunEvidenceSteps(lines, model.packageManager);
+  lines.push("");
+}
+
+function renderRunEvidenceSteps(lines: string[], packageManager: string): void {
+  lines.push(
+    "      - name: Explain async-pipeline run",
+    "        if: failure()",
+    `        run: ${packageManager} async-pipeline explain --run latest || true`,
+    "",
+    "      - name: Upload async-pipeline run evidence",
+    "        if: always()",
+    "        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4",
+    "        with:",
+    "          name: async-pipeline-${{ github.job }}-runs",
+    "          path: .async/runs",
+    "          if-no-files-found: ignore"
+  );
 }
 
 function renderPagesBuildSteps(lines: string[], pages: GitHubPagesConfig): void {

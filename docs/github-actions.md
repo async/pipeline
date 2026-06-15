@@ -44,6 +44,8 @@ sync: {
 }
 ```
 
+Each generated job also runs `async-pipeline explain --run latest` on failure and uploads `.async/runs` with a pinned `actions/upload-artifact` step. GitHub Actions stays a bootloader for the same task graph; the uploaded evidence is the local run record, graph snapshot, cache receipts, logs, and context packs from the normal runner.
+
 ## GitHub Pages
 
 Use `github.pages` on a job whose target verifies or builds docs/site content:
@@ -344,7 +346,7 @@ Generated GitHub Actions do not install PATH shims yet. Future GitHub workspace/
 
 ## Cache
 
-The generated workflow does not persist `.async/cache` by default. The built-in task cache is runner-local unless you explicitly add a separate GitHub cache step or a future remote cache adapter.
+The generated workflow persists `.async/cache` through the generated `actions/cache` step when `sync.github.cache` is true. The run evidence artifact uploads `.async/runs`; it is diagnostic evidence, not a remote task-cache adapter.
 
 Keep package-manager caching separate from `@async/pipeline` task caching.
 

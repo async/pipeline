@@ -38,11 +38,15 @@ const rewrites = [
   },
   {
     dir: join(internalDir, "node"),
-    replacements: [["@async/pipeline-core", "../core/index.js"]]
+    replacements: [
+      ["@async/pipeline-core/graph", "../core/graph.js"],
+      ["@async/pipeline-core", "../core/index.js"]
+    ]
   },
   {
     dir: join(internalDir, "lima"),
     replacements: [
+      ["@async/pipeline-core/graph", "../core/graph.js"],
       ["@async/pipeline-core", "../core/index.js"],
       ["@async/pipeline-node", "../node/index.js"]
     ]

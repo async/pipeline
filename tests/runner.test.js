@@ -233,6 +233,52 @@ test("run records include schema version and owner pid", async () => {
   }
 });
 
+test("PROMISE: run records include a graph snapshot with node fingerprints", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-graph-snapshot-"));
+  try {
+    await writeFile(join(dir, "input.txt"), "stable\n", "utf8");
+    const pipeline = definePipeline({
+      name: "graph-snapshot-test",
+      tasks: {
+        prepare: task({
+          cache: false,
+          run: sh`node -e "process.exit(0)"`
+        }),
+        build: task({
+          dependsOn: ["prepare"],
+          inputs: ["input.txt"],
+          cache: true,
+          run: sh`node -e "process.exit(0)"`
+        })
+      },
+      jobs: {
+        verify: job({ target: "build" })
+      }
+    });
+
+    const record = await runJob(pipeline, {
+      id: "verify",
+      ...({ cwd: dir, env: { PATH: process.env.PATH } })
+    });
+    const snapshot = JSON.parse(await readFile(join(dir, ".async", "runs", record.id, "graph.json"), "utf8"));
+    const build = snapshot.nodes.find((node) => node.id === "build");
+    const prepare = snapshot.nodes.find((node) => node.id === "prepare");
+
+    assert.equal(snapshot.schemaVersion, 1);
+    assert.equal(snapshot.pipelineName, "graph-snapshot-test");
+    assert.equal(snapshot.jobId, "verify");
+    assert.deepEqual(snapshot.executionOrder, ["prepare", "build"]);
+    assert.equal(build?.kind, "task");
+    assert.deepEqual(build?.dependsOn, ["prepare"]);
+    assert.equal(build?.effects[0]?.kind, "shell");
+    assert.match(build?.fingerprint ?? "", /^[a-f0-9]{64}$/);
+    assert.equal(Object.hasOwn(build ?? {}, "cache"), false);
+    assert.deepEqual(prepare?.dependents, ["build"]);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test("CI env records ci execution mode", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-ci-mode-"));
   try {
@@ -731,6 +777,64 @@ test("force re-runs cached tasks and refreshes the cache entry", async () => {
     assert.equal(forced.tasks[0]?.status, "passed");
     const warmAgain = await runJob(pipeline(), { id: "build", ...target });
     assert.equal(warmAgain.tasks[0]?.status, "cached");
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("PROMISE: cache receipts record cache decisions without file contents", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-cache-receipts-"));
+  try {
+    await writeFile(join(dir, "input.txt"), "top-secret-input-value\n", "utf8");
+    const pipeline = () => definePipeline({
+      name: "cache-receipts-test",
+      cache: "file:local",
+      tasks: {
+        build: task({
+          inputs: ["input.txt"],
+          cache: true,
+          run: sh`node -e "process.exit(0)"`
+        }),
+        lint: task({
+          cache: false,
+          run: sh`node -e "process.exit(0)"`
+        })
+      },
+      jobs: { verify: job({ target: ["build", "lint"] }) }
+    });
+    const target = {
+      cwd: dir,
+      env: {
+        PATH: process.env.PATH,
+        ASYNC_PIPELINE_REDACT_SECRET: "secret-env-value"
+      },
+      concurrency: 1
+    };
+    const readReceipt = async (runId, taskId) =>
+      JSON.parse(await readFile(join(dir, ".async", "runs", runId, "cache", `${taskId}.json`), "utf8"));
+
+    const cold = await runJob(pipeline(), { id: "verify", ...target });
+    const warm = await runJob(pipeline(), { id: "verify", ...target });
+    const forced = await runJob(pipeline(), { id: "verify", ...target, force: true });
+
+    const coldBuild = await readReceipt(cold.id, "build");
+    const coldLint = await readReceipt(cold.id, "lint");
+    const warmBuild = await readReceipt(warm.id, "build");
+    const forcedBuild = await readReceipt(forced.id, "build");
+    assert.equal(coldBuild.decision, "miss");
+    assert.equal(coldBuild.inputManifestRecorded, true);
+    assert.equal(coldBuild.graphNodeFingerprint.length, 64);
+    assert.deepEqual(coldBuild.dependencyFingerprints, {});
+    assert.equal(coldLint.decision, "disabled");
+    assert.equal(warmBuild.decision, "hit");
+    assert.equal(warmBuild.inputManifestRecorded, true);
+    assert.equal(forcedBuild.decision, "bypassed");
+    assert.equal(forcedBuild.inputManifestRecorded, true);
+    for (const receipt of [coldBuild, coldLint, warmBuild, forcedBuild]) {
+      const serialized = JSON.stringify(receipt);
+      assert.doesNotMatch(serialized, /top-secret-input-value/);
+      assert.doesNotMatch(serialized, /secret-env-value/);
+    }
   } finally {
     await rm(dir, { force: true, recursive: true });
   }

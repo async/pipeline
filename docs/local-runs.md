@@ -108,8 +108,11 @@ After `async-pipeline run verify`, inspect `.async/runs`:
 ls .async/runs
 cat .async/runs/<run-id>/summary.md
 cat .async/runs/<run-id>/execution.json
+cat .async/runs/<run-id>/graph.json
 ls .async/runs/<run-id>/logs
 ```
+
+`graph.json` records the selected job's execution order and node fingerprints. Per-task cache receipts under `.async/runs/<run-id>/cache/` explain whether each task was a cache hit, cache miss, cache-disabled run, or forced bypass, including dependency fingerprints without recording input file contents or secret values.
 
 The execution record includes:
 
@@ -126,6 +129,8 @@ The execution record includes:
 - errors
 - source metadata
 - task metadata
+
+Use `async-pipeline explain --run latest` to read the latest execution record, graph snapshot, cache receipts, logs, and failure context packs together.
 
 ## Cache Behavior
 

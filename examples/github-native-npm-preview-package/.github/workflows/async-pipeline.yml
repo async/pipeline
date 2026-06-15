@@ -63,6 +63,18 @@ jobs:
         env:
           CI: true
 
+      - name: Explain async-pipeline run
+        if: failure()
+        run: pnpm async-pipeline explain --run latest || true
+
+      - name: Upload async-pipeline run evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: async-pipeline-${{ github.job }}-runs
+          path: .async/runs
+          if-no-files-found: ignore
+
   prPreview:
     name: prPreview
     if: (github.event_name == 'pull_request') || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'prPreview')
@@ -102,6 +114,18 @@ jobs:
         env:
           CI: true
 
+      - name: Explain async-pipeline run
+        if: failure()
+        run: pnpm async-pipeline explain --run latest || true
+
+      - name: Upload async-pipeline run evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: async-pipeline-${{ github.job }}-runs
+          path: .async/runs
+          if-no-files-found: ignore
+
   stableRelease:
     name: stableRelease
     if: (github.event_name == 'release') || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'stableRelease')
@@ -140,3 +164,15 @@ jobs:
         run: pnpm async-pipeline run stableRelease
         env:
           CI: true
+
+      - name: Explain async-pipeline run
+        if: failure()
+        run: pnpm async-pipeline explain --run latest || true
+
+      - name: Upload async-pipeline run evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: async-pipeline-${{ github.job }}-runs
+          path: .async/runs
+          if-no-files-found: ignore

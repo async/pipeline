@@ -40,6 +40,10 @@ test("renders github workflow triggers and bootloader steps", async () => {
     assert.match(rendered.workflow, /schedule:/);
     assert.match(rendered.workflow, /async-pipeline github check/);
     assert.match(rendered.workflow, /async-pipeline run verify/);
+    assert.match(rendered.workflow, /actions\/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4/);
+    assert.match(rendered.workflow, /async-pipeline explain --run latest \|\| true/);
+    assert.match(rendered.workflow, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4/);
+    assert.match(rendered.workflow, /path: \.async\/runs/);
     assert.equal(rendered.lock.workflow, ".github/workflows/async-pipeline.yml");
     assert.equal(rendered.lock.jobs[0].id, "verify");
   } finally {

@@ -98,11 +98,13 @@ Each run writes:
 
 ```txt
 .async/runs/<run-id>/execution.json
+.async/runs/<run-id>/graph.json
 .async/runs/<run-id>/summary.md
+.async/runs/<run-id>/cache/<task>.json
 .async/runs/<run-id>/logs/<task>.log
 ```
 
-`execution.json` is the machine-readable record. `summary.md` is the quick human-readable view. Task logs keep command output for inspection.
+`execution.json` is the machine-readable record. `graph.json` is the selected job's graph snapshot. It records execution order, graph nodes, dependency edges, effect kinds, and structural node fingerprints without storing file contents or secret values. Cache receipts under `.async/runs/<run-id>/cache/` record hit, miss, disabled, or forced-bypass decisions with the task cache key, dependency fingerprints, and graph node fingerprint, without storing file contents or secret values. `summary.md` is the quick human-readable view. Task logs keep command output for inspection.
 
 The default file task cache is local:
 

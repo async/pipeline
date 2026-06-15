@@ -22,6 +22,9 @@ test("runs a path source task with root-owned dynamic prepare and cache reuse", 
     assert.equal(first.status, "passed");
     assert.equal(first.sources?.app?.dir, fixture.app);
     assert.deepEqual(first.tasks.map((task) => task.id), ["app:prepare", "app:test", "impact"]);
+    const graphSnapshot = JSON.parse(await readFile(join(fixture.root, ".async", "runs", first.id, "graph.json"), "utf8"));
+    assert.deepEqual(graphSnapshot.executionOrder, ["app:test", "impact"]);
+    assert.equal(graphSnapshot.nodes.find((node) => node.id === "app:test")?.source, "app");
     assert.equal(await readFile(join(fixture.app, "candidate.txt"), "utf8"), fixture.root);
 
     const second = await runJob(pipeline, { id: "verifyImpact", ...target });

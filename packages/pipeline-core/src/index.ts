@@ -19,6 +19,10 @@ import {
   readDeclaration
 } from "./declaration.js";
 import { pipelineError } from "./errors.js";
+import {
+  projectPipelineGraph,
+  selectExecutionGraph
+} from "./graph.js";
 
 export * from "./cache.js";
 export * from "./declaration.js";
@@ -1459,57 +1463,7 @@ export function namespaceTaskRef(sourceId: SourceId, taskId: TaskId): TaskId {
 }
 
 export function buildGraph(pipeline: NormalizedPipeline, targets?: TaskId[]): PipelineGraph {
-  const selected = collectRequiredTasks(pipeline, targets ?? Object.keys(pipeline.tasks));
-  const nodes = new Map<TaskId, TaskGraphNode>();
-
-  for (const id of selected) {
-    const definition = pipeline.tasks[id];
-    if (!definition && !isKnownExternalTaskRef(pipeline, id)) {
-      throw new Error(`Cannot build graph for missing task "${id}".`);
-    }
-    nodes.set(id, { id, dependsOn: (definition?.dependsOn ?? []).filter((dependency) => selected.has(dependency)), dependents: [] });
-  }
-
-  for (const node of nodes.values()) {
-    for (const dependency of node.dependsOn) {
-      nodes.get(dependency)?.dependents.push(node.id);
-    }
-  }
-
-  const visiting = new Set<TaskId>();
-  const visited = new Set<TaskId>();
-  const order: TaskId[] = [];
-
-  const visit = (id: TaskId, path: TaskId[]): void => {
-    if (visited.has(id)) return;
-    if (visiting.has(id)) {
-      const start = path.indexOf(id);
-      const cycle = [...path.slice(start), id].join(" -> ");
-      throw new Error(`Task dependency cycle detected: ${cycle}.`);
-    }
-    visiting.add(id);
-    const node = nodes.get(id);
-    if (!node) return;
-    for (const dependency of [...node.dependsOn].sort()) {
-      visit(dependency, [...path, id]);
-    }
-    visiting.delete(id);
-    visited.add(id);
-    order.push(id);
-  };
-
-  for (const id of [...nodes.keys()].sort()) {
-    visit(id, []);
-  }
-
-  return {
-    tasks: [...nodes.values()].map((node) => ({
-      id: node.id,
-      dependsOn: [...node.dependsOn].sort(),
-      dependents: [...node.dependents].sort()
-    })).sort((left: TaskGraphNode, right: TaskGraphNode) => left.id.localeCompare(right.id)),
-    executionOrder: order
-  };
+  return projectPipelineGraph(selectExecutionGraph(pipeline, targets ?? Object.keys(pipeline.tasks)));
 }
 
 export function tasksForJob(pipeline: NormalizedPipeline, jobId: JobId): PipelineGraph {
