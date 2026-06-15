@@ -1,0 +1,147 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreDependencies": [
+    "@async/api-contract"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "treatConfigHintsAsErrors": true,
+  "workspaces": {
+    ".": {
+      "entry": [
+        "pipeline.ts",
+        "scripts/build-pages.js",
+        "scripts/check-*.mjs",
+        "scripts/mock-claims-repair.mjs",
+        "scripts/publish.mjs",
+        "scripts/publish-github.mjs",
+        "tests/**/*.test.js"
+      ],
+      "project": [
+        "scripts/**/*.{js,mjs}",
+        "tests/**/*.test.js"
+      ]
+    },
+    "packages/pipeline-core": {
+      "entry": [
+        "src/index.ts",
+        "src/graph.ts",
+        "src/runtime.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "packages/pipeline-node": {
+      "entry": [
+        "src/index.ts",
+        "src/cli.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "packages/pipeline-adapter-lima": {
+      "entry": [
+        "src/index.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "packages/pipeline": {
+      "entry": [
+        "src/index.ts",
+        "src/cli.ts",
+        "src/core.ts",
+        "src/lima.ts",
+        "src/node.ts",
+        "src/runtime.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "scripts/**/*.js"
+      ]
+    },
+    "examples/agent-claims-repair": {
+      "entry": [
+        "pipeline.mjs",
+        "scripts/*.mjs"
+      ],
+      "project": [
+        "scripts/**/*.mjs"
+      ]
+    },
+    "examples/basic-node-package": {
+      "entry": [
+        "pipeline.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "examples/custom-cache-registry": {
+      "entry": [
+        "pipeline.ts",
+        "scripts/*.mjs"
+      ],
+      "project": [
+        "scripts/**/*.mjs"
+      ]
+    },
+    "examples/deno-worker": {
+      "entry": [
+        "pipeline.ts",
+        "worker/main.ts",
+        "scripts/*.mjs"
+      ],
+      "project": [
+        "worker/**/*.ts",
+        "scripts/**/*.mjs"
+      ]
+    },
+    "examples/github-native-npm-preview-package": {
+      "entry": [
+        "pipeline.mjs",
+        "scripts/*.mjs"
+      ],
+      "project": [
+        "src/**/*.js",
+        "scripts/**/*.mjs"
+      ]
+    },
+    "examples/many-repo-impact-run": {
+      "entry": [
+        "pipeline.ts",
+        "repos/admin/pipeline.ts",
+        "repos/admin/tools/use-candidate.mjs",
+        "repos/storefront/pipeline.mjs",
+        "repos/storefront/src/app.js",
+        "repos/storefront/tools/use-candidate.mjs"
+      ],
+      "project": [
+        "src/**/*.js",
+        "repos/**/*.js",
+        "repos/**/*.mjs",
+        "repos/**/*.ts"
+      ]
+    },
+    "examples/monorepo-package-selection": {
+      "entry": [
+        "pipeline.ts",
+        "packages/*/src/**/*.js"
+      ],
+      "project": [
+        "packages/**/*.js"
+      ]
+    },
+    "examples/runtime-middleware-stack": {
+      "entry": [
+        "pipeline.mjs",
+        "src/**/*.mjs"
+      ],
+      "project": [
+        "src/**/*.mjs"
+      ]
+    }
+  }
+}

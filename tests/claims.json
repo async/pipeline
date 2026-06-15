@@ -676,6 +676,31 @@
       ]
     },
     {
+      "id": "changelog.explain-run-json-breaking",
+      "source": "CHANGELOG.md",
+      "anchor": "Change `async-pipeline explain --run <run-id> --format json` from the old context-pack array to a run-evidence object that includes execution, graph, cache receipt, log, and context-pack paths.",
+      "tests": [
+        "PROMISE: explain reports changed inputs and run evidence"
+      ]
+    },
+    {
+      "id": "changelog.cache-receipts",
+      "source": "CHANGELOG.md",
+      "anchor": "Write per-task cache receipts under `.async/runs/<run-id>/cache/` and extend `explain --run <run-id|latest>` to summarize execution, graph, cache, logs, and failure context evidence together.",
+      "tests": [
+        "PROMISE: cache receipts record cache decisions without file contents",
+        "PROMISE: explain reports changed inputs and run evidence"
+      ]
+    },
+    {
+      "id": "changelog.github-run-evidence",
+      "source": "CHANGELOG.md",
+      "anchor": "Generated GitHub workflows now print `async-pipeline explain --run latest` on failure and upload `.async/runs` as pinned run-evidence artifacts.",
+      "tests": [
+        "renders github workflow triggers and bootloader steps"
+      ]
+    },
+    {
       "id": "changelog.doctor-stale-runs",
       "source": "CHANGELOG.md",
       "anchor": "Have `doctor` warn about unreadable run directories and stale `\"running\"` records.",
@@ -800,6 +825,14 @@
       "anchor": "Dogfood `@async/api-contract` in the self pipeline by syncing `pipeline:api-surface` scripts and making the release pack gate validate API surface ledgers.",
       "tests": [
         "PROMISE: API surface drift checks are wired through @async/api-contract and the release gate"
+      ]
+    },
+    {
+      "id": "changelog.self-hygiene-gates",
+      "source": "CHANGELOG.md",
+      "anchor": "Dogfood actionlint, publint, Are The Types Wrong, dependency-cruiser, and Knip in the self pipeline release gate so workflow YAML, publish metadata, package type resolution, dependency boundaries, and unused surface checks run before pack.",
+      "tests": [
+        "PROMISE: self hygiene gates run in the release pack chain"
       ]
     },
     {

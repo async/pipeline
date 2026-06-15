@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.0 - 2026-06-15
+
+### Breaking
+
+- Change `async-pipeline explain --run <run-id> --format json` from the old context-pack array to a run-evidence object that includes execution, graph, cache receipt, log, and context-pack paths.
+
+### Features
+
+- Add the internal graph IR as the runner scheduling boundary while keeping `buildGraph()` and `tasksForJob()` on the existing public projection shape.
+- Write `.async/runs/<run-id>/graph.json` for each run with the selected job's execution order, graph nodes, dependency edges, effect metadata, and structural node fingerprints.
+- Write per-task cache receipts under `.async/runs/<run-id>/cache/` and extend `explain --run <run-id|latest>` to summarize execution, graph, cache, logs, and failure context evidence together.
+- Generated GitHub workflows now print `async-pipeline explain --run latest` on failure and upload `.async/runs` as pinned run-evidence artifacts.
+- Dogfood actionlint, publint, Are The Types Wrong, dependency-cruiser, and Knip in the self pipeline release gate so workflow YAML, publish metadata, package type resolution, dependency boundaries, and unused surface checks run before pack.
+
 ## 0.5.0 - 2026-06-14
 
 ### Breaking

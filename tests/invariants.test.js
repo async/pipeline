@@ -426,3 +426,25 @@ test("PROMISE: API surface drift checks are wired through @async/api-contract an
     ]
   );
 });
+
+test("PROMISE: self hygiene gates run in the release pack chain", async () => {
+  const { default: pipeline } = await import("../pipeline.ts");
+  const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+
+  assert.equal(packageJson.devDependencies["github-actionlint"], "1.7.12");
+  assert.equal(packageJson.devDependencies["publint"], "0.3.21");
+  assert.equal(packageJson.devDependencies["@arethetypeswrong/cli"], "0.18.3");
+  assert.equal(packageJson.devDependencies["dependency-cruiser"], "17.4.3");
+  assert.equal(packageJson.devDependencies["knip"], "6.16.1");
+  assert.equal(packageJson.scripts["actionlint:check"], "github-actionlint -shellcheck= -pyflakes= .github/workflows/*.yml examples/*/.github/workflows/*.yml");
+  assert.equal(packageJson.scripts["package-lint:check"], "publint packages/pipeline --strict && attw --pack packages/pipeline --profile esm-only --format ascii --no-emoji");
+  assert.equal(packageJson.scripts["depcruise:check"], "depcruise --config .dependency-cruiser.cjs --output-type err packages scripts tests pipeline.ts");
+  assert.equal(packageJson.scripts["knip:check"], "knip --no-progress");
+
+  for (const taskId of ["actionlint", "package-lint", "depcruise", "knip"]) {
+    assert.ok(pipeline.tasks[taskId], `${taskId} task must exist`);
+    assert.ok(pipeline.tasks.pack.dependsOn.includes(taskId), `pack must depend on ${taskId}`);
+  }
+  assert.deepEqual(pipeline.tasks["package-lint"].dependsOn, ["build"]);
+  assert.deepEqual(pipeline.tasks["depcruise"].dependsOn, ["build"]);
+});

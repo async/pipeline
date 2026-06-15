@@ -2,7 +2,7 @@
   "name": "async-pipeline-workspace",
   "private": true,
   "license": "MIT",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "packageManager": "pnpm@10.20.0",
   "engines": {
@@ -10,12 +10,16 @@
   },
   "scripts": {
     "async-pipeline": "node packages/pipeline-node/dist/cli.js",
+    "actionlint:check": "github-actionlint -shellcheck= -pyflakes= .github/workflows/*.yml examples/*/.github/workflows/*.yml",
     "build": "pnpm -r --sort build",
     "claims:check": "node scripts/check-claims.mjs",
+    "depcruise:check": "depcruise --config .dependency-cruiser.cjs --output-type err packages scripts tests pipeline.ts",
     "docs:check": "node scripts/check-docs.mjs",
     "drift:check": "node scripts/check-release-drift.mjs",
     "exports:check": "node scripts/check-exports.mjs",
+    "knip:check": "knip --no-progress",
     "pack:check": "pnpm --filter @async/pipeline pack:check",
+    "package-lint:check": "publint packages/pipeline --strict && attw --pack packages/pipeline --profile esm-only --format ascii --no-emoji",
     "pipeline:api-surface": "async-pipeline run-task api-surface",
     "pipeline:api-surface:generate": "async-pipeline run-task api-surface-generate",
     "pipeline:github:check": "async-pipeline github check",
@@ -38,9 +42,14 @@
     "typecheck": "pnpm -r --sort typecheck"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.3",
     "@async/api-contract": "0.1.0",
     "@async/pipeline": "workspace:*",
     "@types/node": "24.12.4",
+    "dependency-cruiser": "17.4.3",
+    "github-actionlint": "1.7.12",
+    "knip": "6.16.1",
+    "publint": "0.3.21",
     "typescript": "6.0.3"
   }
 }

@@ -15,7 +15,6 @@
     "pack:check": "npm pack --dry-run"
   },
   "dependencies": {
-    "@async/pipeline-core": "workspace:*",
     "@async/pipeline-node": "workspace:*"
   },
   "files": [

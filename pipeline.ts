@@ -95,6 +95,67 @@ export default definePipeline({
       cache: false,
       run: sh`pnpm async-pipeline sync check`
     }),
+    actionlint: task({
+      description: "Generated GitHub Actions workflows parse and type-check through actionlint.",
+      inputs: [
+        ".github/workflows/*.yml",
+        "examples/*/.github/workflows/*.yml",
+        "package.json",
+        "pnpm-lock.yaml"
+      ],
+      cache: true,
+      run: sh`pnpm run actionlint:check`
+    }),
+    "package-lint": task({
+      description: "Published @async/pipeline package metadata and ESM type resolution stay consumable.",
+      dependsOn: ["build"],
+      inputs: [
+        "packages/pipeline/package.json",
+        "packages/pipeline/API_SURFACE.md",
+        "packages/pipeline/api-contract.json",
+        "packages/pipeline/dist/**",
+        "package.json",
+        "pnpm-lock.yaml"
+      ],
+      cache: true,
+      run: sh`pnpm run package-lint:check`
+    }),
+    depcruise: task({
+      description: "Internal package imports stay acyclic, resolvable, declared, and pointed in the intended direction.",
+      dependsOn: ["build"],
+      inputs: [
+        ".dependency-cruiser.cjs",
+        "tsconfig.depcruise.json",
+        "pipeline.ts",
+        "packages/**/*.ts",
+        "packages/*/package.json",
+        "scripts/**/*.{js,mjs}",
+        "tests/**/*.test.js",
+        "package.json",
+        "pnpm-lock.yaml",
+        "tsconfig.base.json"
+      ],
+      cache: true,
+      run: sh`pnpm run depcruise:check`
+    }),
+    knip: task({
+      description: "Unused files, exports, dependencies, and binaries stay visible through Knip.",
+      inputs: [
+        "knip.json",
+        "pipeline.ts",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "packages/**/*.{ts,js}",
+        "packages/*/package.json",
+        "scripts/**/*.{js,mjs}",
+        "tests/**/*.test.js",
+        "examples/**/*.{ts,js,mjs}",
+        "examples/**/package.json"
+      ],
+      cache: true,
+      run: sh`pnpm run knip:check`
+    }),
     // ADR-0006: propose-only repair for a failing claims task. Not part of
     // any job — run it by hand after a claims failure:
     //   async-pipeline run-task claims-repair        (claude, local)
@@ -211,7 +272,7 @@ export default definePipeline({
       run: sh`node --test tests/examples/examples.test.js`
     }),
     pack: task({
-      dependsOn: ["test", "drift", "claims", "docs", "api-surface", "sync-check", "examples"],
+      dependsOn: ["test", "drift", "claims", "docs", "api-surface", "sync-check", "examples", "actionlint", "package-lint", "depcruise", "knip"],
       inputs: ["production", "package.json", "packages/*/package.json", "scripts/check-exports.mjs"],
       cache: false,
       run: [sh`pnpm exports:check`, sh`pnpm pack:check`]

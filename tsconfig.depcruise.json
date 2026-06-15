@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@async/pipeline": ["packages/pipeline/src/index.ts"],
+      "@async/pipeline/core": ["packages/pipeline/src/core.ts"],
+      "@async/pipeline/lima": ["packages/pipeline/src/lima.ts"],
+      "@async/pipeline/node": ["packages/pipeline/src/node.ts"],
+      "@async/pipeline/runtime": ["packages/pipeline/src/runtime.ts"],
+      "@async/pipeline-core": ["packages/pipeline-core/src/index.ts"],
+      "@async/pipeline-core/graph": ["packages/pipeline-core/src/graph.ts"],
+      "@async/pipeline-core/runtime": ["packages/pipeline-core/src/runtime.ts"],
+      "@async/pipeline-node": ["packages/pipeline-node/src/index.ts"],
+      "@async/pipeline-node/cli": ["packages/pipeline-node/src/cli.ts"]
+    }
+  }
+}
