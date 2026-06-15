@@ -169,6 +169,24 @@
       ]
     },
     {
+      "id": "github-actions.dependency-cache-step",
+      "source": "docs/github-actions.md",
+      "anchor": "The generated workflow also enables `actions/setup-node` dependency caching when `sync.github.dependencyCache` is true and the package manager has a recognized lockfile.",
+      "tests": [
+        "renders github workflow triggers and bootloader steps",
+        "renders github workflow with dependency cache disabled"
+      ]
+    },
+    {
+      "id": "api.github-dependency-cache",
+      "source": "docs/api.md",
+      "anchor": "`dependencyCache: true` (the default) enables `actions/setup-node` package-manager cache settings when the project has a recognized lockfile, so the generated bootloader can reuse the dependency store before `pnpm install`/`npm install`/`yarn install`; set `dependencyCache: false` for a fully cold dependency install.",
+      "tests": [
+        "renders github workflow triggers and bootloader steps",
+        "renders github workflow with dependency cache disabled"
+      ]
+    },
+    {
       "id": "readme.platform-workflow",
       "source": "README.md",
       "anchor": "The checked-in workflow targets Node `>= 24` on GitHub-hosted Linux (`ubuntu-latest`) and macOS (`macos-latest`) runners",
@@ -701,6 +719,61 @@
       ]
     },
     {
+      "id": "changelog.github-dependency-cache",
+      "source": "CHANGELOG.md",
+      "anchor": "Generated GitHub workflows now enable `actions/setup-node` dependency-store caching when `sync.github.dependencyCache` is true and a recognized package-manager lockfile exists.",
+      "tests": [
+        "renders github workflow triggers and bootloader steps",
+        "renders github workflow with dependency cache disabled"
+      ]
+    },
+    {
+      "id": "changelog.generated-dependabot-and-previews",
+      "source": "CHANGELOG.md",
+      "anchor": "Add generated `sync.github.dependabotAutoMerge` and `sync.github.packagePreviews` jobs so repos can opt into guarded Dependabot auto-merge and PR package previews with `true` defaults.",
+      "tests": [
+        "renders generated Dependabot auto-merge workflow job",
+        "renders generated package preview job from packagePreviews true",
+        "generated-package-previews: verify runs and sync artifacts are current"
+      ]
+    },
+    {
+      "id": "changelog.hidden-self-hygiene",
+      "source": "CHANGELOG.md",
+      "anchor": "Replace direct self-hygiene scripts and task ids with `@async/hygiene`, leaving only the `hygiene` pipeline task as the release pack gate.",
+      "tests": [
+        "PROMISE: self hygiene gates run in the release pack chain"
+      ]
+    },
+    {
+      "id": "api.generated-dependabot-package-previews",
+      "source": "docs/api.md",
+      "anchor": "`dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, publishes a GitHub Packages PR preview through the lifecycle CLI, and comments install instructions on same-repo PRs.",
+      "tests": [
+        "normalizes explicit sync task config and validates selected ids",
+        "renders generated Dependabot auto-merge workflow job",
+        "renders generated package preview job from packagePreviews true"
+      ]
+    },
+    {
+      "id": "github-actions.generated-package-previews",
+      "source": "docs/github-actions.md",
+      "anchor": "`sync.github.packagePreviews: true` generates a `package-preview` job on pull requests. The generator finds the public root package, or the single public `packages/*` workspace package when the root package is private.",
+      "tests": [
+        "renders generated package preview job from packagePreviews true",
+        "packagePreviews true requires explicit package when multiple public packages exist",
+        "lifecycle CLI accepts custom GitHub package registry and namespace"
+      ]
+    },
+    {
+      "id": "github-actions.generated-dependabot-auto-merge",
+      "source": "docs/github-actions.md",
+      "anchor": "`sync.github.dependabotAutoMerge: true` generates a separate `dependabot-auto-merge` job on `pull_request_target`.",
+      "tests": [
+        "renders generated Dependabot auto-merge workflow job"
+      ]
+    },
+    {
       "id": "changelog.doctor-stale-runs",
       "source": "CHANGELOG.md",
       "anchor": "Have `doctor` warn about unreadable run directories and stale `\"running\"` records.",
@@ -732,15 +805,16 @@
       "anchor": "Stable releases publish to GitHub Packages as `@async/pipeline` before npm, so a stable version exists on the fallback registry even when npm publishing has an issue.",
       "tests": [
         "PROMISE: stable releases mirror to GitHub Packages as @async/pipeline with the latest tag",
-        "PROMISE: the release chain publishes GitHub Packages before npm, and previews/snapshots are wired to their triggers"
+        "PROMISE: the release chain publishes GitHub Packages before npm, and package previews/snapshots are wired to their triggers"
       ]
     },
     {
       "id": "api.package-lifecycle-cli",
       "source": "docs/api.md",
-      "anchor": "Package lifecycle commands are available as `async-pipeline publish github <pr|main|release> --package <path>`, `async-pipeline publish npm --package <path>`, `async-pipeline release ensure --package <path>`, and `async-pipeline release doctor --package <path>`.",
+      "anchor": "Package lifecycle commands are available as `async-pipeline publish github <pr|main|release> --package <path> [--registry <url>] [--namespace <scope>] [--no-comment]`, `async-pipeline publish npm --package <path>`, `async-pipeline release ensure --package <path>`, and `async-pipeline release doctor --package <path>`.",
       "tests": [
         "lifecycle CLI publishes GitHub Packages snapshots from a package path",
+        "lifecycle CLI accepts custom GitHub package registry and namespace",
         "lifecycle CLI skips npm publish for an already published package and keeps public access",
         "lifecycle CLI release ensure creates a missing tag and GitHub Release",
         "lifecycle CLI release doctor verifies npm, GitHub Packages, and GitHub Release"
@@ -753,7 +827,7 @@
       "tests": [
         "lifecycle CLI release ensure creates a missing tag and GitHub Release",
         "lifecycle CLI release ensure refuses to move an existing release tag",
-        "PROMISE: the release chain publishes GitHub Packages before npm, and previews/snapshots are wired to their triggers"
+        "PROMISE: the release chain publishes GitHub Packages before npm, and package previews/snapshots are wired to their triggers"
       ]
     },
     {
@@ -763,7 +837,7 @@
       "tests": [
         "lifecycle CLI release ensure creates a missing tag and GitHub Release",
         "lifecycle CLI release ensure refuses to move an existing release tag",
-        "PROMISE: the release chain publishes GitHub Packages before npm, and previews/snapshots are wired to their triggers"
+        "PROMISE: the release chain publishes GitHub Packages before npm, and package previews/snapshots are wired to their triggers"
       ]
     },
     {
@@ -772,7 +846,7 @@
       "anchor": "`release doctor` verifies npm, GitHub Packages, and GitHub Release state for the selected package after the release publish chain.",
       "tests": [
         "lifecycle CLI release doctor verifies npm, GitHub Packages, and GitHub Release",
-        "PROMISE: the release chain publishes GitHub Packages before npm, and previews/snapshots are wired to their triggers"
+        "PROMISE: the release chain publishes GitHub Packages before npm, and package previews/snapshots are wired to their triggers"
       ]
     },
     {
@@ -792,7 +866,7 @@
       "tests": [
         "lifecycle CLI release ensure creates a missing tag and GitHub Release",
         "lifecycle CLI release ensure refuses to move an existing release tag",
-        "PROMISE: the release chain publishes GitHub Packages before npm, and previews/snapshots are wired to their triggers"
+        "PROMISE: the release chain publishes GitHub Packages before npm, and package previews/snapshots are wired to their triggers"
       ]
     },
     {
@@ -808,7 +882,7 @@
       "source": "CHANGELOG.md",
       "anchor": "Dogfood the shared lifecycle commands in the self pipeline publish chain, including release doctor verification after GitHub Packages and npm publish.",
       "tests": [
-        "PROMISE: the release chain publishes GitHub Packages before npm, and previews/snapshots are wired to their triggers"
+        "PROMISE: the release chain publishes GitHub Packages before npm, and package previews/snapshots are wired to their triggers"
       ]
     },
     {
@@ -842,7 +916,7 @@
       "tests": [
         "main snapshots publish 0.0.0-main.sha.<sha> and move the main tag while current",
         "PROMISE: a superseded main snapshot never drags the main tag backwards",
-        "PROMISE: the release chain publishes GitHub Packages before npm, and previews/snapshots are wired to their triggers"
+        "PROMISE: the release chain publishes GitHub Packages before npm, and package previews/snapshots are wired to their triggers"
       ]
     },
     {

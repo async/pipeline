@@ -5,6 +5,11 @@ name: Async Pipeline
 
 on:
   pull_request:
+    types:
+      - "opened"
+      - "ready_for_review"
+      - "reopened"
+      - "synchronize"
   push:
     branches:
       - "main"
@@ -18,6 +23,12 @@ on:
         options:
           - "pages"
           - "publish"
+  pull_request_target:
+    types:
+      - "opened"
+      - "ready_for_review"
+      - "reopened"
+      - "synchronize"
 
 permissions:
   contents: read
@@ -44,7 +55,8 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org/
-          package-manager-cache: false
+          cache: "pnpm"
+          cache-dependency-path: "pnpm-lock.yaml"
 
       - name: Enable pnpm
         run: |
@@ -66,10 +78,10 @@ jobs:
           CI: true
 
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
           path: ".async/pages"
 
@@ -99,67 +111,7 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
-
-  preview:
-    name: preview
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
-      packages: write
-      pull-requests: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Restore task cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: .async/cache
-          key: async-pipeline-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            async-pipeline-${{ runner.os }}-
-
-      - name: Setup Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org/
-          package-manager-cache: false
-
-      - name: Enable pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.20.0 --activate
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build pipeline CLI
-        run: pnpm build
-
-      - name: Check generated workflow
-        run: pnpm async-pipeline github check
-
-      - name: Run pipeline job
-        run: pnpm async-pipeline run preview
-        env:
-          CI: true
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Explain async-pipeline run
-        if: failure()
-        run: pnpm async-pipeline explain --run latest || true
-
-      - name: Upload async-pipeline run evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: async-pipeline-${{ github.job }}-runs
-          path: .async/runs
-          if-no-files-found: ignore
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
 
   publish:
     name: publish
@@ -189,7 +141,8 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org/
-          package-manager-cache: false
+          cache: "pnpm"
+          cache-dependency-path: "pnpm-lock.yaml"
 
       - name: Use current npm
         run: npm install -g npm@11.16.0
@@ -251,7 +204,8 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org/
-          package-manager-cache: false
+          cache: "pnpm"
+          cache-dependency-path: "pnpm-lock.yaml"
 
       - name: Enable pnpm
         run: |
@@ -312,7 +266,8 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org/
-          package-manager-cache: false
+          cache: "pnpm"
+          cache-dependency-path: "pnpm-lock.yaml"
 
       - name: Enable pnpm
         run: |
@@ -332,6 +287,180 @@ jobs:
         run: pnpm async-pipeline run verify
         env:
           CI: true
+
+      - name: Explain async-pipeline run
+        if: failure()
+        run: pnpm async-pipeline explain --run latest || true
+
+      - name: Upload async-pipeline run evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: async-pipeline-${{ github.job }}-runs
+          path: .async/runs
+          if-no-files-found: ignore
+
+  dependabot-auto-merge:
+    name: dependabot-auto-merge
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Fetch Dependabot metadata
+        id: dependabot-metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify dependency update scope
+        env:
+          PACKAGE_ECOSYSTEM: ${{ steps.dependabot-metadata.outputs.package-ecosystem }}
+          DEPENDENCY_NAMES: ${{ steps.dependabot-metadata.outputs.dependency-names }}
+          UPDATED_DEPENDENCIES_JSON: ${{ steps.dependabot-metadata.outputs.updated-dependencies-json }}
+        run: |
+          set -euo pipefail
+
+          case "$PACKAGE_ECOSYSTEM" in
+            github-actions|npm|deno) ;;
+            *)
+              echo "::error::Unsupported Dependabot ecosystem: $PACKAGE_ECOSYSTEM"
+              exit 1
+              ;;
+          esac
+
+          if [ -z "$DEPENDENCY_NAMES" ]; then
+            echo "::error::Dependabot metadata did not include dependency names."
+            exit 1
+          fi
+
+          dependency_count="$(jq 'length' <<<"$UPDATED_DEPENDENCIES_JSON")"
+          if [ "$dependency_count" -eq 0 ]; then
+            echo "::error::Dependabot metadata did not include updated dependencies."
+            exit 1
+          fi
+
+      - name: Approve Dependabot PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -euo pipefail
+
+          review_decision="$(gh pr view "$PR_URL" --json reviewDecision -q .reviewDecision)"
+          if [ "$review_decision" = "APPROVED" ]; then
+            echo "PR is already approved."
+          else
+            gh pr review --approve "$PR_URL"
+          fi
+
+      - name: Wait for checks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -euo pipefail
+
+          deadline=$((SECONDS + 1800))
+          empty_since=""
+
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            checks_json="$(gh pr checks "$PR_URL" --json name,bucket,workflow 2>/dev/null || true)"
+            relevant_checks="$(jq '[.[] | select(.name != "dependabot-auto-merge" and .bucket != "skipping")]' <<<"${checks_json:-[]}")"
+            check_count="$(jq 'length' <<<"$relevant_checks")"
+            failing_count="$(jq '[.[] | select(.bucket == "fail" or .bucket == "cancel")] | length' <<<"$relevant_checks")"
+            pending_count="$(jq '[.[] | select(.bucket == "pending")] | length' <<<"$relevant_checks")"
+
+            if [ "$failing_count" -gt 0 ]; then
+              echo "$relevant_checks"
+              echo "::error::At least one check failed or was cancelled."
+              exit 1
+            fi
+
+            if [ "$check_count" -eq 0 ]; then
+              if [ -z "$empty_since" ]; then
+                empty_since="$SECONDS"
+              fi
+
+              if [ $((SECONDS - empty_since)) -ge 90 ]; then
+                echo "No non-auto-merge checks were reported after 90 seconds."
+                exit 0
+              fi
+            elif [ "$pending_count" -eq 0 ]; then
+              echo "All reported non-auto-merge checks passed or were skipped."
+              exit 0
+            else
+              empty_since=""
+            fi
+
+            sleep 15
+          done
+
+          echo "::error::Timed out waiting for checks to finish."
+          exit 1
+
+      - name: Merge Dependabot PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --squash --delete-branch "$PR_URL"
+
+  package-preview:
+    name: package-preview
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      packages: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Restore task cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .async/cache
+          key: async-pipeline-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            async-pipeline-${{ runner.os }}-
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
+          cache: "pnpm"
+          cache-dependency-path: "pnpm-lock.yaml"
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.20.0 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build pipeline CLI
+        run: pnpm build
+
+      - name: Check generated workflow
+        run: pnpm async-pipeline github check
+
+      - name: Run package preview target
+        run: pnpm async-pipeline run-task pack
+        env:
+          CI: true
+
+      - name: Publish package preview
+        run: pnpm async-pipeline publish github pr --package packages/pipeline --registry https://npm.pkg.github.com
+        env:
+          CI: true
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Explain async-pipeline run
         if: failure()

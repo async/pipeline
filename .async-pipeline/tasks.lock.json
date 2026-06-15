@@ -22,10 +22,6 @@
           "value": "async-pipeline run pages"
         },
         {
-          "name": "pipeline:preview",
-          "value": "async-pipeline run preview"
-        },
-        {
           "name": "pipeline:publish",
           "value": "async-pipeline run publish"
         },
@@ -94,10 +90,6 @@
       "value": "async-pipeline run pages"
     },
     {
-      "name": "pipeline:preview",
-      "value": "async-pipeline run preview"
-    },
-    {
       "name": "pipeline:publish",
       "value": "async-pipeline run publish"
     },
@@ -158,6 +150,6 @@
       "value": "async-pipeline sync check"
     }
   ],
-  "hash": "sha256:aac0659010424a7eda5f4036d8e8b82e65c95c385011ca54eb0e908ab22363d6",
-  "generatedAt": "2026-06-14T19:51:34.507Z"
+  "hash": "sha256:1f81ebe0d6e91bac2b567cfbd4597606b72617a4726c91b8a16b21245265c5a9",
+  "generatedAt": "2026-06-15T23:33:28.875Z"
 }

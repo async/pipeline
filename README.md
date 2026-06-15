@@ -54,7 +54,7 @@ The self pipeline lives in [pipeline.ts](pipeline.ts). It runs `build`, `typeche
 
 ## Examples
 
-See [examples](examples/README.md) for copyable pipeline shapes, all exercised by this repo's own `release:check`: a [basic node package](examples/basic-node-package/README.md), the [GitHub-native npm preview package workflow](examples/github-native-npm-preview-package/README.md), [monorepo package selection](examples/monorepo-package-selection/README.md), a [Deno worker](examples/deno-worker/README.md), a [many-repo impact run](examples/many-repo-impact-run/README.md), a [custom cache registry](examples/custom-cache-registry/README.md), and a [runtime middleware stack](examples/runtime-middleware-stack/README.md).
+See [examples](examples/README.md) for copyable pipeline shapes, all exercised by this repo's own `release:check`: a [basic node package](examples/basic-node-package/README.md), [generated package previews](examples/generated-package-previews/README.md), the [GitHub-native npm preview package workflow](examples/github-native-npm-preview-package/README.md), [monorepo package selection](examples/monorepo-package-selection/README.md), a [Deno worker](examples/deno-worker/README.md), a [many-repo impact run](examples/many-repo-impact-run/README.md), a [custom cache registry](examples/custom-cache-registry/README.md), and a [runtime middleware stack](examples/runtime-middleware-stack/README.md).
 
 ## How It Compares
 
@@ -401,7 +401,7 @@ The checked-in workflow targets Node `>= 24` on GitHub-hosted Linux (`ubuntu-lat
 
 ## Releases, Snapshots, And The npm Fallback
 
-Publishing runs through the same `pipeline.ts` that verifies the repo — the model is PatrickJS's [GitHub-native npm preview packages Gist](https://gist.github.com/PatrickJS/3fa2925713fcdf75a27a505ce2cd0d80), dogfooded (the standalone template lives in [examples/github-native-npm-preview-package](examples/github-native-npm-preview-package)):
+Publishing runs through the same `pipeline.ts` that verifies the repo. PR preview publishing is generated from `sync.github.packagePreviews`, while main snapshots and stable releases use explicit lifecycle tasks. The model is PatrickJS's [GitHub-native npm preview packages Gist](https://gist.github.com/PatrickJS/3fa2925713fcdf75a27a505ce2cd0d80), dogfooded (the standalone generated-preview example lives in [examples/generated-package-previews](examples/generated-package-previews)):
 
 - Stable releases publish to GitHub Packages as `@async/pipeline` before npm, so a stable version exists on the fallback registry even when npm publishing has an issue.
 - Stable release jobs create or verify the matching `v<version>` Git tag and GitHub Release before package publishing, and refuse to move an existing tag.

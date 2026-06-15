@@ -1,19 +1,34 @@
 {
-  "version": 3,
+  "version": 4,
   "generator": "@async/pipeline",
   "config": "pipeline.ts",
   "workflow": ".github/workflows/async-pipeline.yml",
-  "hash": "sha256:9799cd3c2cb0314004ff35c233a88c19ec0f726cee566bc620ca81060b05f08c",
-  "generatedAt": "2026-06-15T18:19:41.167Z",
+  "hash": "sha256:597544fa2f6b082e21bae3680f3cb0e6763c8938c15c98e2415d0a76394c71e9",
+  "generatedAt": "2026-06-15T23:33:28.852Z",
   "triggers": {
-    "pull_request": {},
+    "pull_request": {
+      "types": [
+        "opened",
+        "ready_for_review",
+        "reopened",
+        "synchronize"
+      ]
+    },
     "push": {
       "branches": [
         "main"
       ]
     },
     "release": {},
-    "workflow_dispatch": {}
+    "workflow_dispatch": {},
+    "pull_request_target": {
+      "types": [
+        "opened",
+        "ready_for_review",
+        "reopened",
+        "synchronize"
+      ]
+    }
   },
   "jobs": [
     {
@@ -36,29 +51,6 @@
         }
       },
       "if": "(github.event_name == 'pull_request') || (github.event_name == 'push' && (github.ref == 'refs/heads/main')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'pages')"
-    },
-    {
-      "id": "preview",
-      "target": [
-        "preview"
-      ],
-      "trigger": [
-        "pr"
-      ],
-      "env": {
-        "GITHUB_TOKEN": {
-          "kind": "async-pipeline.env.secret",
-          "name": "GITHUB_TOKEN"
-        }
-      },
-      "github": {
-        "permissions": {
-          "issues": "write",
-          "packages": "write",
-          "pullRequests": "write"
-        }
-      },
-      "if": "github.event_name == 'pull_request'"
     },
     {
       "id": "publish",
@@ -139,6 +131,24 @@
   "buildCommand": "pnpm build",
   "nodeVersion": "24",
   "taskCache": true,
+  "dependencyCache": true,
+  "dependencyCachePath": "pnpm-lock.yaml",
+  "dependabotAutoMerge": {
+    "enabled": true,
+    "ecosystems": [
+      "github-actions",
+      "npm",
+      "deno"
+    ]
+  },
+  "packagePreviews": {
+    "enabled": true,
+    "registry": "https://npm.pkg.github.com",
+    "tokenEnv": "GITHUB_TOKEN",
+    "comment": true,
+    "package": "packages/pipeline",
+    "target": "pack"
+  },
   "manualDispatchJobs": [
     "pages",
     "publish"

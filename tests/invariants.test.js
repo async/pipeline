@@ -331,7 +331,7 @@ test("PROMISE: a closed output pipe terminates tasks and finalizes the run", { s
   }
 });
 
-test("PROMISE: the release chain publishes GitHub Packages before npm, and previews/snapshots are wired to their triggers", async () => {
+test("PROMISE: the release chain publishes GitHub Packages before npm, and package previews/snapshots are wired to their triggers", async () => {
   // README: "Stable releases publish to GitHub Packages as `@async/pipeline`
   // before npm". The wiring lives in pipeline.ts; this pins it so the fallback
   // registry can never silently fall behind the primary one.
@@ -355,7 +355,6 @@ test("PROMISE: the release chain publishes GitHub Packages before npm, and previ
   assert.equal(pipeline.tasks["release-ensure"].run.command, "pnpm async-pipeline release ensure --package packages/pipeline");
   assert.equal(pipeline.tasks["publish-github"].run.command, "pnpm async-pipeline publish github release --package packages/pipeline");
   assert.equal(pipeline.tasks["snapshot"].run.command, "pnpm async-pipeline publish github main --package packages/pipeline");
-  assert.equal(pipeline.tasks["preview"].run.command, "pnpm async-pipeline publish github pr --package packages/pipeline");
   assert.deepEqual(
     pipeline.tasks["publish"].steps.map((step) => step.command),
     [
@@ -364,7 +363,10 @@ test("PROMISE: the release chain publishes GitHub Packages before npm, and previ
     ]
   );
 
-  assert.deepEqual(pipeline.jobs["preview"].trigger, ["pr"]);
+  assert.equal(pipeline.sync.github.packagePreviews.enabled, true);
+  assert.equal(pipeline.sync.github.dependabotAutoMerge.enabled, true);
+  assert.equal(pipeline.tasks.preview, undefined);
+  assert.equal(pipeline.jobs.preview, undefined);
   assert.deepEqual(pipeline.jobs["snapshot"].trigger, ["main"]);
   assert.deepEqual(
     pipeline.jobs["publish"].trigger,
@@ -373,13 +375,6 @@ test("PROMISE: the release chain publishes GitHub Packages before npm, and previ
   );
 
   // Publishing jobs must hold packages:write or GitHub Packages rejects them.
-  assert.equal(pipeline.jobs["preview"].github.permissions.packages, "write");
-  assert.equal(pipeline.jobs["preview"].github.permissions.issues, "write", "the preview job comments install commands on the PR");
-  assert.equal(
-    pipeline.jobs["preview"].github.permissions.pullRequests,
-    "write",
-    "GITHUB_TOKEN routes PR comments through the pull-requests permission, not just issues"
-  );
   assert.equal(pipeline.jobs["snapshot"].github.permissions.packages, "write");
   assert.equal(pipeline.jobs["publish"].github.permissions.contents, "write");
   assert.equal(pipeline.jobs["publish"].github.permissions.packages, "write");
@@ -431,20 +426,16 @@ test("PROMISE: self hygiene gates run in the release pack chain", async () => {
   const { default: pipeline } = await import("../pipeline.ts");
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 
-  assert.equal(packageJson.devDependencies["github-actionlint"], "1.7.12");
-  assert.equal(packageJson.devDependencies["publint"], "0.3.21");
-  assert.equal(packageJson.devDependencies["@arethetypeswrong/cli"], "0.18.3");
-  assert.equal(packageJson.devDependencies["dependency-cruiser"], "17.4.3");
-  assert.equal(packageJson.devDependencies["knip"], "6.16.1");
-  assert.equal(packageJson.scripts["actionlint:check"], "github-actionlint -shellcheck= -pyflakes= .github/workflows/*.yml examples/*/.github/workflows/*.yml");
-  assert.equal(packageJson.scripts["package-lint:check"], "publint packages/pipeline --strict && attw --pack packages/pipeline --profile esm-only --format ascii --no-emoji");
-  assert.equal(packageJson.scripts["depcruise:check"], "depcruise --config .dependency-cruiser.cjs --output-type err packages scripts tests pipeline.ts");
-  assert.equal(packageJson.scripts["knip:check"], "knip --no-progress");
+  assert.ok(packageJson.devDependencies["@async/hygiene"], "@async/hygiene must own self hygiene tooling");
+  assert.equal(packageJson.scripts["hygiene:check"], "async-hygiene check");
+  assert.ok(pipeline.tasks.hygiene, "hygiene task must exist");
+  assert.deepEqual(pipeline.tasks.hygiene.dependsOn, ["build"]);
+  assert.equal(pipeline.tasks.hygiene.steps[0].command, "async-hygiene check");
+  assert.ok(pipeline.tasks.pack.dependsOn.includes("hygiene"), "pack must depend on the hidden hygiene gate");
 
   for (const taskId of ["actionlint", "package-lint", "depcruise", "knip"]) {
-    assert.ok(pipeline.tasks[taskId], `${taskId} task must exist`);
-    assert.ok(pipeline.tasks.pack.dependsOn.includes(taskId), `pack must depend on ${taskId}`);
+    assert.equal(pipeline.tasks[taskId], undefined, `${taskId} task must stay hidden inside @async/hygiene`);
+    assert.equal(pipeline.tasks.pack.dependsOn.includes(taskId), false, `pack must not expose ${taskId}`);
+    assert.equal(packageJson.scripts[`${taskId}:check`], undefined, `${taskId} script must stay hidden inside @async/hygiene`);
   }
-  assert.deepEqual(pipeline.tasks["package-lint"].dependsOn, ["build"]);
-  assert.deepEqual(pipeline.tasks["depcruise"].dependsOn, ["build"]);
 });

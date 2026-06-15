@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.1 - 2026-06-15
+
+### Features
+
+- Generated GitHub workflows now enable `actions/setup-node` dependency-store caching when `sync.github.dependencyCache` is true and a recognized package-manager lockfile exists.
+- Add generated `sync.github.dependabotAutoMerge` and `sync.github.packagePreviews` jobs so repos can opt into guarded Dependabot auto-merge and PR package previews with `true` defaults.
+- Replace direct self-hygiene scripts and task ids with `@async/hygiene`, leaving only the `hygiene` pipeline task as the release pack gate.
+
 ## 0.6.0 - 2026-06-15
 
 ### Breaking

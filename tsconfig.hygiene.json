@@ -8,6 +8,8 @@
       "@async/pipeline/lima": ["packages/pipeline/src/lima.ts"],
       "@async/pipeline/node": ["packages/pipeline/src/node.ts"],
       "@async/pipeline/runtime": ["packages/pipeline/src/runtime.ts"],
+      "@async/hygiene": ["node_modules/@async/hygiene/dist/index.d.ts"],
+      "@async/hygiene/pipeline": ["node_modules/@async/hygiene/dist/pipeline.d.ts"],
       "@async/pipeline-core": ["packages/pipeline-core/src/index.ts"],
       "@async/pipeline-core/graph": ["packages/pipeline-core/src/graph.ts"],
       "@async/pipeline-core/runtime": ["packages/pipeline-core/src/runtime.ts"],
