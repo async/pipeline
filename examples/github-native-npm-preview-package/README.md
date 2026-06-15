@@ -2,6 +2,8 @@
 
 This example adapts PatrickJS's [GitHub-Native npm Preview Packages Gist](https://gist.github.com/PatrickJS/3fa2925713fcdf75a27a505ce2cd0d80) into a single `pipeline.mjs`.
 
+For normal PR preview package publishing, prefer the generated path in [generated-package-previews](../generated-package-previews/README.md): `sync.github.packagePreviews: true`. This example shows the lower-level task/job shape that the generated preview system replaces for the common case.
+
 The Gist uses separate GitHub Actions workflow templates for:
 
 - PR preview packages in GitHub Packages.
@@ -10,7 +12,7 @@ The Gist uses separate GitHub Actions workflow templates for:
 
 This example keeps the same model but makes `pipeline.mjs` the source of truth for jobs, triggers, local verification, and generated command sync.
 
-The repo dogfoods this model for real: the root `pipeline.ts` publishes `@async/pipeline` previews, `main` snapshots, and a stable mirror to GitHub Packages through `scripts/publish-github.mjs`. This example stays print-only so it is safe to run anywhere.
+The repo dogfoods this model for real: the root `pipeline.ts` generates `@async/pipeline` PR previews with `packagePreviews: true`, and still publishes `main` snapshots plus stable mirrors to GitHub Packages through lifecycle tasks. This example stays print-only so it is safe to run anywhere.
 
 ## Files
 

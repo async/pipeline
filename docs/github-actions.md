@@ -33,18 +33,45 @@ export default definePipeline({
 
 ## Workflow Options
 
-The generated workflow installs Node 24 by default and restores the local task cache (`.async/cache`) through a pinned `actions/cache` step keyed by commit with an OS-prefixed fallback, so unchanged tasks resolve as `cached` in CI. Both knobs live in `sync.github`:
+The generated workflow installs Node 24 by default, restores the local task cache (`.async/cache`) through a pinned `actions/cache` step keyed by commit with an OS-prefixed fallback, and caches the package-manager dependency store through `actions/setup-node` when a recognized lockfile is present. These knobs live in `sync.github`:
 
 ```ts
 sync: {
   github: {
     nodeVersion: 24,
-    cache: true
+    cache: true,
+    dependencyCache: true,
+    dependabotAutoMerge: true,
+    packagePreviews: true
   }
 }
 ```
 
+`cache` controls the task cache. `dependencyCache` controls the bootloader dependency-store cache; set it to `false` when you need a fully cold install.
+
 Each generated job also runs `async-pipeline explain --run latest` on failure and uploads `.async/runs` with a pinned `actions/upload-artifact` step. GitHub Actions stays a bootloader for the same task graph; the uploaded evidence is the local run record, graph snapshot, cache receipts, logs, and context packs from the normal runner.
+
+## Generated Package Previews And Dependabot Merge
+
+`sync.github.packagePreviews: true` generates a `package-preview` job on pull requests. The generator finds the public root package, or the single public `packages/*` workspace package when the root package is private. It runs the `pack` task when present, falls back to `build`, then calls `async-pipeline publish github pr --package <path> --registry https://npm.pkg.github.com`. Same-repo PRs publish immutable `0.0.0-pr.<n>.sha.<sha>` previews and update one install comment; fork PRs skip inside the lifecycle CLI.
+
+Use object form when inference is ambiguous or a repo publishes previews somewhere else:
+
+```ts
+sync: {
+  github: {
+    packagePreviews: {
+      package: "packages/pipeline",
+      target: "pack",
+      registry: "https://npm.pkg.github.com",
+      namespace: "async",
+      tokenEnv: "GITHUB_TOKEN"
+    }
+  }
+}
+```
+
+`sync.github.dependabotAutoMerge: true` generates a separate `dependabot-auto-merge` job on `pull_request_target`. It only runs for `dependabot[bot]`, checks Dependabot metadata, allows npm, Deno, and GitHub Actions dependency ecosystems by default, approves the PR, waits for non-auto-merge checks, then squash-merges with branch deletion.
 
 ## GitHub Pages
 
@@ -346,7 +373,7 @@ Generated GitHub Actions do not install PATH shims yet. Future GitHub workspace/
 
 ## Cache
 
-The generated workflow persists `.async/cache` through the generated `actions/cache` step when `sync.github.cache` is true. The run evidence artifact uploads `.async/runs`; it is diagnostic evidence, not a remote task-cache adapter.
+The generated workflow persists `.async/cache` through the generated `actions/cache` step when `sync.github.cache` is true. The generated workflow also enables `actions/setup-node` dependency caching when `sync.github.dependencyCache` is true and the package manager has a recognized lockfile. The run evidence artifact uploads `.async/runs`; it is diagnostic evidence, not a remote task-cache adapter.
 
 Keep package-manager caching separate from `@async/pipeline` task caching.
 

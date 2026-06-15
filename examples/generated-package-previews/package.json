@@ -1,0 +1,28 @@
+{
+  "name": "@async-framework/example-generated-package-previews",
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@10.20.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/async/pipeline.git",
+    "directory": "examples/generated-package-previews"
+  },
+  "exports": {
+    ".": {
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "async-pipeline": "async-pipeline",
+    "build": "node scripts/build.js",
+    "pipeline:verify": "async-pipeline run verify",
+    "test": "node --test src/index.test.js"
+  },
+  "devDependencies": {
+    "@async/pipeline": "workspace:*"
+  }
+}

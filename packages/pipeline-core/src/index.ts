@@ -270,12 +270,33 @@ export type SyncRunner = "package" | "deno";
 export type SyncSelection = "all" | string[];
 export type SyncTargetSelector = { package: string; allowMultiple?: boolean } | { path: string; allowMultiple?: boolean };
 export type SyncTargets = "root" | SyncTargetSelector[];
+export type DependabotAutoMergeEcosystem = "github-actions" | "npm" | "deno";
+
+export interface DependabotAutoMergeConfig {
+  ecosystems?: DependabotAutoMergeEcosystem[];
+}
+
+export type DependabotAutoMergeInput = boolean | DependabotAutoMergeConfig;
+
+export interface PackagePreviewsConfig {
+  package?: string;
+  target?: string;
+  registry?: string;
+  namespace?: string;
+  tokenEnv?: string;
+  comment?: boolean;
+}
+
+export type PackagePreviewsInput = boolean | PackagePreviewsConfig;
 
 export interface GitHubSyncConfig {
   workflow?: string;
   lock?: string;
   nodeVersion?: number | string;
   cache?: boolean;
+  dependencyCache?: boolean;
+  dependabotAutoMerge?: DependabotAutoMergeInput;
+  packagePreviews?: PackagePreviewsInput;
 }
 
 export type GitHubSyncInput = boolean | GitHubSyncConfig;
@@ -302,6 +323,24 @@ export interface NormalizedGitHubSyncConfig {
   lock: string;
   nodeVersion: string;
   cache: boolean;
+  dependencyCache: boolean;
+  dependabotAutoMerge: NormalizedDependabotAutoMergeConfig;
+  packagePreviews: NormalizedPackagePreviewsConfig;
+}
+
+export interface NormalizedDependabotAutoMergeConfig {
+  enabled: boolean;
+  ecosystems: DependabotAutoMergeEcosystem[];
+}
+
+export interface NormalizedPackagePreviewsConfig {
+  enabled: boolean;
+  package?: string;
+  target?: string;
+  registry: string;
+  namespace?: string;
+  tokenEnv: string;
+  comment: boolean;
 }
 
 export interface NormalizedTaskSyncConfig {
@@ -799,6 +838,10 @@ const GITHUB_PAGES_FIELDS = new Set(["artifactName", "build", "environment"]);
 const GITHUB_PAGES_JEKYLL_BUILD_FIELDS = new Set(["destination", "kind", "source"]);
 const GITHUB_PAGES_STATIC_BUILD_FIELDS = new Set(["kind", "path"]);
 const GITHUB_PERMISSION_FIELDS = new Set(["contents", "idToken", "issues", "packages", "pullRequests"]);
+const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "nodeVersion", "cache", "dependencyCache", "dependabotAutoMerge", "packagePreviews"]);
+const DEPENDABOT_AUTO_MERGE_FIELDS = new Set(["ecosystems"]);
+const DEPENDABOT_AUTO_MERGE_ECOSYSTEMS = new Set<DependabotAutoMergeEcosystem>(["github-actions", "npm", "deno"]);
+const PACKAGE_PREVIEWS_FIELDS = new Set(["package", "target", "registry", "namespace", "tokenEnv", "comment"]);
 const CONTAINER_PROVIDERS = new Set(["auto", "docker", "apple-container", "lima"]);
 const SECTION_KINDS = {
   agents: "section.agents",
@@ -834,6 +877,15 @@ function rejectUnknownFields(known: Set<string>, value: object, where: string): 
  */
 function validateDefinitionShape(definition: PipelineDefinition): void {
   rejectUnknownFields(PIPELINE_FIELDS, definition, "Pipeline");
+  if (definition.sync?.github && typeof definition.sync.github === "object") {
+    rejectUnknownFields(GITHUB_SYNC_FIELDS, definition.sync.github, "sync.github");
+    if (definition.sync.github.dependabotAutoMerge && typeof definition.sync.github.dependabotAutoMerge === "object") {
+      rejectUnknownFields(DEPENDABOT_AUTO_MERGE_FIELDS, definition.sync.github.dependabotAutoMerge, "sync.github.dependabotAutoMerge");
+    }
+    if (definition.sync.github.packagePreviews && typeof definition.sync.github.packagePreviews === "object") {
+      rejectUnknownFields(PACKAGE_PREVIEWS_FIELDS, definition.sync.github.packagePreviews, "sync.github.packagePreviews");
+    }
+  }
   for (const [id, profile] of Object.entries(definition.agents ?? {})) {
     rejectUnknownFields(AGENT_PROFILE_FIELDS, profile, `Agent profile "${id}"`);
     if (!Array.isArray(profile.command) || profile.command.length === 0 || profile.command.some((part) => typeof part !== "string" || part.length === 0)) {
@@ -1625,7 +1677,10 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       workflow: ".github/workflows/async-pipeline.yml",
       lock: ".github/async-pipeline.lock.json",
       nodeVersion: DEFAULT_GITHUB_NODE_VERSION,
-      cache: true
+      cache: true,
+      dependencyCache: true,
+      dependabotAutoMerge: normalizeDependabotAutoMerge(undefined),
+      packagePreviews: normalizePackagePreviews(undefined)
     };
   }
   if (github === true) {
@@ -1634,7 +1689,10 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       workflow: ".github/workflows/async-pipeline.yml",
       lock: ".github/async-pipeline.lock.json",
       nodeVersion: DEFAULT_GITHUB_NODE_VERSION,
-      cache: true
+      cache: true,
+      dependencyCache: true,
+      dependabotAutoMerge: normalizeDependabotAutoMerge(undefined),
+      packagePreviews: normalizePackagePreviews(undefined)
     };
   }
   return {
@@ -1642,7 +1700,10 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
     workflow: github.workflow ?? ".github/workflows/async-pipeline.yml",
     lock: github.lock ?? ".github/async-pipeline.lock.json",
     nodeVersion: normalizeGitHubNodeVersion(github.nodeVersion),
-    cache: github.cache ?? true
+    cache: github.cache ?? true,
+    dependencyCache: github.dependencyCache ?? true,
+    dependabotAutoMerge: normalizeDependabotAutoMerge(github.dependabotAutoMerge),
+    packagePreviews: normalizePackagePreviews(github.packagePreviews)
   };
 }
 
@@ -1651,6 +1712,78 @@ function normalizeGitHubNodeVersion(nodeVersion: number | string | undefined): s
   const normalized = String(nodeVersion).trim();
   if (!/^\d+(?:\.\d+){0,2}$/.test(normalized)) {
     throw pipelineError("ASYNC_PIPELINE_SYNC_INVALID_NODE_VERSION", `Invalid GitHub sync nodeVersion "${nodeVersion}". Use a version like 24 or 24.1.0.`);
+  }
+  return normalized;
+}
+
+function normalizeDependabotAutoMerge(input: DependabotAutoMergeInput | undefined): NormalizedDependabotAutoMergeConfig {
+  if (!input) {
+    return { enabled: false, ecosystems: ["github-actions", "npm", "deno"] };
+  }
+  if (input === true) {
+    return { enabled: true, ecosystems: ["github-actions", "npm", "deno"] };
+  }
+  const ecosystems = input.ecosystems ?? ["github-actions", "npm", "deno"];
+  if (ecosystems.length === 0) {
+    throw pipelineError("ASYNC_PIPELINE_DEPENDABOT_AUTO_MERGE_INVALID", "sync.github.dependabotAutoMerge.ecosystems cannot be empty.");
+  }
+  for (const ecosystem of ecosystems) {
+    if (!DEPENDABOT_AUTO_MERGE_ECOSYSTEMS.has(ecosystem)) {
+      throw pipelineError(
+        "ASYNC_PIPELINE_DEPENDABOT_AUTO_MERGE_INVALID",
+        `Unsupported Dependabot auto-merge ecosystem "${ecosystem}". Use one of: ${[...DEPENDABOT_AUTO_MERGE_ECOSYSTEMS].join(", ")}.`
+      );
+    }
+  }
+  return {
+    enabled: true,
+    ecosystems: [...new Set(ecosystems)]
+  };
+}
+
+function normalizePackagePreviews(input: PackagePreviewsInput | undefined): NormalizedPackagePreviewsConfig {
+  if (!input) {
+    return {
+      enabled: false,
+      registry: "https://npm.pkg.github.com",
+      tokenEnv: "GITHUB_TOKEN",
+      comment: true
+    };
+  }
+  if (input === true) {
+    return {
+      enabled: true,
+      registry: "https://npm.pkg.github.com",
+      tokenEnv: "GITHUB_TOKEN",
+      comment: true
+    };
+  }
+  const output: NormalizedPackagePreviewsConfig = {
+    enabled: true,
+    package: normalizeOptionalNonEmptyString(input.package, "sync.github.packagePreviews.package"),
+    target: normalizeOptionalNonEmptyString(input.target, "sync.github.packagePreviews.target"),
+    registry: normalizeOptionalNonEmptyString(input.registry, "sync.github.packagePreviews.registry") ?? "https://npm.pkg.github.com",
+    namespace: normalizeOptionalNonEmptyString(input.namespace, "sync.github.packagePreviews.namespace"),
+    tokenEnv: normalizeOptionalNonEmptyString(input.tokenEnv, "sync.github.packagePreviews.tokenEnv") ?? "GITHUB_TOKEN",
+    comment: input.comment ?? true
+  };
+  if (typeof output.comment !== "boolean") {
+    throw pipelineError("ASYNC_PIPELINE_PACKAGE_PREVIEWS_INVALID", "sync.github.packagePreviews.comment must be a boolean.");
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(output.tokenEnv)) {
+    throw pipelineError("ASYNC_PIPELINE_PACKAGE_PREVIEWS_INVALID", `sync.github.packagePreviews.tokenEnv must be an environment variable name. Found: ${output.tokenEnv}.`);
+  }
+  return output;
+}
+
+function normalizeOptionalNonEmptyString(input: unknown, field: string): string | undefined {
+  if (input === undefined) return undefined;
+  if (typeof input !== "string") {
+    throw pipelineError("ASYNC_PIPELINE_PACKAGE_PREVIEWS_INVALID", `${field} must be a string.`);
+  }
+  const normalized = input.trim();
+  if (!normalized) {
+    throw pipelineError("ASYNC_PIPELINE_PACKAGE_PREVIEWS_INVALID", `${field} cannot be empty.`);
   }
   return normalized;
 }

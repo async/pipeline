@@ -23,6 +23,9 @@ export interface PackageLifecycleIO {
 export interface PackageLifecycleOptions {
   cwd: string;
   packagePath: string;
+  registry?: string;
+  namespace?: string;
+  comment?: boolean;
   env: NodeJS.ProcessEnv;
   io: PackageLifecycleIO;
 }
@@ -49,7 +52,9 @@ export async function publishGitHubPackage(mode: GitHubPackagePublishMode, optio
   assertPublicPackage(manifest);
 
   const repository = options.env.GITHUB_REPOSITORY ?? packageRepositoryName(manifest) ?? "";
-  const owner = (options.env.GITHUB_REPOSITORY_OWNER ?? repository.split("/")[0] ?? "").toLowerCase();
+  const owner = (options.namespace ?? options.env.GITHUB_REPOSITORY_OWNER ?? repository.split("/")[0] ?? "").toLowerCase();
+  const registry = normalizeRegistry(options.registry ?? GITHUB_REGISTRY);
+  const shouldComment = options.comment ?? true;
   if (!repository || !owner) {
     throw new Error("Set GITHUB_REPOSITORY or package.json repository so GitHub Packages publishing can resolve the repository owner.");
   }
@@ -72,7 +77,7 @@ export async function publishGitHubPackage(mode: GitHubPackagePublishMode, optio
       ...manifest,
       name: mirrorName,
       version: releaseContext.version,
-      publishConfig: { registry: GITHUB_REGISTRY }
+      publishConfig: { registry }
     };
     delete staged.scripts;
     delete staged.devDependencies;
@@ -84,10 +89,10 @@ export async function publishGitHubPackage(mode: GitHubPackagePublishMode, optio
       }
     }
 
-    const registryUrl = new URL(GITHUB_REGISTRY);
+    const registryUrl = new URL(registry);
     const registryAuthPath = `${registryUrl.host}${registryUrl.pathname.replace(/\/$/, "")}`;
     const npmConfig = join(stagingDir, ".github-packages.npmrc");
-    await writeFile(npmConfig, `@${owner}:registry=${GITHUB_REGISTRY}\n//${registryAuthPath}/:_authToken=${token}\n`, "utf8");
+    await writeFile(npmConfig, `@${owner}:registry=${registry}\n//${registryAuthPath}/:_authToken=${token}\n`, "utf8");
     await chmod(npmConfig, 0o600);
 
     const npm = (args: string[], runOptions: { capture?: boolean } = {}): SpawnSyncReturns<string> => spawnSync("npm", args, {
@@ -98,7 +103,7 @@ export async function publishGitHubPackage(mode: GitHubPackagePublishMode, optio
     });
 
     const spec = `${mirrorName}@${releaseContext.version}`;
-    const view = npm(["view", spec, "version", "--registry", GITHUB_REGISTRY], { capture: true });
+    const view = npm(["view", spec, "version", "--registry", registry], { capture: true });
     const viewOutput = npmOutput(view);
     const exists = view.status === 0;
     if (!exists && !isMissingVersion(view)) {
@@ -109,14 +114,14 @@ export async function publishGitHubPackage(mode: GitHubPackagePublishMode, optio
       options.io.stdout(`${spec} already exists on GitHub Packages; skipping publish.\n`);
     } else {
       options.io.stdout(`Publishing ${spec} to GitHub Packages with tag ${releaseContext.distTag}.\n`);
-      const publish = npm(["publish", "--tag", releaseContext.distTag, "--ignore-scripts", "--registry", GITHUB_REGISTRY]);
+      const publish = npm(["publish", "--tag", releaseContext.distTag, "--ignore-scripts", "--registry", registry]);
       if (publish.status !== 0) {
         throw new Error(`Failed to publish ${spec} to GitHub Packages. Check the job's packages:write permission, package visibility, and whether this immutable version already exists.`);
       }
     }
 
     const moveDistTag = (): void => {
-      const result = npm(["dist-tag", "add", spec, releaseContext.distTag, "--registry", GITHUB_REGISTRY]);
+      const result = npm(["dist-tag", "add", spec, releaseContext.distTag, "--registry", registry]);
       if (result.status !== 0) {
         throw new Error(`Failed to move GitHub Packages dist-tag ${releaseContext.distTag} to ${spec}.`);
       }
@@ -160,6 +165,10 @@ export async function publishGitHubPackage(mode: GitHubPackagePublishMode, optio
         return;
       }
       moveDistTag();
+      if (!shouldComment) {
+        options.io.stdout("Skipping PR preview comment.\n");
+        return;
+      }
 
       const installTarget = (versionOrTag: string): string => {
         const target = `${mirrorName}@${versionOrTag}`;
@@ -181,7 +190,7 @@ export async function publishGitHubPackage(mode: GitHubPackagePublishMode, optio
         `pnpm add ${installTarget(releaseContext.version)}`,
         "```",
         "",
-        `Requires GitHub Packages auth and \`@${owner}:registry=${GITHUB_REGISTRY}\` in your npm config.`
+        `Requires GitHub Packages auth and \`@${owner}:registry=${registry}\` in your npm config.`
       ].join("\n");
       const comments = await guardedApi(() => ghApi(`/repos/${repository}/issues/${pr.number}/comments?per_page=100`), "Could not list PR comments");
       const previous = Array.isArray(comments)
@@ -432,6 +441,19 @@ function githubMirrorPackageName(packageName: string, owner: string): string {
     throw new Error(`GitHub Packages package name must be a simple lowercase scoped npm name. Found: ${mirrorName}`);
   }
   return mirrorName;
+}
+
+function normalizeRegistry(registry: string): string {
+  const normalized = registry.trim().replace(/\/$/, "");
+  try {
+    const url = new URL(normalized);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      throw new Error("unsupported protocol");
+    }
+  } catch {
+    throw new Error(`GitHub package registry must be an HTTP(S) URL. Found: ${registry}`);
+  }
+  return normalized;
 }
 
 function packageRepositoryName(manifest: PackageManifest): string | undefined {

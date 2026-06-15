@@ -19,6 +19,8 @@ Contract: `@async/pipeline.declaration`
 | --- | --- | --- | --- | --- | --- | --- |
 | `config.definePipeline` | definePipeline config entrypoint | public | stable | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#definepipeline) |
 | `config.env` | Environment variable and secret declarations | public | stable | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#env) |
+| `config.github.dependabotAutoMerge` | Generated Dependabot auto-merge job declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
+| `config.github.packagePreviews` | Generated GitHub Packages PR preview job declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
 | `config.github.pages` | Generated GitHub Pages job declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
 | `config.job` | Job declaration | public | stable | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#job) |
 | `config.source` | Source pipeline declaration | public | stable | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#source) |

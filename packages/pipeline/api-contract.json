@@ -53,6 +53,24 @@
           "docsUrl": "https://github.com/async/pipeline/blob/main/docs/github-actions.md"
         },
         {
+          "id": "config.github.dependabotAutoMerge",
+          "title": "Generated Dependabot auto-merge job declaration",
+          "releaseTag": "beta",
+          "stability": "preview",
+          "lifecycle": "active",
+          "group": "config",
+          "docsUrl": "https://github.com/async/pipeline/blob/main/docs/github-actions.md"
+        },
+        {
+          "id": "config.github.packagePreviews",
+          "title": "Generated GitHub Packages PR preview job declaration",
+          "releaseTag": "beta",
+          "stability": "preview",
+          "lifecycle": "active",
+          "group": "config",
+          "docsUrl": "https://github.com/async/pipeline/blob/main/docs/github-actions.md"
+        },
+        {
           "id": "config.job",
           "title": "Job declaration",
           "releaseTag": "public",

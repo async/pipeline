@@ -435,14 +435,17 @@ async function dispatchCommand(commandName: string, args: string[], context: Pip
 
 async function handlePublishCommand(args: string[], context: PipelineCliContext, program: string): Promise<number> {
   const target = args[0];
-  const packagePath = requiredFlagValue(args, "--package", `Usage: ${program} publish github <pr|main|release> --package <path>\n       ${program} publish npm --package <path>`);
+  const packagePath = requiredFlagValue(args, "--package", `Usage: ${program} publish github <pr|main|release> --package <path> [--registry <url>] [--namespace <scope>] [--no-comment]\n       ${program} publish npm --package <path>`);
   if (target === "github") {
     const mode = args[1];
     if (mode !== "pr" && mode !== "main" && mode !== "release") {
-      throw new Error(`Usage: ${program} publish github <pr|main|release> --package <path>`);
+      throw new Error(`Usage: ${program} publish github <pr|main|release> --package <path> [--registry <url>] [--namespace <scope>] [--no-comment]`);
     }
+    const registry = optionalFlagValue(args, "--registry");
+    const namespace = optionalFlagValue(args, "--namespace");
+    const comment = !args.includes("--no-comment");
     return runLifecycleCli(
-      () => publishGitHubPackage(mode as GitHubPackagePublishMode, { cwd: context.cwd, packagePath, env: context.env, io: context }),
+      () => publishGitHubPackage(mode as GitHubPackagePublishMode, { cwd: context.cwd, packagePath, registry, namespace, comment, env: context.env, io: context }),
       context
     );
   }
@@ -452,7 +455,7 @@ async function handlePublishCommand(args: string[], context: PipelineCliContext,
       context
     );
   }
-  throw new Error(`Usage: ${program} publish github <pr|main|release> --package <path>\n       ${program} publish npm --package <path>`);
+  throw new Error(`Usage: ${program} publish github <pr|main|release> --package <path> [--registry <url>] [--namespace <scope>] [--no-comment]\n       ${program} publish npm --package <path>`);
 }
 
 async function handleReleaseCommand(args: string[], context: PipelineCliContext, program: string): Promise<number> {
@@ -568,6 +571,14 @@ function requiredFlagValue(args: string[], flag: string, usage: string): string 
   const index = args.indexOf(flag);
   const value = index >= 0 ? args[index + 1] : undefined;
   if (!value) throw new Error(usage);
+  return value;
+}
+
+function optionalFlagValue(args: string[], flag: string): string | undefined {
+  const index = args.indexOf(flag);
+  if (index < 0) return undefined;
+  const value = args[index + 1];
+  if (!value) throw new Error(`${flag} requires a value.`);
   return value;
 }
 
@@ -839,7 +850,7 @@ function printHelp(program: string): string {
   ${program} sources sync
   ${program} metadata --format json [--include-sources]
   ${program} matrix <job> --format github
-  ${program} publish github <pr|main|release> --package <path>
+  ${program} publish github <pr|main|release> --package <path> [--registry <url>] [--namespace <scope>] [--no-comment]
   ${program} publish npm --package <path>
   ${program} release ensure --package <path>
   ${program} release doctor --package <path>

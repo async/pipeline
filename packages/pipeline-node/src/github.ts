@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, JobEnvironment, JobRequirements, JobId, NormalizedJob, NormalizedPipeline, TriggerDefinition, TriggerId } from "@async/pipeline-core";
+import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, JobEnvironment, JobRequirements, JobId, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, TriggerDefinition, TriggerId } from "@async/pipeline-core";
 import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 3;
+const GENERATOR_VERSION = 4;
 const DEFAULT_NODE_VERSION = "24";
 
 export interface GitHubRenderOptions {
@@ -30,7 +30,29 @@ export interface GitHubLock {
   buildCommand?: string;
   nodeVersion: string;
   taskCache: boolean;
+  dependencyCache: boolean;
+  dependencyCachePath?: string;
+  dependabotAutoMerge: {
+    enabled: boolean;
+    ecosystems: string[];
+  };
+  packagePreviews: {
+    enabled: boolean;
+    package?: string;
+    target?: string;
+    registry: string;
+    namespace?: string;
+    tokenEnv: string;
+    comment: boolean;
+  };
   manualDispatchJobs?: string[];
+}
+
+interface PackageInfo {
+  packageManager: string;
+  buildCommand?: string;
+  dependencyCachePath?: string;
+  publicPackagePaths: string[];
 }
 
 export interface GitHubRenderResult {
@@ -55,10 +77,9 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
   const lockPath = options.lockPath ?? pipeline.sync.github.lock ?? GITHUB_LOCK_PATH;
   const packageInfo = await readPackageInfo(options.cwd);
   const renderModel = buildRenderModel(pipeline, {
+    ...packageInfo,
     configPath: relativePath(options.cwd, options.configPath),
-    workflowPath,
-    packageManager: packageInfo.packageManager,
-    buildCommand: packageInfo.buildCommand
+    workflowPath
   });
   const workflow = renderWorkflow(renderModel);
   const hash = hashJson({
@@ -71,6 +92,10 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     buildCommand: renderModel.buildCommand,
     nodeVersion: renderModel.nodeVersion,
     taskCache: renderModel.taskCache,
+    dependencyCache: renderModel.dependencyCache,
+    dependencyCachePath: renderModel.dependencyCachePath,
+    dependabotAutoMerge: renderModel.dependabotAutoMerge,
+    packagePreviews: renderModel.packagePreviews,
     manualDispatchJobs: renderModel.manualDispatchJobs
   });
   const lock: GitHubLock = {
@@ -86,6 +111,10 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     buildCommand: renderModel.buildCommand,
     nodeVersion: renderModel.nodeVersion,
     taskCache: renderModel.taskCache,
+    dependencyCache: renderModel.dependencyCache,
+    dependencyCachePath: renderModel.dependencyCachePath,
+    dependabotAutoMerge: renderModel.dependabotAutoMerge,
+    packagePreviews: renderModel.packagePreviews,
     manualDispatchJobs: renderModel.manualDispatchJobs
   };
   return {
@@ -174,10 +203,18 @@ export function jobsForGitHubEvent(pipeline: NormalizedPipeline, context: GitHub
 
 function buildRenderModel(
   pipeline: NormalizedPipeline,
-  options: { configPath: string; workflowPath: string; packageManager: string; buildCommand?: string }
+  options: PackageInfo & { configPath: string; workflowPath: string }
 ) {
   const usedTriggerIds = new Set<TriggerId>(Object.values(pipeline.jobs).flatMap((job) => job.trigger));
   const usedTriggers = Object.fromEntries([...usedTriggerIds].sort().map((triggerId) => [triggerId, pipeline.triggers[triggerId]]));
+  const triggers = normalizeGitHubTriggers(usedTriggers);
+  if (pipeline.sync.github.dependabotAutoMerge.enabled) {
+    addPullRequestTrigger(triggers, "pull_request_target");
+  }
+  const packagePreviews = resolvePackagePreviews(pipeline, options);
+  if (packagePreviews.enabled) {
+    addPullRequestTrigger(triggers, "pull_request");
+  }
   const manualDispatchJobs = Object.values(pipeline.jobs)
     .filter((job) => job.trigger.some((triggerId) => pipeline.triggers[triggerId]?.type === "manual"))
     .map((job) => job.id)
@@ -186,7 +223,7 @@ function buildRenderModel(
     name: "Async Pipeline",
     configPath: options.configPath,
     workflowPath: options.workflowPath,
-    triggers: normalizeGitHubTriggers(usedTriggers),
+    triggers,
     jobs: Object.values(pipeline.jobs)
       .map((job) => ({
         id: job.id,
@@ -204,8 +241,67 @@ function buildRenderModel(
     buildCommand: options.buildCommand,
     nodeVersion: pipeline.sync.github.nodeVersion ?? DEFAULT_NODE_VERSION,
     taskCache: pipeline.sync.github.cache ?? true,
+    dependencyCache: pipeline.sync.github.dependencyCache ?? true,
+    dependencyCachePath: pipeline.sync.github.dependencyCache === false ? undefined : options.dependencyCachePath,
+    dependabotAutoMerge: pipeline.sync.github.dependabotAutoMerge,
+    packagePreviews,
     manualDispatchJobs
   };
+}
+
+function addPullRequestTrigger(triggers: Record<string, unknown>, event: "pull_request" | "pull_request_target"): void {
+  const existing = triggers[event] && typeof triggers[event] === "object" && !Array.isArray(triggers[event])
+    ? triggers[event] as Record<string, unknown>
+    : {};
+  const existingTypes = Array.isArray(existing.types) ? existing.types.filter((value): value is string => typeof value === "string") : [];
+  triggers[event] = sortObject({
+    ...existing,
+    types: [...new Set([...existingTypes, "opened", "reopened", "synchronize", "ready_for_review"])].sort()
+  });
+}
+
+function resolvePackagePreviews(pipeline: NormalizedPipeline, packageInfo: PackageInfo): NormalizedPackagePreviewsConfig {
+  const config = pipeline.sync.github.packagePreviews;
+  if (!config.enabled) return config;
+  const packagePath = config.package ?? inferPackagePreviewPath(packageInfo.publicPackagePaths);
+  const target = config.target ?? inferPackagePreviewTarget(pipeline);
+  if (!pipeline.tasks[target]) {
+    throw pipelineError(
+      "ASYNC_PIPELINE_PACKAGE_PREVIEWS_UNKNOWN_TARGET",
+      `sync.github.packagePreviews.target references missing task "${target}".`
+    );
+  }
+  return {
+    ...config,
+    package: packagePath,
+    target
+  };
+}
+
+function inferPackagePreviewPath(publicPackagePaths: string[]): string {
+  if (publicPackagePaths.length === 1) {
+    const packagePath = publicPackagePaths[0];
+    if (packagePath) return packagePath;
+  }
+  if (publicPackagePaths.length === 0) {
+    throw pipelineError(
+      "ASYNC_PIPELINE_PACKAGE_PREVIEWS_NO_PACKAGE",
+      "sync.github.packagePreviews: true could not find a public root package or public packages/* workspace package. Set sync.github.packagePreviews.package explicitly."
+    );
+  }
+  throw pipelineError(
+    "ASYNC_PIPELINE_PACKAGE_PREVIEWS_AMBIGUOUS_PACKAGE",
+    `sync.github.packagePreviews: true found multiple public packages (${publicPackagePaths.join(", ")}). Set sync.github.packagePreviews.package explicitly.`
+  );
+}
+
+function inferPackagePreviewTarget(pipeline: NormalizedPipeline): string {
+  if (pipeline.tasks.pack) return "pack";
+  if (pipeline.tasks.build) return "build";
+  throw pipelineError(
+    "ASYNC_PIPELINE_PACKAGE_PREVIEWS_NO_TARGET",
+    "sync.github.packagePreviews: true needs a pack or build task. Set sync.github.packagePreviews.target explicitly."
+  );
 }
 
 function normalizeGitHubTriggers(triggers: Record<string, TriggerDefinition | undefined>): Record<string, unknown> {
@@ -254,6 +350,12 @@ function renderWorkflow(model: ReturnType<typeof buildRenderModel>): string {
     if (job.github?.pages) {
       renderPagesDeployJob(lines, job);
     }
+  }
+  if (model.dependabotAutoMerge.enabled) {
+    renderDependabotAutoMergeJob(lines, model.dependabotAutoMerge.ecosystems);
+  }
+  if (model.packagePreviews.enabled) {
+    renderPackagePreviewJob(lines, model);
   }
   return `${lines.join("\n")}`;
 }
@@ -327,7 +429,14 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
     "        with:",
     `          node-version: ${model.nodeVersion}`,
     "          registry-url: https://registry.npmjs.org/",
-    "          package-manager-cache: false",
+    ...(model.dependencyCache && model.dependencyCachePath
+      ? [
+          `          cache: ${JSON.stringify(model.packageManager)}`,
+          `          cache-dependency-path: ${JSON.stringify(model.dependencyCachePath)}`
+        ]
+      : [
+          "          package-manager-cache: false"
+        ]),
     "",
     ...(idToken === "write"
       ? [
@@ -392,16 +501,215 @@ function renderRunEvidenceSteps(lines: string[], packageManager: string): void {
   );
 }
 
+function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof buildRenderModel>): void {
+  const preview = model.packagePreviews;
+  if (!preview.package || !preview.target) return;
+  const publishCommand = [
+    `${model.packageManager} async-pipeline publish github pr`,
+    `--package ${shellWord(preview.package)}`,
+    `--registry ${shellWord(preview.registry)}`,
+    ...(preview.namespace ? [`--namespace ${shellWord(preview.namespace)}`] : []),
+    ...(preview.comment ? [] : ["--no-comment"])
+  ].join(" ");
+  lines.push(
+    "  package-preview:",
+    "    name: package-preview",
+    "    if: github.event.pull_request.draft == false",
+    "    runs-on: ubuntu-latest",
+    "    permissions:",
+    "      contents: read",
+    "      issues: write",
+    "      packages: write",
+    "      pull-requests: write",
+    "    steps:",
+    "      - name: Checkout",
+    "        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2",
+    "        with:",
+    "          persist-credentials: false",
+    "",
+    ...(model.taskCache
+      ? [
+          "      - name: Restore task cache",
+          "        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4",
+          "        with:",
+          "          path: .async/cache",
+          "          key: async-pipeline-${{ runner.os }}-${{ github.sha }}",
+          "          restore-keys: |",
+          "            async-pipeline-${{ runner.os }}-",
+          ""
+        ]
+      : []),
+    "      - name: Setup Node",
+    "        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6",
+    "        with:",
+    `          node-version: ${model.nodeVersion}`,
+    "          registry-url: https://registry.npmjs.org/",
+    ...(model.dependencyCache && model.dependencyCachePath
+      ? [
+          `          cache: ${JSON.stringify(model.packageManager)}`,
+          `          cache-dependency-path: ${JSON.stringify(model.dependencyCachePath)}`
+        ]
+      : [
+          "          package-manager-cache: false"
+        ]),
+    "",
+    "      - name: Enable pnpm",
+    "        run: |",
+    "          corepack enable",
+    "          corepack prepare pnpm@10.20.0 --activate",
+    "",
+    "      - name: Install dependencies",
+    `        run: ${model.packageManager} install --frozen-lockfile`
+  );
+  if (model.buildCommand) {
+    lines.push(
+      "",
+      "      - name: Build pipeline CLI",
+      `        run: ${model.buildCommand}`
+    );
+  }
+  lines.push(
+    "",
+    "      - name: Check generated workflow",
+    `        run: ${model.packageManager} async-pipeline github check`,
+    "",
+    "      - name: Run package preview target",
+    `        run: ${model.packageManager} async-pipeline run-task ${shellWord(preview.target)}`,
+    "        env:",
+    "          CI: true",
+    "",
+    "      - name: Publish package preview",
+    `        run: ${publishCommand}`,
+    "        env:",
+    "          CI: true",
+    `          GITHUB_TOKEN: \${{ secrets.${preview.tokenEnv} }}`,
+    ""
+  );
+  renderRunEvidenceSteps(lines, model.packageManager);
+  lines.push("");
+}
+
+function renderDependabotAutoMergeJob(lines: string[], ecosystems: string[]): void {
+  lines.push(
+    "  dependabot-auto-merge:",
+    "    name: dependabot-auto-merge",
+    "    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.draft == false",
+    "    runs-on: ubuntu-latest",
+    "    permissions:",
+    "      contents: write",
+    "      pull-requests: write",
+    "    steps:",
+    "      - name: Fetch Dependabot metadata",
+    "        id: dependabot-metadata",
+    "        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0",
+    "        with:",
+    "          github-token: ${{ secrets.GITHUB_TOKEN }}",
+    "",
+    "      - name: Verify dependency update scope",
+    "        env:",
+    "          PACKAGE_ECOSYSTEM: ${{ steps.dependabot-metadata.outputs.package-ecosystem }}",
+    "          DEPENDENCY_NAMES: ${{ steps.dependabot-metadata.outputs.dependency-names }}",
+    "          UPDATED_DEPENDENCIES_JSON: ${{ steps.dependabot-metadata.outputs.updated-dependencies-json }}",
+    "        run: |",
+    "          set -euo pipefail",
+    "",
+    "          case \"$PACKAGE_ECOSYSTEM\" in",
+    `            ${ecosystems.map((ecosystem) => shellCasePattern(ecosystem)).join("|")}) ;;`,
+    "            *)",
+    "              echo \"::error::Unsupported Dependabot ecosystem: $PACKAGE_ECOSYSTEM\"",
+    "              exit 1",
+    "              ;;",
+    "          esac",
+    "",
+    "          if [ -z \"$DEPENDENCY_NAMES\" ]; then",
+    "            echo \"::error::Dependabot metadata did not include dependency names.\"",
+    "            exit 1",
+    "          fi",
+    "",
+    "          dependency_count=\"$(jq 'length' <<<\"$UPDATED_DEPENDENCIES_JSON\")\"",
+    "          if [ \"$dependency_count\" -eq 0 ]; then",
+    "            echo \"::error::Dependabot metadata did not include updated dependencies.\"",
+    "            exit 1",
+    "          fi",
+    "",
+    "      - name: Approve Dependabot PR",
+    "        env:",
+    "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+    "          PR_URL: ${{ github.event.pull_request.html_url }}",
+    "        run: |",
+    "          set -euo pipefail",
+    "",
+    "          review_decision=\"$(gh pr view \"$PR_URL\" --json reviewDecision -q .reviewDecision)\"",
+    "          if [ \"$review_decision\" = \"APPROVED\" ]; then",
+    "            echo \"PR is already approved.\"",
+    "          else",
+    "            gh pr review --approve \"$PR_URL\"",
+    "          fi",
+    "",
+    "      - name: Wait for checks",
+    "        env:",
+    "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+    "          PR_URL: ${{ github.event.pull_request.html_url }}",
+    "        run: |",
+    "          set -euo pipefail",
+    "",
+    "          deadline=$((SECONDS + 1800))",
+    "          empty_since=\"\"",
+    "",
+    "          while [ \"$SECONDS\" -lt \"$deadline\" ]; do",
+    "            checks_json=\"$(gh pr checks \"$PR_URL\" --json name,bucket,workflow 2>/dev/null || true)\"",
+    "            relevant_checks=\"$(jq '[.[] | select(.name != \"dependabot-auto-merge\" and .bucket != \"skipping\")]' <<<\"${checks_json:-[]}\")\"",
+    "            check_count=\"$(jq 'length' <<<\"$relevant_checks\")\"",
+    "            failing_count=\"$(jq '[.[] | select(.bucket == \"fail\" or .bucket == \"cancel\")] | length' <<<\"$relevant_checks\")\"",
+    "            pending_count=\"$(jq '[.[] | select(.bucket == \"pending\")] | length' <<<\"$relevant_checks\")\"",
+    "",
+    "            if [ \"$failing_count\" -gt 0 ]; then",
+    "              echo \"$relevant_checks\"",
+    "              echo \"::error::At least one check failed or was cancelled.\"",
+    "              exit 1",
+    "            fi",
+    "",
+    "            if [ \"$check_count\" -eq 0 ]; then",
+    "              if [ -z \"$empty_since\" ]; then",
+    "                empty_since=\"$SECONDS\"",
+    "              fi",
+    "",
+    "              if [ $((SECONDS - empty_since)) -ge 90 ]; then",
+    "                echo \"No non-auto-merge checks were reported after 90 seconds.\"",
+    "                exit 0",
+    "              fi",
+    "            elif [ \"$pending_count\" -eq 0 ]; then",
+    "              echo \"All reported non-auto-merge checks passed or were skipped.\"",
+    "              exit 0",
+    "            else",
+    "              empty_since=\"\"",
+    "            fi",
+    "",
+    "            sleep 15",
+    "          done",
+    "",
+    "          echo \"::error::Timed out waiting for checks to finish.\"",
+    "          exit 1",
+    "",
+    "      - name: Merge Dependabot PR",
+    "        env:",
+    "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+    "          PR_URL: ${{ github.event.pull_request.html_url }}",
+    "        run: gh pr merge --squash --delete-branch \"$PR_URL\"",
+    ""
+  );
+}
+
 function renderPagesBuildSteps(lines: string[], pages: GitHubPagesConfig): void {
   lines.push(
     "      - name: Configure Pages",
-    "        uses: actions/configure-pages@v5",
+    "        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5",
     ""
   );
   if (pages.build.kind === "jekyll") {
     lines.push(
       "      - name: Build with Jekyll",
-      "        uses: actions/jekyll-build-pages@v1",
+      "        uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1",
       "        with:",
       `          source: ${JSON.stringify(pages.build.source)}`,
       `          destination: ${JSON.stringify(pages.build.destination ?? "./_site")}`,
@@ -411,7 +719,7 @@ function renderPagesBuildSteps(lines: string[], pages: GitHubPagesConfig): void 
   const artifactPath = pages.build.kind === "jekyll" ? pages.build.destination ?? "./_site" : pages.build.path;
   lines.push(
     "      - name: Upload Pages artifact",
-    "        uses: actions/upload-pages-artifact@v4",
+    "        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4",
     "        with:",
     `          path: ${JSON.stringify(artifactPath)}`
   );
@@ -443,7 +751,7 @@ function renderPagesDeployJob(lines: string[], job: ReturnType<typeof buildRende
     "    steps:",
     "      - name: Deploy to GitHub Pages",
     "        id: deployment",
-    "        uses: actions/deploy-pages@v4"
+    "        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4"
   );
   if (pages.artifactName) {
     lines.push(
@@ -599,17 +907,55 @@ function globToRegExp(pattern: string): RegExp {
   return new RegExp(`^${source}$`);
 }
 
-async function readPackageInfo(cwd: string): Promise<{ packageManager: string; buildCommand?: string }> {
+async function readPackageInfo(cwd: string): Promise<PackageInfo> {
   const packagePath = join(cwd, "package.json");
-  if (!existsSync(packagePath)) return { packageManager: "pnpm" };
+  if (!existsSync(packagePath)) {
+    return { packageManager: "pnpm", publicPackagePaths: [] };
+  }
   const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as {
+    name?: string;
+    private?: boolean;
     packageManager?: string;
     scripts?: Record<string, string>;
   };
   const packageManager = packageJson.packageManager?.startsWith("npm@") ? "npm" : packageJson.packageManager?.startsWith("yarn@") ? "yarn" : "pnpm";
   const asyncPipelineScript = packageJson.scripts?.["async-pipeline"] ?? "";
   const buildCommand = asyncPipelineScript.includes("dist/cli.js") && packageJson.scripts?.build ? `${packageManager} build` : undefined;
-  return { packageManager, buildCommand };
+  return {
+    packageManager,
+    buildCommand,
+    dependencyCachePath: dependencyLockfilePath(cwd, packageManager),
+    publicPackagePaths: await findPublicPackagePaths(cwd, packageJson)
+  };
+}
+
+async function findPublicPackagePaths(cwd: string, rootPackageJson: { name?: string; private?: boolean }): Promise<string[]> {
+  const publicPackages: string[] = [];
+  if (typeof rootPackageJson.name === "string" && !rootPackageJson.private) {
+    publicPackages.push(".");
+  }
+  const packagesDir = join(cwd, "packages");
+  if (!existsSync(packagesDir)) return publicPackages;
+  const entries = await readdir(packagesDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const packagePath = join(packagesDir, entry.name, "package.json");
+    if (!existsSync(packagePath)) continue;
+    const manifest = JSON.parse(await readFile(packagePath, "utf8")) as { name?: string; private?: boolean };
+    if (typeof manifest.name === "string" && !manifest.private) {
+      publicPackages.push(`packages/${entry.name}`);
+    }
+  }
+  return publicPackages.sort();
+}
+
+function dependencyLockfilePath(cwd: string, packageManager: string): string | undefined {
+  const lockfile = packageManager === "npm"
+    ? "package-lock.json"
+    : packageManager === "yarn"
+      ? "yarn.lock"
+      : "pnpm-lock.yaml";
+  return existsSync(join(cwd, lockfile)) ? lockfile : undefined;
 }
 
 function sortObject(input: Record<string, unknown>): Record<string, unknown> {
@@ -622,6 +968,10 @@ function yamlKey(value: string): string {
 
 function shellWord(value: string): string {
   return /^[A-Za-z0-9_./:-]+$/.test(value) ? value : JSON.stringify(value);
+}
+
+function shellCasePattern(value: string): string {
+  return /^[A-Za-z0-9_-]+$/.test(value) ? value : shellWord(value);
 }
 
 function escapeExpressionString(value: string): string {

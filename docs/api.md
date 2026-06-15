@@ -183,7 +183,7 @@ Triggers describe when jobs should run. Sync describes which generated files sho
 
 ## Package Lifecycle CLI
 
-Package lifecycle commands are available as `async-pipeline publish github <pr|main|release> --package <path>`, `async-pipeline publish npm --package <path>`, `async-pipeline release ensure --package <path>`, and `async-pipeline release doctor --package <path>`.
+Package lifecycle commands are available as `async-pipeline publish github <pr|main|release> --package <path> [--registry <url>] [--namespace <scope>] [--no-comment]`, `async-pipeline publish npm --package <path>`, `async-pipeline release ensure --package <path>`, and `async-pipeline release doctor --package <path>`.
 
 `publish github` stages the package from the selected package directory, publishes PR previews, main snapshots, or stable release mirrors to GitHub Packages, and keeps the fork, stale-head, immutable-version, registry-outage, and token-redaction guards. `publish npm` publishes the selected package to npm with provenance and skips already-published versions cleanly. `release ensure` creates the matching `v<version>` Git tag and GitHub Release when missing, accepts existing matching release state, and refuses to move an existing tag. `release doctor` verifies npm, GitHub Packages, and GitHub Release state for the selected package after the release publish chain.
 
@@ -447,12 +447,17 @@ sync: {
     workflow: ".tmp/async-pipeline.yml",
     lock: ".tmp/async-pipeline.lock.json",
     nodeVersion: 24,
-    cache: true
+    cache: true,
+    dependencyCache: true,
+    dependabotAutoMerge: true,
+    packagePreviews: true
   }
 }
 ```
 
-`nodeVersion` selects the Node version installed by the generated workflow (default `24`). `cache: true` (the default) adds a pinned `actions/cache` step that restores `.async/cache` across CI runs so warm tasks resolve as `cached`; set `cache: false` to keep CI cold.
+`nodeVersion` selects the Node version installed by the generated workflow (default `24`). `cache: true` (the default) adds a pinned `actions/cache` step that restores `.async/cache` across CI runs so warm tasks resolve as `cached`; set `cache: false` to keep task execution cold. `dependencyCache: true` (the default) enables `actions/setup-node` package-manager cache settings when the project has a recognized lockfile, so the generated bootloader can reuse the dependency store before `pnpm install`/`npm install`/`yarn install`; set `dependencyCache: false` for a fully cold dependency install.
+
+`dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, publishes a GitHub Packages PR preview through the lifecycle CLI, and comments install instructions on same-repo PRs.
 
 ```ts
 sync: {

@@ -50,6 +50,11 @@ test("github-native-npm-preview-package: prPreview runs and sync artifacts are c
   assertSyncCurrent("github-native-npm-preview-package");
 });
 
+test("generated-package-previews: verify runs and sync artifacts are current", () => {
+  assertJobPasses("generated-package-previews", "verify");
+  assertSyncCurrent("generated-package-previews");
+});
+
 test("agent-claims-repair: verify is green, the stale fixture fails, and the mock agent proposes an applicable patch", () => {
   const dir = exampleDir("agent-claims-repair");
   rmSync(join(dir, "claims.patch"), { force: true });

@@ -21,6 +21,8 @@ function resetApi() {
   apiState = {
     requests: [],
     branchSha: HEAD_SHA,
+    prHeadSha: HEAD_SHA,
+    comments: [],
     tagSha: HEAD_SHA,
     releaseExists: true
   };
@@ -37,6 +39,10 @@ before(async () => {
         response.end(JSON.stringify(payload));
       };
       if (request.url.includes("/branches/main")) return respond(200, { commit: { sha: apiState.branchSha } });
+      if (/\/pulls\/\d+$/.test(request.url)) return respond(200, { head: { sha: apiState.prHeadSha } });
+      if (request.url.includes("/comments") && request.method === "GET") return respond(200, apiState.comments);
+      if (request.url.includes("/comments") && request.method === "POST") return respond(201, { id: 1 });
+      if (request.url.includes("/comments") && request.method === "PATCH") return respond(200, { id: 1 });
       if (request.method === "GET" && request.url.includes(`/git/ref/tags/v${manifest.version}`)) {
         return apiState.tagSha
           ? respond(200, { object: { type: "commit", sha: apiState.tagSha } })
@@ -110,7 +116,7 @@ function makeNpmShim(dir) {
   chmodSync(shim, 0o755);
 }
 
-async function runCli(args, { env = {}, api = {} } = {}) {
+async function runCli(args, { env = {}, api = {}, event } = {}) {
   resetApi();
   Object.assign(apiState, api);
   const dir = mkdtempSync(join(tmpdir(), "async-pipeline-lifecycle-test-"));
@@ -120,6 +126,11 @@ async function runCli(args, { env = {}, api = {} } = {}) {
     const viewCountPath = join(dir, "npm-view-count.txt");
     writeFileSync(logPath, "", "utf8");
     writeFileSync(viewCountPath, "0", "utf8");
+    let eventPath;
+    if (event) {
+      eventPath = join(dir, "event.json");
+      writeFileSync(eventPath, JSON.stringify(event), "utf8");
+    }
     const child = spawn(process.execPath, [cliPath, ...args], {
       cwd: repoRoot,
       env: {
@@ -131,6 +142,7 @@ async function runCli(args, { env = {}, api = {} } = {}) {
         GITHUB_REPOSITORY_OWNER: "async",
         GITHUB_API_URL: apiUrl,
         GITHUB_TOKEN: TOKEN,
+        ...(eventPath ? { GITHUB_EVENT_PATH: eventPath } : {}),
         ...env
       }
     });
@@ -149,6 +161,10 @@ async function runCli(args, { env = {}, api = {} } = {}) {
   }
 }
 
+function prEvent(headRepo, headSha = HEAD_SHA, number = 5) {
+  return { pull_request: { number, head: { sha: headSha, repo: { full_name: headRepo } } } };
+}
+
 test("lifecycle CLI publishes GitHub Packages snapshots from a package path", async () => {
   const run = await runCli(["publish", "github", "main", "--package", "packages/pipeline"], {
     env: { GITHUB_SHA: HEAD_SHA }
@@ -162,6 +178,34 @@ test("lifecycle CLI publishes GitHub Packages snapshots from a package path", as
   assert.deepEqual(publish.args.slice(0, 3), ["publish", "--tag", "main"]);
   assert.equal(run.calls.some((call) => call.args[0] === "dist-tag"), true);
   assert.equal(run.api.requests.some((request) => request.url.includes("/branches/main")), true);
+});
+
+test("lifecycle CLI accepts custom GitHub package registry and namespace", async () => {
+  const run = await runCli([
+    "publish",
+    "github",
+    "pr",
+    "--package",
+    "packages/pipeline",
+    "--registry",
+    "https://registry.example.test",
+    "--namespace",
+    "preview"
+  ], {
+    event: prEvent("async/pipeline")
+  });
+
+  assert.equal(run.status, 0, run.stderr);
+  const publish = run.calls.find((call) => call.args[0] === "publish");
+  assert.ok(publish, "expected npm publish to run");
+  assert.equal(publish.manifest.name, "@preview/pipeline");
+  assert.equal(publish.manifest.publishConfig.registry, "https://registry.example.test");
+  assert.deepEqual(publish.args.slice(-2), ["--registry", "https://registry.example.test"]);
+  assert.match(publish.userconfig, /@preview:registry=https:\/\/registry\.example\.test/);
+  const posted = run.api.requests.find((request) => request.method === "POST" && request.url.includes("/comments"));
+  assert.ok(posted, "expected a PR preview comment");
+  assert.match(posted.body, /@preview\/pipeline/);
+  assert.match(posted.body, /@preview:registry=https:\/\/registry\.example\.test/);
 });
 
 test("lifecycle CLI skips npm publish for an already published package and keeps public access", async () => {

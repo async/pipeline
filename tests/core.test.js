@@ -668,6 +668,18 @@ test("normalizes sync github and task defaults independently from triggers", () 
 
   assert.equal(pipeline.sync.github.enabled, true);
   assert.equal(pipeline.sync.github.workflow, ".github/workflows/async-pipeline.yml");
+  assert.equal(pipeline.sync.github.cache, true);
+  assert.equal(pipeline.sync.github.dependencyCache, true);
+  assert.deepEqual(pipeline.sync.github.dependabotAutoMerge, {
+    enabled: false,
+    ecosystems: ["github-actions", "npm", "deno"]
+  });
+  assert.deepEqual(pipeline.sync.github.packagePreviews, {
+    enabled: false,
+    registry: "https://npm.pkg.github.com",
+    tokenEnv: "GITHUB_TOKEN",
+    comment: true
+  });
   assert.equal(pipeline.sync.tasks.enabled, true);
   assert.equal(pipeline.sync.tasks.prefix, "pipeline");
   assert.equal(pipeline.sync.tasks.runners, "all");
@@ -682,7 +694,16 @@ test("normalizes explicit sync task config and validates selected ids", () => {
     sync: {
       github: {
         workflow: ".tmp/workflow.yml",
-        lock: ".tmp/lock.json"
+        lock: ".tmp/lock.json",
+        dependabotAutoMerge: { ecosystems: ["github-actions"] },
+        packagePreviews: {
+          package: "packages/example",
+          target: "pack",
+          registry: "https://registry.example.test",
+          namespace: "preview",
+          tokenEnv: "PACKAGES_TOKEN",
+          comment: false
+        }
       },
       tasks: {
         prefix: "ci",
@@ -704,6 +725,20 @@ test("normalizes explicit sync task config and validates selected ids", () => {
   });
 
   assert.equal(pipeline.sync.github.workflow, ".tmp/workflow.yml");
+  assert.equal(pipeline.sync.github.dependencyCache, true);
+  assert.deepEqual(pipeline.sync.github.dependabotAutoMerge, {
+    enabled: true,
+    ecosystems: ["github-actions"]
+  });
+  assert.deepEqual(pipeline.sync.github.packagePreviews, {
+    enabled: true,
+    package: "packages/example",
+    target: "pack",
+    registry: "https://registry.example.test",
+    namespace: "preview",
+    tokenEnv: "PACKAGES_TOKEN",
+    comment: false
+  });
   assert.deepEqual(pipeline.sync.tasks.runners, ["package"]);
   assert.deepEqual(pipeline.sync.tasks.jobs, ["verify"]);
   assert.deepEqual(pipeline.sync.tasks.tasks, ["build"]);
@@ -894,6 +929,16 @@ test("rejects unknown config fields with the field name", () => {
     ...base,
     jobs: { j: { target: "t", github: { runson: "ubuntu-latest" } } }
   }), /github config has unknown field "runson"/);
+
+  assert.throws(() => definePipeline({
+    ...base,
+    sync: { github: { packagePreviews: { namespacee: "async" } } }
+  }), /sync\.github\.packagePreviews has unknown field "namespacee"/);
+
+  assert.throws(() => definePipeline({
+    ...base,
+    sync: { github: { dependabotAutoMerge: { ecosystems: ["docker"] } } }
+  }), /ASYNC_PIPELINE_DEPENDABOT_AUTO_MERGE_INVALID|Unsupported Dependabot auto-merge ecosystem/);
 
   assert.throws(() => definePipeline({
     ...base,

@@ -1,10 +1,10 @@
 {
-  "version": 3,
+  "version": 4,
   "generator": "@async/pipeline",
   "config": "pipeline.mjs",
   "workflow": ".github/workflows/async-pipeline.yml",
-  "hash": "sha256:1dc5ce3c53a70990f016123d632384a52fa73e182b8d2948f7da39d6e3aeba4a",
-  "generatedAt": "2026-06-15T18:20:03.778Z",
+  "hash": "sha256:6493b11ec55acfbe85feee3e93d3ef8e320973d63fbc2e4184dfbeabeccae6f2",
+  "generatedAt": "2026-06-15T23:33:33.377Z",
   "triggers": {
     "pull_request": {},
     "push": {
@@ -56,6 +56,21 @@
   "packageManager": "pnpm",
   "nodeVersion": "24",
   "taskCache": true,
+  "dependencyCache": true,
+  "dependabotAutoMerge": {
+    "enabled": false,
+    "ecosystems": [
+      "github-actions",
+      "npm",
+      "deno"
+    ]
+  },
+  "packagePreviews": {
+    "enabled": false,
+    "registry": "https://npm.pkg.github.com",
+    "tokenEnv": "GITHUB_TOKEN",
+    "comment": true
+  },
   "manualDispatchJobs": [
     "mainSnapshot",
     "prPreview",

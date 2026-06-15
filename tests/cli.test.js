@@ -124,10 +124,7 @@ test("pipeline explain emits task details", () => {
     "api-surface",
     "sync-check",
     "examples",
-    "actionlint",
-    "package-lint",
-    "depcruise",
-    "knip"
+    "hygiene"
   ]);
 });
 

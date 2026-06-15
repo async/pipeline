@@ -18,6 +18,7 @@ test("renders github workflow triggers and bootloader steps", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-render-"));
   try {
     writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
     const pipeline = definePipeline({
       name: "test",
       triggers: {
@@ -41,11 +42,164 @@ test("renders github workflow triggers and bootloader steps", async () => {
     assert.match(rendered.workflow, /async-pipeline github check/);
     assert.match(rendered.workflow, /async-pipeline run verify/);
     assert.match(rendered.workflow, /actions\/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4/);
+    assert.match(rendered.workflow, /cache: "pnpm"/);
+    assert.match(rendered.workflow, /cache-dependency-path: "pnpm-lock\.yaml"/);
+    assert.doesNotMatch(rendered.workflow, /package-manager-cache: false/);
     assert.match(rendered.workflow, /async-pipeline explain --run latest \|\| true/);
     assert.match(rendered.workflow, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4/);
     assert.match(rendered.workflow, /path: \.async\/runs/);
     assert.equal(rendered.lock.workflow, ".github/workflows/async-pipeline.yml");
+    assert.equal(rendered.lock.dependencyCache, true);
+    assert.equal(rendered.lock.dependencyCachePath, "pnpm-lock.yaml");
     assert.equal(rendered.lock.jobs[0].id, "verify");
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("renders github workflow with dependency cache disabled", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-no-dep-cache-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          dependencyCache: false
+        }
+      },
+      tasks: {
+        verify: task({ run: sh`echo verify` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.doesNotMatch(rendered.workflow, /cache: "pnpm"/);
+    assert.doesNotMatch(rendered.workflow, /cache-dependency-path/);
+    assert.match(rendered.workflow, /package-manager-cache: false/);
+    assert.equal(rendered.lock.dependencyCache, false);
+    assert.equal(rendered.lock.dependencyCachePath, undefined);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("renders generated Dependabot auto-merge workflow job", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-dependabot-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          dependabotAutoMerge: true
+        }
+      },
+      triggers: {
+        pr: trigger.github({ events: ["pull_request"] })
+      },
+      tasks: {
+        verify: task({ run: sh`echo verify` })
+      },
+      jobs: {
+        verify: job({ target: "verify", trigger: ["pr"] })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, /pull_request_target:\n    types:\n      - "opened"\n      - "ready_for_review"\n      - "reopened"\n      - "synchronize"/);
+    assert.match(rendered.workflow, /dependabot-auto-merge:\n    name: dependabot-auto-merge/);
+    assert.match(rendered.workflow, /if: github\.event\.pull_request\.user\.login == 'dependabot\[bot\]' && github\.event\.pull_request\.draft == false/);
+    assert.match(rendered.workflow, /uses: dependabot\/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3\.1\.0/);
+    assert.match(rendered.workflow, /github-actions\|npm\|deno\) ;;/);
+    assert.match(rendered.workflow, /gh pr review --approve "\$PR_URL"/);
+    assert.match(rendered.workflow, /gh pr merge --squash --delete-branch "\$PR_URL"/);
+    assert.deepEqual(rendered.lock.dependabotAutoMerge, {
+      enabled: true,
+      ecosystems: ["github-actions", "npm", "deno"]
+    });
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("renders generated package preview job from packagePreviews true", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-package-preview-"));
+  try {
+    mkdirSync(join(dir, "packages", "pipeline"), { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "workspace", private: true, packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    writeFileSync(join(dir, "packages", "pipeline", "package.json"), JSON.stringify({ name: "@async/pipeline", version: "0.0.0" }), "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          packagePreviews: true
+        }
+      },
+      tasks: {
+        pack: task({ run: sh`echo pack` })
+      },
+      jobs: {
+        verify: job({ target: "pack" })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, /pull_request:\n    types:\n      - "opened"\n      - "ready_for_review"\n      - "reopened"\n      - "synchronize"/);
+    assert.match(rendered.workflow, /package-preview:\n    name: package-preview/);
+    assert.match(rendered.workflow, /persist-credentials: false/);
+    assert.match(rendered.workflow, /permissions:\n      contents: read\n      issues: write\n      packages: write\n      pull-requests: write/);
+    assert.match(rendered.workflow, /pnpm async-pipeline run-task pack/);
+    assert.match(rendered.workflow, /pnpm async-pipeline publish github pr --package packages\/pipeline --registry https:\/\/npm\.pkg\.github\.com/);
+    assert.match(rendered.workflow, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
+    assert.deepEqual(rendered.lock.packagePreviews, {
+      enabled: true,
+      package: "packages/pipeline",
+      target: "pack",
+      registry: "https://npm.pkg.github.com",
+      tokenEnv: "GITHUB_TOKEN",
+      comment: true
+    });
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("packagePreviews true requires explicit package when multiple public packages exist", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-package-preview-ambiguous-"));
+  try {
+    mkdirSync(join(dir, "packages", "one"), { recursive: true });
+    mkdirSync(join(dir, "packages", "two"), { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "workspace", private: true, packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "packages", "one", "package.json"), JSON.stringify({ name: "@async/one", version: "0.0.0" }), "utf8");
+    writeFileSync(join(dir, "packages", "two", "package.json"), JSON.stringify({ name: "@async/two", version: "0.0.0" }), "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          packagePreviews: true
+        }
+      },
+      tasks: {
+        pack: task({ run: sh`echo pack` })
+      },
+      jobs: {
+        verify: job({ target: "pack" })
+      }
+    });
+
+    await assert.rejects(
+      () => renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") }),
+      /ASYNC_PIPELINE_PACKAGE_PREVIEWS_AMBIGUOUS_PACKAGE|multiple public packages/
+    );
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
@@ -176,13 +330,13 @@ test("renders github pages build and deploy jobs", async () => {
     assert.match(rendered.workflow, /workflow_dispatch:\n    inputs:\n      job:\n        description: "Pipeline job to run"\n        required: true\n        type: choice\n        options:\n          - "pages"/);
     assert.match(rendered.workflow, /pages:\n    name: pages\n    if: \(github\.event_name == 'pull_request'\) \|\| \(github\.event_name == 'push' && \(github\.ref == 'refs\/heads\/main'\)\) \|\| \(github\.event_name == 'workflow_dispatch' && github\.event\.inputs\.job == 'pages'\)/);
     assert.match(rendered.workflow, /run: pnpm async-pipeline run pages/);
-    assert.match(rendered.workflow, /uses: actions\/configure-pages@v5/);
-    assert.match(rendered.workflow, /uses: actions\/jekyll-build-pages@v1\n        with:\n          source: "\.\/docs"\n          destination: "\.\/_site"/);
-    assert.match(rendered.workflow, /uses: actions\/upload-pages-artifact@v4\n        with:\n          path: "\.\/_site"/);
+    assert.match(rendered.workflow, /uses: actions\/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5/);
+    assert.match(rendered.workflow, /uses: actions\/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1\n        with:\n          source: "\.\/docs"\n          destination: "\.\/_site"/);
+    assert.match(rendered.workflow, /uses: actions\/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4\n        with:\n          path: "\.\/_site"/);
     assert.match(rendered.workflow, /pages-deploy:\n    name: pages-deploy\n    needs: "pages"\n    if: github\.event_name != 'pull_request'\n    runs-on: ubuntu-latest/);
     assert.match(rendered.workflow, /environment:\n      name: "github-pages"\n      url: "\$\{\{ steps\.deployment\.outputs\.page_url \}\}"/);
     assert.match(rendered.workflow, /permissions:\n      pages: write\n      id-token: write/);
-    assert.match(rendered.workflow, /uses: actions\/deploy-pages@v4/);
+    assert.match(rendered.workflow, /uses: actions\/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4/);
     assert.deepEqual(rendered.lock.manualDispatchJobs, ["pages"]);
     assert.deepEqual(rendered.lock.jobs[0].github.pages, {
       build: { kind: "jekyll", source: "./docs", destination: "./_site" }
