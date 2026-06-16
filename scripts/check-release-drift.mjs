@@ -27,6 +27,7 @@ if (workspace.version !== published.version) {
 
 // 2. Version <-> CHANGELOG.
 const changelog = await readFile(join(root, "CHANGELOG.md"), "utf8");
+const allChangelogHeadings = [...changelog.matchAll(/^##[ \t]+(.+?)[ \t]*$/gm)];
 const changelogHeadings = [...changelog.matchAll(/^##[ \t]+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)[ \t]+-[ \t]+(.+?)[ \t]*$/gm)];
 const changelogIndex = changelogHeadings.findIndex((heading) => heading[1] === published.version);
 if (changelogIndex < 0) {
@@ -34,7 +35,8 @@ if (changelogIndex < 0) {
 } else {
   const heading = changelogHeadings[changelogIndex];
   const start = heading.index + heading[0].length;
-  const end = changelogIndex + 1 < changelogHeadings.length ? changelogHeadings[changelogIndex + 1].index : changelog.length;
+  const nextHeading = allChangelogHeadings.find((candidate) => candidate.index > heading.index);
+  const end = nextHeading?.index ?? changelog.length;
   if (changelog.slice(start, end).trim().length === 0) {
     fail(`CHANGELOG.md entry "## ${published.version} - ${heading[2].trim()}" is empty.`);
   }

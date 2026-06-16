@@ -19,13 +19,16 @@ let apiUrl;
 let apiState;
 
 function expectedReleaseBody(version = manifest.version) {
+  const allHeadingPattern = /^##[ \t]+(.+?)[ \t]*$/gm;
   const headingPattern = /^##[ \t]+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)[ \t]+-[ \t]+(.+?)[ \t]*$/gm;
+  const allHeadings = [...changelog.matchAll(allHeadingPattern)];
   const headings = [...changelog.matchAll(headingPattern)];
   const index = headings.findIndex((heading) => heading[1] === version);
   assert.notEqual(index, -1, `expected CHANGELOG.md to include ${version}`);
   const heading = headings[index];
   const start = heading.index + heading[0].length;
-  const end = index + 1 < headings.length ? headings[index + 1].index : changelog.length;
+  const nextHeading = allHeadings.find((candidate) => candidate.index > heading.index);
+  const end = nextHeading?.index ?? changelog.length;
   const body = changelog.slice(start, end).trim();
   return [
     `Release notes from \`CHANGELOG.md\` for ${version} (${heading[2].trim()}).`,
@@ -388,6 +391,48 @@ test("lifecycle CLI release ensure rejects changelog headings without same-line 
     assert.equal(run.status, 1);
     assert.match(run.stderr, /CHANGELOG\.md has no parseable, non-empty "## 1\.2\.3 - <date>" entry/);
     assert.equal(run.api.requests.some((request) => request.method === "POST"), false);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("lifecycle CLI release ensure stops release notes at the next level-two heading", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "async-pipeline-lifecycle-changelog-boundary-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@async/bounded", version: "1.2.3", type: "module" }, null, 2), "utf8");
+    writeFileSync(
+      join(dir, "CHANGELOG.md"),
+      [
+        "# Changelog",
+        "",
+        "## 1.2.3 - 2026-06-16",
+        "",
+        "- Release note.",
+        "",
+        "## Pre-Release Feature History",
+        "",
+        "- This should not be part of v1.2.3."
+      ].join("\n"),
+      "utf8"
+    );
+    writeFileSync(
+      join(dir, "pipeline.js"),
+      `import { definePipeline } from ${JSON.stringify(join(repoRoot, "packages", "pipeline", "dist", "index.js"))};\nexport default definePipeline({ tasks: {}, jobs: {} });\n`,
+      "utf8"
+    );
+
+    const run = await runCli(["release", "ensure", "--package", "."], {
+      cwd: dir,
+      env: { GITHUB_REPOSITORY: "async/bounded", GITHUB_SHA: HEAD_SHA },
+      api: { tagSha: undefined, releases: [] }
+    });
+
+    assert.equal(run.status, 0, run.stderr);
+    const createRelease = run.api.requests.find((request) => request.method === "POST" && request.url.includes("/releases"));
+    assert.ok(createRelease, "expected release ensure to create a GitHub Release");
+    const body = JSON.parse(createRelease.body).body;
+    assert.match(body, /- Release note\./);
+    assert.doesNotMatch(body, /Pre-Release Feature History/);
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }

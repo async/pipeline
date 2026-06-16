@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.2 - 2026-06-16
+
+### Fixes
+
+- Stop rendered GitHub Release descriptions at the next level-two changelog heading so non-release sections after a version do not bleed into that release body.
+
 ## 0.8.1 - 2026-06-16
 
 ### Fixes
