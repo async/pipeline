@@ -27,7 +27,7 @@ if (workspace.version !== published.version) {
 
 // 2. Version <-> CHANGELOG.
 const changelog = await readFile(join(root, "CHANGELOG.md"), "utf8");
-const changelogHeadings = [...changelog.matchAll(/^##\s+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\s+-\s+(.+?)\s*$/gm)];
+const changelogHeadings = [...changelog.matchAll(/^##[ \t]+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)[ \t]+-[ \t]+(.+?)[ \t]*$/gm)];
 const changelogIndex = changelogHeadings.findIndex((heading) => heading[1] === published.version);
 if (changelogIndex < 0) {
   fail(`packages/pipeline is version ${published.version} but CHANGELOG.md has no parseable "## ${published.version} - <date>" entry.`);

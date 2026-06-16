@@ -19,7 +19,7 @@ let apiUrl;
 let apiState;
 
 function expectedReleaseBody(version = manifest.version) {
-  const headingPattern = /^##\s+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\s+-\s+(.+?)\s*$/gm;
+  const headingPattern = /^##[ \t]+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)[ \t]+-[ \t]+(.+?)[ \t]*$/gm;
   const headings = [...changelog.matchAll(headingPattern)];
   const index = headings.findIndex((heading) => heading[1] === version);
   assert.notEqual(index, -1, `expected CHANGELOG.md to include ${version}`);
@@ -174,7 +174,7 @@ function makeNpmShim(dir) {
   chmodSync(shim, 0o755);
 }
 
-async function runCli(args, { env = {}, api = {}, event } = {}) {
+async function runCli(args, { env = {}, api = {}, event, cwd = repoRoot } = {}) {
   resetApi();
   Object.assign(apiState, api);
   const dir = mkdtempSync(join(tmpdir(), "async-pipeline-lifecycle-test-"));
@@ -190,7 +190,7 @@ async function runCli(args, { env = {}, api = {}, event } = {}) {
       writeFileSync(eventPath, JSON.stringify(event), "utf8");
     }
     const child = spawn(process.execPath, [cliPath, ...args], {
-      cwd: repoRoot,
+      cwd,
       env: {
         PATH: `${dir}:${process.env.PATH}`,
         HOME: process.env.HOME,
@@ -369,6 +369,30 @@ test("lifecycle CLI release ensure fails when a semver GitHub Release has no CHA
   assert.equal(run.api.requests.some((request) => request.method === "PATCH" && request.url.includes("/releases/")), false);
 });
 
+test("lifecycle CLI release ensure rejects changelog headings without same-line dates", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "async-pipeline-lifecycle-malformed-changelog-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@async/malformed", version: "1.2.3", type: "module" }, null, 2), "utf8");
+    writeFileSync(join(dir, "CHANGELOG.md"), "# Changelog\n\n## 1.2.3\n\n- Missing heading date.\n", "utf8");
+    writeFileSync(
+      join(dir, "pipeline.js"),
+      `import { definePipeline } from ${JSON.stringify(join(repoRoot, "packages", "pipeline", "dist", "index.js"))};\nexport default definePipeline({ tasks: {}, jobs: {} });\n`,
+      "utf8"
+    );
+
+    const run = await runCli(["release", "ensure", "--package", "."], {
+      cwd: dir,
+      env: { GITHUB_REPOSITORY: "async/malformed", GITHUB_SHA: HEAD_SHA }
+    });
+
+    assert.equal(run.status, 1);
+    assert.match(run.stderr, /CHANGELOG\.md has no parseable, non-empty "## 1\.2\.3 - <date>" entry/);
+    assert.equal(run.api.requests.some((request) => request.method === "POST"), false);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
 test("lifecycle CLI release ensure refuses to move an existing release tag", async () => {
   const otherSha = "b".repeat(40);
   const run = await runCli(["release", "ensure", "--package", "packages/pipeline"], {
@@ -408,7 +432,7 @@ test("lifecycle CLI release doctor fails when GitHub Release notes drift from CH
   });
 
   assert.equal(run.status, 1);
-  assert.match(run.stderr, /GitHub Release descriptions do not match CHANGELOG\.md: v0\.8\.0 body differs/);
+  assert.match(run.stderr, new RegExp(`GitHub Release descriptions do not match CHANGELOG\\.md: v${manifest.version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} body differs`));
 });
 
 test("lifecycle CLI release doctor retries registry propagation misses", async () => {

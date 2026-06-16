@@ -680,7 +680,7 @@ function releaseNoteMissingFailures(releases: GitHubRelease[], releaseNotes: Map
 
 async function readChangelogReleaseNotes(cwd: string): Promise<Map<string, ReleaseNote>> {
   const changelog = await readFile(join(cwd, "CHANGELOG.md"), "utf8");
-  const headingPattern = /^##\s+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\s+-\s+(.+?)\s*$/gm;
+  const headingPattern = /^##[ \t]+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)[ \t]+-[ \t]+(.+?)[ \t]*$/gm;
   const headings = [...changelog.matchAll(headingPattern)];
   const notes = new Map<string, ReleaseNote>();
   for (let index = 0; index < headings.length; index += 1) {

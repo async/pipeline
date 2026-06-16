@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1 - 2026-06-16
+
+### Fixes
+
+- Require changelog release headings to put `## <version> - <date>` on one line so dateless headings are rejected instead of misreading the first bullet as a date.
+
 ## 0.8.0 - 2026-06-16
 
 ### Breaking
