@@ -211,6 +211,7 @@ test("lifecycle CLI accepts custom GitHub package registry and namespace", async
 test("lifecycle CLI skips npm publish for an already published package and keeps public access", async () => {
   const run = await runCli(["publish", "npm", "--package", "packages/pipeline"], {
     env: {
+      NODE_AUTH_TOKEN: TOKEN,
       NPM_SHIM_VIEW_EXIT: "0",
       NPM_SHIM_VIEW_VERSION: manifest.version
     }
@@ -220,6 +221,31 @@ test("lifecycle CLI skips npm publish for an already published package and keeps
   assert.equal(run.calls.some((call) => call.args[0] === "publish"), false);
   assert.equal(run.calls.some((call) => call.args[0] === "access"), true);
   assert.match(run.stdout, /already published to npm/);
+});
+
+test("lifecycle CLI token-backed npm publish uses a temporary npmjs auth config", async () => {
+  const run = await runCli(["publish", "npm", "--package", "packages/pipeline"], {
+    env: {
+      NODE_AUTH_TOKEN: TOKEN
+    }
+  });
+
+  assert.equal(run.status, 0, run.stderr);
+  const publish = run.calls.find((call) => call.args[0] === "publish");
+  assert.ok(publish, "expected npm publish to run");
+  assert.match(publish.userconfig, /\/\/registry\.npmjs\.org\/:_authToken=fake-lifecycle-token-do-not-echo/);
+  assert.equal(run.calls.some((call) => call.args[0] === "access"), true);
+});
+
+test("lifecycle CLI tokenless npm publish leaves auth to trusted publishing and skips access", async () => {
+  const run = await runCli(["publish", "npm", "--package", "packages/pipeline"]);
+
+  assert.equal(run.status, 0, run.stderr);
+  const publish = run.calls.find((call) => call.args[0] === "publish");
+  assert.ok(publish, "expected npm publish to run");
+  assert.equal(publish.userconfig, undefined);
+  assert.equal(run.calls.some((call) => call.args[0] === "access"), false);
+  assert.match(run.stdout, /trusted publishing only authenticates npm publish/);
 });
 
 test("lifecycle CLI release ensure creates a missing tag and GitHub Release", async () => {

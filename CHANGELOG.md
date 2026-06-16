@@ -10,6 +10,7 @@
 
 - Package preview jobs now only run for pull request events instead of trying to publish PR previews from push or release events.
 - GitHub release triggers can now render activity `types`, and the self pipeline listens only for published releases to avoid duplicate publish runs.
+- npm package publishing now supports both npm trusted publishing/OIDC and token-backed publishing: token-backed runs create a temporary npmjs auth config, while tokenless runs leave auth to trusted publishing and skip the npm access command that OIDC cannot authenticate.
 
 ## 0.6.1 - 2026-06-15
 

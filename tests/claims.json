@@ -886,6 +886,24 @@
       ]
     },
     {
+      "id": "api.npm-publish-auth-modes",
+      "source": "docs/api.md",
+      "anchor": "`publish npm` supports both npm trusted publishing and token-backed publishing. When `NODE_AUTH_TOKEN` or `NPM_TOKEN` is present, it writes a temporary npmjs auth config for publish/access commands; without a token, it leaves authentication to npm trusted publishing/OIDC and skips the post-publish access command because npm OIDC only authenticates `npm publish`.",
+      "tests": [
+        "lifecycle CLI token-backed npm publish uses a temporary npmjs auth config",
+        "lifecycle CLI tokenless npm publish leaves auth to trusted publishing and skips access"
+      ]
+    },
+    {
+      "id": "github-actions.npm-publish-auth-modes",
+      "source": "docs/github-actions.md",
+      "anchor": "The lifecycle `publish npm` command creates a temporary npmjs auth config only when a token is present; tokenless runs are left clean so npm can use trusted publishing/OIDC.",
+      "tests": [
+        "lifecycle CLI token-backed npm publish uses a temporary npmjs auth config",
+        "lifecycle CLI tokenless npm publish leaves auth to trusted publishing and skips access"
+      ]
+    },
+    {
       "id": "readme.release-ensure-before-publish",
       "source": "README.md",
       "anchor": "Stable release jobs create or verify the matching `v<version>` Git tag and GitHub Release before package publishing, and refuse to move an existing tag.",
@@ -940,6 +958,15 @@
       "anchor": "Retry release doctor registry checks so GitHub Actions releases tolerate npm and GitHub Packages propagation after a successful publish.",
       "tests": [
         "lifecycle CLI release doctor retries registry propagation misses"
+      ]
+    },
+    {
+      "id": "changelog.npm-publish-auth-modes",
+      "source": "CHANGELOG.md",
+      "anchor": "npm package publishing now supports both npm trusted publishing/OIDC and token-backed publishing: token-backed runs create a temporary npmjs auth config, while tokenless runs leave auth to trusted publishing and skip the npm access command that OIDC cannot authenticate.",
+      "tests": [
+        "lifecycle CLI token-backed npm publish uses a temporary npmjs auth config",
+        "lifecycle CLI tokenless npm publish leaves auth to trusted publishing and skips access"
       ]
     },
     {

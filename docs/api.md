@@ -187,6 +187,8 @@ Package lifecycle commands are available as `async-pipeline publish github <pr|m
 
 `publish github` stages the package from the selected package directory, publishes PR previews, main snapshots, or stable release mirrors to GitHub Packages, and keeps the fork, stale-head, immutable-version, registry-outage, and token-redaction guards. `publish npm` publishes the selected package to npm with provenance and skips already-published versions cleanly. `release ensure` creates the matching `v<version>` Git tag and GitHub Release when missing, accepts existing matching release state, and refuses to move an existing tag. `release doctor` verifies npm, GitHub Packages, and GitHub Release state for the selected package after the release publish chain.
 
+`publish npm` supports both npm trusted publishing and token-backed publishing. When `NODE_AUTH_TOKEN` or `NPM_TOKEN` is present, it writes a temporary npmjs auth config for publish/access commands; without a token, it leaves authentication to npm trusted publishing/OIDC and skips the post-publish access command because npm OIDC only authenticates `npm publish`.
+
 ## task
 
 ```ts

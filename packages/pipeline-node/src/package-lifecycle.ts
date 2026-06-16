@@ -218,41 +218,50 @@ export async function publishNpmPackage(options: PackageLifecycleOptions): Promi
   const { packageDir, manifest } = await readPackageContext(options.cwd, options.packagePath);
   assertPublicPackage(manifest);
   const spec = `${manifest.name}@${manifest.version}`;
-  const npm = (args: string[], runOptions: { inherit?: boolean } = {}): SpawnSyncReturns<string> => spawnSync("npm", args, {
-    cwd: packageDir,
-    encoding: "utf8",
-    stdio: runOptions.inherit ? "inherit" : ["ignore", "pipe", "pipe"],
-    env: {
-      ...options.env,
-      NPM_CONFIG_CACHE: options.env.NPM_CONFIG_CACHE ?? join(options.cwd, ".async", "npm-cache")
-    }
-  });
+  const auth = await prepareNpmPublishAuth(options);
+  try {
+    const npm = (args: string[], runOptions: { inherit?: boolean } = {}): SpawnSyncReturns<string> => spawnSync("npm", args, {
+      cwd: packageDir,
+      encoding: "utf8",
+      stdio: runOptions.inherit ? "inherit" : ["ignore", "pipe", "pipe"],
+      env: {
+        ...auth.env,
+        NPM_CONFIG_CACHE: options.env.NPM_CONFIG_CACHE ?? join(options.cwd, ".async", "npm-cache")
+      }
+    });
 
-  const ensurePublicAccess = (): void => {
-    options.io.stdout(`Ensuring ${manifest.name} is public on npm.\n`);
-    const access = npm(["access", "set", "status=public", manifest.name, "--registry", NPM_REGISTRY], { inherit: true });
-    if (access.status !== 0) {
-      throw new Error(`Failed to set npm package access for ${manifest.name}.`);
-    }
-  };
+    const ensurePublicAccess = (): void => {
+      if (!auth.hasTraditionalAuth) {
+        options.io.stdout("Skipping npm access public check because no npm token is configured; trusted publishing only authenticates npm publish.\n");
+        return;
+      }
+      options.io.stdout(`Ensuring ${manifest.name} is public on npm.\n`);
+      const access = npm(["access", "set", "status=public", manifest.name, "--registry", NPM_REGISTRY], { inherit: true });
+      if (access.status !== 0) {
+        throw new Error(`Failed to set npm package access for ${manifest.name}.`);
+      }
+    };
 
-  const view = npm(["view", spec, "version", "--registry", NPM_REGISTRY]);
-  if (view.status === 0 && view.stdout.trim() === manifest.version) {
+    const view = npm(["view", spec, "version", "--registry", NPM_REGISTRY]);
+    if (view.status === 0 && view.stdout.trim() === manifest.version) {
+      ensurePublicAccess();
+      options.io.stdout(`${spec} is already published to npm; skipping.\n`);
+      return;
+    }
+    if (!isMissingVersion(view)) {
+      options.io.stderr(npmOutput(view).slice(0, 2000));
+      throw new Error(`Could not determine whether ${spec} exists on npm; refusing to guess.`);
+    }
+
+    options.io.stdout(`Publishing ${spec} to npm with provenance.\n`);
+    const publish = npm(["publish", "--access", "public", "--registry", NPM_REGISTRY, "--provenance"], { inherit: true });
+    if (publish.status !== 0) {
+      throw new Error(`Failed to publish ${spec} to npm.`);
+    }
     ensurePublicAccess();
-    options.io.stdout(`${spec} is already published to npm; skipping.\n`);
-    return;
+  } finally {
+    if (auth.cleanupDir) rmSync(auth.cleanupDir, { force: true, recursive: true });
   }
-  if (!isMissingVersion(view)) {
-    options.io.stderr(npmOutput(view).slice(0, 2000));
-    throw new Error(`Could not determine whether ${spec} exists on npm; refusing to guess.`);
-  }
-
-  options.io.stdout(`Publishing ${spec} to npm with provenance.\n`);
-  const publish = npm(["publish", "--access", "public", "--registry", NPM_REGISTRY, "--provenance"], { inherit: true });
-  if (publish.status !== 0) {
-    throw new Error(`Failed to publish ${spec} to npm.`);
-  }
-  ensurePublicAccess();
 }
 
 export async function ensureGitHubRelease(options: PackageLifecycleOptions): Promise<void> {
@@ -473,6 +482,32 @@ async function readGitHubEvent(env: NodeJS.ProcessEnv, missingMessage: string): 
     throw new Error(missingMessage);
   }
   return JSON.parse(await readFile(eventPath, "utf8"));
+}
+
+async function prepareNpmPublishAuth(options: PackageLifecycleOptions): Promise<{ env: NodeJS.ProcessEnv; hasTraditionalAuth: boolean; cleanupDir?: string }> {
+  const token = npmAuthToken(options.env);
+  const env: NodeJS.ProcessEnv = { ...options.env };
+  if (!token) {
+    if (!env.NODE_AUTH_TOKEN) delete env.NODE_AUTH_TOKEN;
+    if (!env.NPM_TOKEN) delete env.NPM_TOKEN;
+    return { env, hasTraditionalAuth: Boolean(env.NPM_CONFIG_USERCONFIG) };
+  }
+
+  const cleanupDir = await mkdtemp(join(tmpdir(), "async-pipeline-npm-publish-"));
+  const registryUrl = new URL(NPM_REGISTRY);
+  const registryAuthPath = `${registryUrl.host}${registryUrl.pathname.replace(/\/$/, "")}`;
+  const userconfig = join(cleanupDir, ".npmrc");
+  await writeFile(userconfig, `//${registryAuthPath}/:_authToken=${token}\n`, "utf8");
+  await chmod(userconfig, 0o600);
+  delete env.NPM_TOKEN;
+  delete env.NODE_AUTH_TOKEN;
+  env.NPM_CONFIG_USERCONFIG = userconfig;
+  return { env, hasTraditionalAuth: true, cleanupDir };
+}
+
+function npmAuthToken(env: NodeJS.ProcessEnv): string | undefined {
+  const token = env.NPM_TOKEN ?? env.NODE_AUTH_TOKEN;
+  return token && token.trim().length > 0 ? token : undefined;
 }
 
 async function assertRegistryVersion(spec: string, registry: string, options: PackageLifecycleOptions, label: string): Promise<void> {

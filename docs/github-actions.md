@@ -307,6 +307,8 @@ It renders runtime env on the pipeline step:
 
 `env.secret("NPM_TOKEN")` means "source this value from the platform secret named `NPM_TOKEN`." The runtime destination is the env key you assign it to, such as `NODE_AUTH_TOKEN`.
 
+For npm releases, pair `requires.provenance: true` with either npm trusted publishing on the package or an `NPM_TOKEN` secret. The lifecycle `publish npm` command creates a temporary npmjs auth config only when a token is present; tokenless runs are left clean so npm can use trusted publishing/OIDC.
+
 `env.var("NAME")` maps to `${{ vars.NAME }}` in generated GitHub Actions. `env.var("NODE_ENV", { prod, dev }, { default: "dev" })` is resolved by `async-pipeline run` before the task command runs.
 
 Missing secrets, missing variables without defaults, and unmapped values fail before the task command runs.
