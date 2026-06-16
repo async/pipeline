@@ -285,7 +285,7 @@ test("sync CLI generates and checks configured targets", () => {
   try {
     writeJson(join(dir, "package.json"), {
       type: "module",
-      packageManager: "pnpm@10.20.0",
+      packageManager: "pnpm@11.1.0",
       scripts: {
         "async-pipeline": `node ${JSON.stringify(cliPath)}`
       }

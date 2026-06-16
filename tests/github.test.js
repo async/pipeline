@@ -17,7 +17,7 @@ const cliPath = join(repoRoot, "packages/pipeline-node/dist/cli.js");
 test("renders github workflow triggers and bootloader steps", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-render-"));
   try {
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
     writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
     const pipeline = definePipeline({
       name: "test",
@@ -67,7 +67,7 @@ test("renders github workflow triggers and bootloader steps", async () => {
 test("renders github workflow with dependency cache disabled", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-no-dep-cache-"));
   try {
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
     writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
     const pipeline = definePipeline({
       name: "test",
@@ -101,7 +101,7 @@ test("renders github workflow with dependency cache disabled", async () => {
 test("renders github workflow with node setup provider", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-node-setup-"));
   try {
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
     writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
     const pipeline = definePipeline({
       name: "test",
@@ -124,7 +124,7 @@ test("renders github workflow with node setup provider", async () => {
     assert.match(rendered.workflow, /actions\/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6/);
     assert.match(rendered.workflow, /cache: "pnpm"/);
     assert.match(rendered.workflow, /cache-dependency-path: "pnpm-lock\.yaml"/);
-    assert.match(rendered.workflow, /corepack prepare pnpm@10\.20\.0 --activate/);
+    assert.match(rendered.workflow, /corepack prepare pnpm@11\.1\.0 --activate/);
     assert.doesNotMatch(rendered.workflow, /pnpm\/setup@/);
     assert.equal(rendered.lock.setup, "node");
   } finally {
@@ -135,7 +135,7 @@ test("renders github workflow with node setup provider", async () => {
 test("renders generated Dependabot auto-merge workflow job", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-dependabot-"));
   try {
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
     const pipeline = definePipeline({
       name: "test",
       sync: {
@@ -176,7 +176,7 @@ test("renders generated package preview job from packagePreviews true", async ()
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-package-preview-"));
   try {
     mkdirSync(join(dir, "packages", "pipeline"), { recursive: true });
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "workspace", private: true, packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "workspace", private: true, packageManager: "pnpm@11.1.0" }), "utf8");
     writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
     writeFileSync(join(dir, "packages", "pipeline", "package.json"), JSON.stringify({ name: "@async/pipeline", version: "0.0.0" }), "utf8");
     const pipeline = definePipeline({
@@ -221,7 +221,7 @@ test("packagePreviews true requires explicit package when multiple public packag
   try {
     mkdirSync(join(dir, "packages", "one"), { recursive: true });
     mkdirSync(join(dir, "packages", "two"), { recursive: true });
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "workspace", private: true, packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "workspace", private: true, packageManager: "pnpm@11.1.0" }), "utf8");
     writeFileSync(join(dir, "packages", "one", "package.json"), JSON.stringify({ name: "@async/one", version: "0.0.0" }), "utf8");
     writeFileSync(join(dir, "packages", "two", "package.json"), JSON.stringify({ name: "@async/two", version: "0.0.0" }), "utf8");
     const pipeline = definePipeline({
@@ -251,7 +251,7 @@ test("packagePreviews true requires explicit package when multiple public packag
 test("renders github job environment and secret env wiring", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-env-"));
   try {
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
     const pipeline = definePipeline({
       name: "test",
       env: {
@@ -311,7 +311,7 @@ test("renders github job environment and secret env wiring", async () => {
 test("renders workflow_dispatch job selector inputs and gates manual jobs", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-selector-"));
   try {
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
     const pipeline = definePipeline({
       name: "selector-test",
       triggers: {
@@ -344,7 +344,7 @@ test("renders workflow_dispatch job selector inputs and gates manual jobs", asyn
 test("renders github pages build and deploy jobs", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-pages-"));
   try {
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
     const pipeline = definePipeline({
       name: "pages-test",
       triggers: {
@@ -392,7 +392,7 @@ test("renders github pages build and deploy jobs", async () => {
 test("renders github job packages, issues, and pull-requests permissions with a contents fallback", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-permissions-"));
   try {
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
     const pipeline = definePipeline({
       name: "test",
       triggers: {
@@ -495,7 +495,7 @@ test("github pages config rejects invalid settings", () => {
 test("renders github job runner labels and runner matrices", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-runners-"));
   try {
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
     const pipeline = definePipeline({
       name: "runner-test",
       triggers: {
@@ -535,7 +535,7 @@ test("renders github job runner labels and runner matrices", async () => {
 test("renders github execution profiles as runner defaults and CLI execution args", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-execution-"));
   try {
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
     const pipeline = definePipeline({
       name: "execution-test",
       triggers: {
@@ -620,7 +620,7 @@ test("github generate writes a current workflow and lock", () => {
   try {
     writeFileSync(join(dir, "package.json"), JSON.stringify({
       type: "module",
-      packageManager: "pnpm@10.20.0",
+      packageManager: "pnpm@11.1.0",
       scripts: {
         "async-pipeline": `node ${JSON.stringify(cliPath)}`
       }
@@ -662,7 +662,7 @@ test("github generate and check support custom output paths", () => {
   try {
     writeFileSync(join(dir, "package.json"), JSON.stringify({
       type: "module",
-      packageManager: "pnpm@10.20.0",
+      packageManager: "pnpm@11.1.0",
       scripts: {
         "async-pipeline": `node ${JSON.stringify(cliPath)}`
       }

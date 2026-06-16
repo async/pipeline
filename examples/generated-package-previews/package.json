@@ -2,7 +2,7 @@
   "name": "@async-framework/example-generated-package-previews",
   "version": "0.1.0",
   "type": "module",
-  "packageManager": "pnpm@10.20.0",
+  "packageManager": "pnpm@11.1.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/async/pipeline.git",

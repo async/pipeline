@@ -707,7 +707,7 @@ function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] 
     "      - name: Enable pnpm",
     "        run: |",
     "          corepack enable",
-    "          corepack prepare pnpm@10.20.0 --activate",
+    "          corepack prepare pnpm@11.1.0 --activate",
     ""
   ];
 }
