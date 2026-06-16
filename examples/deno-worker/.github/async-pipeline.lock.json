@@ -1,10 +1,10 @@
 {
-  "version": 7,
+  "version": 8,
   "generator": "@async/pipeline",
   "config": "pipeline.ts",
   "workflow": ".github/workflows/async-pipeline.yml",
-  "hash": "sha256:26bdfaf9192b758bf7484ecee4d6314df2e6926ff2e8804b7f156917f40fc00f",
-  "generatedAt": "2026-06-16T21:43:05.580Z",
+  "hash": "sha256:44e3c4742f18eb85196612675efa3e1189a568ca2d06cb6f4cce99d6f7d6481f",
+  "generatedAt": "2026-06-16T23:13:29.235Z",
   "triggers": {
     "pull_request": {},
     "push": {

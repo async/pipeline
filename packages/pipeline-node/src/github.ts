@@ -7,10 +7,10 @@ import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 7;
+const GENERATOR_VERSION = 8;
 const DEFAULT_NODE_VERSION = "24";
-const PNPM_SETUP_ACTION = "pnpm/setup@f7d0e5f4b1b3089d2799ef9722859e7ba314c4c8 # v1";
-const PNPM_RUNTIME_PNPM_VERSION = "11.1.0";
+const PNPM_SETUP_ACTION = "pnpm/setup@5d160c5bc68a09337ad0d5654e237e03253b5879 # v1.0.0";
+const DEFAULT_PNPM_VERSION = "11.1.0";
 
 export interface GitHubRenderOptions {
   cwd: string;
@@ -251,7 +251,7 @@ function buildRenderModel(
     packageManager: options.packageManager,
     packageManagerVersion: options.packageManagerVersion,
     buildCommand: options.buildCommand,
-    setup: resolveGitHubSetup(pipeline.sync.github.setup, options.packageManager, options.packageManagerVersion),
+    setup: resolveGitHubSetup(pipeline.sync.github.setup),
     nodeVersion: pipeline.sync.github.nodeVersion ?? DEFAULT_NODE_VERSION,
     taskCache: pipeline.sync.github.cache ?? true,
     dependencyCache: pipeline.sync.github.dependencyCache ?? true,
@@ -678,7 +678,7 @@ function renderDependabotAutoMergeJob(lines: string[], ecosystems: string[]): vo
 }
 
 function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] {
-  const pnpmVersion = pnpmRuntimeVersion(model.packageManager, model.packageManagerVersion);
+  const pnpmVersion = pnpmSetupVersion(model.packageManager, model.packageManagerVersion);
   if (model.setup === "pnpm") {
     return [
       "      - name: Setup pnpm runtime",
@@ -703,14 +703,7 @@ function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] 
     "        with:",
     `          node-version: ${model.nodeVersion}`,
     "          registry-url: https://registry.npmjs.org/",
-    ...(model.dependencyCache && model.dependencyCachePath
-      ? [
-          `          cache: ${JSON.stringify(model.packageManager)}`,
-          `          cache-dependency-path: ${JSON.stringify(model.dependencyCachePath)}`
-        ]
-      : [
-          "          package-manager-cache: false"
-        ]),
+    ...renderSetupNodeCacheLines(model, { pnpmAvailableBeforeSetupNode: false }),
     "",
     "      - name: Enable pnpm",
     "        run: |",
@@ -720,19 +713,28 @@ function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] 
   ];
 }
 
-function resolveGitHubSetup(setup: string, packageManager: string, packageManagerVersion: string | undefined): string {
-  if (setup !== "pnpm") return setup;
-  if (pnpmSupportsRuntime(pnpmRuntimeVersion(packageManager, packageManagerVersion))) return "pnpm";
-  return "node";
+function renderSetupNodeCacheLines(model: ReturnType<typeof buildRenderModel>, options: { pnpmAvailableBeforeSetupNode: boolean }): string[] {
+  const canUseDependencyCache = model.dependencyCache && model.dependencyCachePath && (model.packageManager !== "pnpm" || options.pnpmAvailableBeforeSetupNode);
+  if (canUseDependencyCache) {
+    return [
+      `          cache: ${JSON.stringify(model.packageManager)}`,
+      `          cache-dependency-path: ${JSON.stringify(model.dependencyCachePath)}`
+    ];
+  }
+  if (model.packageManager === "npm" || (model.packageManager === "pnpm" && !options.pnpmAvailableBeforeSetupNode)) {
+    return [
+      "          package-manager-cache: false"
+    ];
+  }
+  return [];
 }
 
-function pnpmRuntimeVersion(packageManager: string, packageManagerVersion: string | undefined): string {
-  return packageManager === "pnpm" && packageManagerVersion ? packageManagerVersion : PNPM_RUNTIME_PNPM_VERSION;
+function resolveGitHubSetup(setup: string): string {
+  return setup;
 }
 
-function pnpmSupportsRuntime(version: string): boolean {
-  const major = /^(\d+)/.exec(version)?.[1];
-  return major !== undefined && Number(major) >= 11;
+function pnpmSetupVersion(packageManager: string, packageManagerVersion: string | undefined): string {
+  return packageManager === "pnpm" && packageManagerVersion ? packageManagerVersion : DEFAULT_PNPM_VERSION;
 }
 
 function renderPagesBuildSteps(lines: string[], pages: GitHubPagesConfig): void {
