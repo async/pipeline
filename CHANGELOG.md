@@ -6,6 +6,10 @@
 
 - Generated GitHub workflows now default `sync.github.setup: "auto"` to the pinned pnpm runtime shim, with `setup: "node"` available for the older setup-node/Corepack bootloader.
 
+### Fixes
+
+- Package preview jobs now only run for pull request events instead of trying to publish PR previews from push or release events.
+
 ## 0.6.1 - 2026-06-15
 
 ### Features

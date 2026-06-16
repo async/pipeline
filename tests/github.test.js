@@ -198,6 +198,7 @@ test("renders generated package preview job from packagePreviews true", async ()
 
     assert.match(rendered.workflow, /pull_request:\n    types:\n      - "opened"\n      - "ready_for_review"\n      - "reopened"\n      - "synchronize"/);
     assert.match(rendered.workflow, /package-preview:\n    name: package-preview/);
+    assert.match(rendered.workflow, /if: github\.event_name == 'pull_request' && github\.event\.pull_request\.draft == false/);
     assert.match(rendered.workflow, /persist-credentials: false/);
     assert.match(rendered.workflow, /permissions:\n      contents: read\n      issues: write\n      packages: write\n      pull-requests: write/);
     assert.match(rendered.workflow, /pnpm async-pipeline run-task pack/);

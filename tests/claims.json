@@ -756,6 +756,14 @@
       ]
     },
     {
+      "id": "changelog.package-preview-pr-only",
+      "source": "CHANGELOG.md",
+      "anchor": "Package preview jobs now only run for pull request events instead of trying to publish PR previews from push or release events.",
+      "tests": [
+        "renders generated package preview job from packagePreviews true"
+      ]
+    },
+    {
       "id": "changelog.generated-dependabot-and-previews",
       "source": "CHANGELOG.md",
       "anchor": "Add generated `sync.github.dependabotAutoMerge` and `sync.github.packagePreviews` jobs so repos can opt into guarded Dependabot auto-merge and PR package previews with `true` defaults.",

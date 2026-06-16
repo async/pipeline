@@ -502,7 +502,7 @@ function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof build
   lines.push(
     "  package-preview:",
     "    name: package-preview",
-    "    if: github.event.pull_request.draft == false",
+    "    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false",
     "    runs-on: ubuntu-latest",
     "    permissions:",
     "      contents: read",
