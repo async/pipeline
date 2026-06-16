@@ -633,6 +633,7 @@ test("normalizes cron and filtered github triggers", () => {
     name: "test",
     triggers: {
       main: trigger.github({ events: ["push"], branches: ["main"] }),
+      release: trigger.github({ events: ["release"], types: ["published"] }),
       nightly: trigger.cron("17 2 * * *", { timezone: "UTC" })
     },
     tasks: {
@@ -644,6 +645,7 @@ test("normalizes cron and filtered github triggers", () => {
   });
 
   assert.deepEqual(pipeline.triggers.main.branches, ["main"]);
+  assert.deepEqual(pipeline.triggers.release.types, ["published"]);
   assert.equal(pipeline.triggers.nightly.cron, "17 2 * * *");
   assert.equal(pipeline.triggers.nightly.timezone, "UTC");
 });

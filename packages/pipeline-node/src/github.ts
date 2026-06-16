@@ -67,6 +67,7 @@ export interface GitHubRenderResult {
 
 export interface GitHubEventContext {
   eventName: string;
+  action?: string;
   ref?: string;
   baseRef?: string;
   headRef?: string;
@@ -174,6 +175,7 @@ export async function readGitHubEventContext(env: NodeJS.ProcessEnv): Promise<Gi
   }
   return {
     eventName,
+    action: env.ASYNC_PIPELINE_GITHUB_ACTION ?? eventAction(payload),
     ref: env.ASYNC_PIPELINE_GITHUB_REF ?? env.GITHUB_REF,
     baseRef: env.ASYNC_PIPELINE_GITHUB_BASE_REF ?? env.GITHUB_BASE_REF,
     headRef: env.ASYNC_PIPELINE_GITHUB_HEAD_REF ?? env.GITHUB_HEAD_REF,
@@ -838,7 +840,7 @@ function renderOn(lines: string[], triggers: Record<string, unknown>, manualDisp
 
 function mergeEventFilters(existing: Record<string, unknown>, trigger: TriggerDefinition): Record<string, unknown> {
   const merged: Record<string, unknown> = { ...existing };
-  for (const key of ["branches", "paths", "tags"] as const) {
+  for (const key of ["types", "branches", "paths", "tags"] as const) {
     if (!trigger[key]) continue;
     merged[key] = [...new Set([...(Array.isArray(merged[key]) ? merged[key] as string[] : []), ...trigger[key]])].sort();
   }
@@ -852,6 +854,7 @@ function triggerMatches(triggerId: string, trigger: TriggerDefinition, context: 
   }
   if (trigger.type !== "github") return false;
   if (!(trigger.events ?? []).includes(context.eventName)) return false;
+  if (trigger.types?.length && (!context.action || !matchesAnyPattern(context.action, trigger.types))) return false;
   const branch = branchForEvent(context);
   if (trigger.branches && branch && !matchesAnyPattern(branch, trigger.branches)) return false;
   if (trigger.tags && context.ref?.startsWith("refs/tags/")) {
@@ -877,6 +880,9 @@ function renderGitHubJobCondition(job: NormalizedJob, triggers: Record<TriggerId
         if (trigger.branches?.length) {
           filters.push(`(${trigger.branches.map((branch) => `github.ref == 'refs/heads/${escapeExpressionString(branch)}'`).join(" || ")})`);
         }
+        if (trigger.types?.length) {
+          filters.push(`(${trigger.types.map((type) => `github.event.action == '${escapeExpressionString(type)}'`).join(" || ")})`);
+        }
         if (trigger.tags?.length) {
           filters.push(`(${trigger.tags.map((tag) => `github.ref == 'refs/tags/${escapeExpressionString(tag)}'`).join(" || ")})`);
         }
@@ -895,6 +901,12 @@ function workflowDispatchInput(payload: unknown, name: string): string | undefin
   if (!inputs || typeof inputs !== "object") return undefined;
   const value = (inputs as Record<string, unknown>)[name];
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function eventAction(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const action = (payload as { action?: unknown }).action;
+  return typeof action === "string" && action.length > 0 ? action : undefined;
 }
 
 function branchForEvent(context: GitHubEventContext): string | undefined {

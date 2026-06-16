@@ -412,11 +412,12 @@ See [`env`](#env) for local, GitHub Actions, and test behavior.
 ```ts
 trigger.manual();
 trigger.github({ events: ["push", "pull_request"], branches: ["main"] });
+trigger.github({ events: ["release"], types: ["published"] });
 trigger.cron("0 9 * * 1");
 trigger.schedule("0 9 * * 1"); // compatibility alias
 ```
 
-Triggers are declarations. Use `async-pipeline github generate` to render them into committed GitHub Actions YAML. GitHub cannot start a cron or push workflow from TypeScript alone.
+Triggers are declarations. `trigger.github` supports GitHub event `types` plus `branches`, `paths`, and `tags` filters, and `async-pipeline github generate` renders them into committed GitHub Actions YAML. GitHub cannot start a cron or push workflow from TypeScript alone.
 
 ## sync
 

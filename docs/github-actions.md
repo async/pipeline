@@ -237,7 +237,7 @@ async-pipeline run <job-id> --execution <id>
 The generated workflow still uses GitHub event conditions from pipeline triggers:
 
 - `push` and `pull_request` match `trigger.github(...)`.
-- `release` can match `trigger.github({ events: ["release"] })`.
+- `release` can match `trigger.github({ events: ["release"], types: ["published"] })`.
 - `schedule` matches `trigger.cron(...)`.
 - `workflow_dispatch` can run manual jobs.
 

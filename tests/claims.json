@@ -205,6 +205,25 @@
       ]
     },
     {
+      "id": "api.github-trigger-types",
+      "source": "docs/api.md",
+      "anchor": "`trigger.github` supports GitHub event `types` plus `branches`, `paths`, and `tags` filters, and `async-pipeline github generate` renders them into committed GitHub Actions YAML.",
+      "tests": [
+        "normalizes cron and filtered github triggers",
+        "renders github workflow triggers and bootloader steps",
+        "matches github jobs from event context"
+      ]
+    },
+    {
+      "id": "github-actions.release-trigger-types",
+      "source": "docs/github-actions.md",
+      "anchor": "`release` can match `trigger.github({ events: [\"release\"], types: [\"published\"] })`.",
+      "tests": [
+        "renders github workflow triggers and bootloader steps",
+        "matches github jobs from event context"
+      ]
+    },
+    {
       "id": "readme.platform-workflow",
       "source": "README.md",
       "anchor": "The checked-in workflow targets Node `>= 24` on GitHub-hosted Linux (`ubuntu-latest`) and macOS (`macos-latest`) runners",
@@ -761,6 +780,16 @@
       "anchor": "Package preview jobs now only run for pull request events instead of trying to publish PR previews from push or release events.",
       "tests": [
         "renders generated package preview job from packagePreviews true"
+      ]
+    },
+    {
+      "id": "changelog.release-trigger-types",
+      "source": "CHANGELOG.md",
+      "anchor": "GitHub release triggers can now render activity `types`, and the self pipeline listens only for published releases to avoid duplicate publish runs.",
+      "tests": [
+        "normalizes cron and filtered github triggers",
+        "renders github workflow triggers and bootloader steps",
+        "matches github jobs from event context"
       ]
     },
     {

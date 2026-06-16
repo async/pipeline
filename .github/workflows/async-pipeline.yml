@@ -14,6 +14,8 @@ on:
     branches:
       - "main"
   release:
+    types:
+      - "published"
   workflow_dispatch:
     inputs:
       job:
@@ -111,7 +113,7 @@ jobs:
 
   publish:
     name: publish
-    if: (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'publish') || (github.event_name == 'release')
+    if: (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'publish') || (github.event_name == 'release' && (github.event.action == 'published'))
     runs-on: ubuntu-latest
     environment:
       name: "npm-publish"
@@ -229,7 +231,7 @@ jobs:
 
   verify:
     name: verify (${{ join(matrix.runner, ' ') }})
-    if: (github.event_name == 'pull_request') || (github.event_name == 'push' && (github.ref == 'refs/heads/main')) || (github.event_name == 'release')
+    if: (github.event_name == 'pull_request') || (github.event_name == 'push' && (github.ref == 'refs/heads/main')) || (github.event_name == 'release' && (github.event.action == 'published'))
     strategy:
       fail-fast: false
       matrix:

@@ -24,13 +24,14 @@ test("renders github workflow triggers and bootloader steps", async () => {
       triggers: {
         pr: trigger.github({ events: ["pull_request"] }),
         main: trigger.github({ events: ["push"], branches: ["main"] }),
+        release: trigger.github({ events: ["release"], types: ["published"] }),
         nightly: trigger.cron("17 2 * * *")
       },
       tasks: {
         verify: task({ run: sh`echo verify` })
       },
       jobs: {
-        verify: job({ target: "verify", trigger: ["pr", "main", "nightly"] })
+        verify: job({ target: "verify", trigger: ["pr", "main", "release", "nightly"] })
       }
     });
 
@@ -38,7 +39,9 @@ test("renders github workflow triggers and bootloader steps", async () => {
 
     assert.match(rendered.workflow, /pull_request:/);
     assert.match(rendered.workflow, /push:/);
+    assert.match(rendered.workflow, /release:\n    types:\n      - "published"/);
     assert.match(rendered.workflow, /schedule:/);
+    assert.match(rendered.workflow, /github\.event_name == 'release' && \(github\.event\.action == 'published'\)/);
     assert.match(rendered.workflow, /async-pipeline github check/);
     assert.match(rendered.workflow, /async-pipeline run verify/);
     assert.match(rendered.workflow, /actions\/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4/);
@@ -583,7 +586,7 @@ test("matches github jobs from event context", () => {
       main: trigger.github({ events: ["push"], branches: ["main"] }),
       release: trigger.github({ events: ["push"], branches: ["release/*"] }),
       docs: trigger.github({ events: ["push"], branches: ["docs"] }),
-      published: trigger.github({ events: ["release"] }),
+      published: trigger.github({ events: ["release"], types: ["published"] }),
       nightly: trigger.cron("17 2 * * *"),
       manual: trigger.manual()
     },
@@ -607,7 +610,8 @@ test("matches github jobs from event context", () => {
 
   assert.deepEqual(jobsForGitHubEvent(pipeline, { eventName: "push", ref: "refs/heads/main" }).map((entry) => entry.id), ["verify"]);
   assert.deepEqual(jobsForGitHubEvent(pipeline, { eventName: "push", ref: "refs/heads/release/1.0" }).map((entry) => entry.id), ["release"]);
-  assert.deepEqual(jobsForGitHubEvent(pipeline, { eventName: "release" }).map((entry) => entry.id), ["published"]);
+  assert.deepEqual(jobsForGitHubEvent(pipeline, { eventName: "release", action: "published" }).map((entry) => entry.id), ["published"]);
+  assert.deepEqual(jobsForGitHubEvent(pipeline, { eventName: "release", action: "deleted" }).map((entry) => entry.id), []);
   assert.deepEqual(jobsForGitHubEvent(pipeline, { eventName: "schedule", schedule: "17 2 * * *" }).map((entry) => entry.id), ["nightly"]);
   // workflow_dispatch requires selecting one manual job.
   assert.deepEqual(jobsForGitHubEvent(pipeline, { eventName: "workflow_dispatch" }).map((entry) => entry.id), []);

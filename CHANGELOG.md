@@ -9,6 +9,7 @@
 ### Fixes
 
 - Package preview jobs now only run for pull request events instead of trying to publish PR previews from push or release events.
+- GitHub release triggers can now render activity `types`, and the self pipeline listens only for published releases to avoid duplicate publish runs.
 
 ## 0.6.1 - 2026-06-15
 

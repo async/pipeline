@@ -21,7 +21,7 @@ export default definePipeline({
   triggers: {
     pr: trigger.github({ events: ["pull_request"] }),
     main: trigger.github({ events: ["push"], branches: ["main"] }),
-    release: trigger.github({ events: ["release"] }),
+    release: trigger.github({ events: ["release"], types: ["published"] }),
     manual: trigger.manual()
   },
   sync: {

@@ -259,6 +259,7 @@ export interface ResolvedAgentStep extends AgentStep {
 export interface TriggerDefinition {
   type: "manual" | "github" | "schedule";
   events?: string[];
+  types?: string[];
   cron?: string;
   branches?: string[];
   paths?: string[];
@@ -773,10 +774,11 @@ export const trigger = {
   manual(): TriggerDefinition {
     return brandDeclaration({ type: "manual" }, "trigger.manual");
   },
-  github(options: { events: string[]; branches?: string[]; paths?: string[]; tags?: string[] }): TriggerDefinition {
+  github(options: { events: string[]; types?: string[]; branches?: string[]; paths?: string[]; tags?: string[] }): TriggerDefinition {
     return brandDeclaration({
       type: "github",
       events: [...options.events],
+      types: options.types ? [...options.types] : undefined,
       branches: options.branches ? [...options.branches] : undefined,
       paths: options.paths ? [...options.paths] : undefined,
       tags: options.tags ? [...options.tags] : undefined
