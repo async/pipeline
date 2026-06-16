@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.5 - 2026-06-16
+
+### Fixes
+
+- Use the official `pnpm/setup` runtime bootloader in generated pnpm workflows so pnpm and the Node runtime are installed in one step without depending on `actions/setup-node` or a later Corepack step.
+
 ## 0.8.4 - 2026-06-16
 
 ### Fixes
