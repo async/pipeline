@@ -884,7 +884,7 @@
         "lifecycle CLI accepts custom GitHub package registry and namespace",
         "lifecycle CLI skips npm publish for an already published package and keeps public access",
         "lifecycle CLI release ensure creates a missing tag and GitHub Release",
-        "lifecycle CLI release doctor verifies npm, GitHub Packages, and GitHub Release"
+        "lifecycle CLI release doctor verifies npm, GitHub Packages, GitHub Release, and release notes"
       ]
     },
     {
@@ -918,9 +918,12 @@
     {
       "id": "api.release-ensure-lifecycle",
       "source": "docs/api.md",
-      "anchor": "`release ensure` creates the matching `v<version>` Git tag and GitHub Release when missing, accepts existing matching release state, and refuses to move an existing tag.",
+      "anchor": "`release ensure` creates the matching `v<version>` Git tag and GitHub Release when missing, accepts existing matching release state, refuses to move an existing tag, and syncs all existing semver GitHub Release descriptions from `CHANGELOG.md`.",
       "tests": [
         "lifecycle CLI release ensure creates a missing tag and GitHub Release",
+        "lifecycle CLI release ensure updates stale GitHub Release notes from CHANGELOG",
+        "lifecycle CLI release ensure syncs multiple semver GitHub Release notes",
+        "lifecycle CLI release ensure fails when a semver GitHub Release has no CHANGELOG section",
         "lifecycle CLI release ensure refuses to move an existing release tag",
         "PROMISE: the release chain publishes GitHub Packages before npm, and package previews/snapshots are wired to their triggers"
       ]
@@ -928,9 +931,10 @@
     {
       "id": "api.release-doctor-lifecycle",
       "source": "docs/api.md",
-      "anchor": "`release doctor` verifies npm, GitHub Packages, and GitHub Release state for the selected package after the release publish chain.",
+      "anchor": "`release doctor` verifies npm, GitHub Packages, the current GitHub Release, and all semver GitHub Release descriptions against `CHANGELOG.md` after the release publish chain.",
       "tests": [
-        "lifecycle CLI release doctor verifies npm, GitHub Packages, and GitHub Release",
+        "lifecycle CLI release doctor verifies npm, GitHub Packages, GitHub Release, and release notes",
+        "lifecycle CLI release doctor fails when GitHub Release notes drift from CHANGELOG",
         "PROMISE: the release chain publishes GitHub Packages before npm, and package previews/snapshots are wired to their triggers"
       ]
     },
@@ -941,7 +945,17 @@
       "tests": [
         "lifecycle CLI publishes GitHub Packages snapshots from a package path",
         "lifecycle CLI skips npm publish for an already published package and keeps public access",
-        "lifecycle CLI release doctor verifies npm, GitHub Packages, and GitHub Release"
+        "lifecycle CLI release doctor verifies npm, GitHub Packages, GitHub Release, and release notes"
+      ]
+    },
+    {
+      "id": "changelog.release-description-parity",
+      "source": "CHANGELOG.md",
+      "anchor": "Treat `CHANGELOG.md` as the canonical source for semver GitHub Release descriptions: `release ensure` now updates existing GitHub Release bodies when they drift, and `release doctor` fails when any semver GitHub Release body does not match its changelog section.",
+      "tests": [
+        "lifecycle CLI release ensure updates stale GitHub Release notes from CHANGELOG",
+        "lifecycle CLI release ensure syncs multiple semver GitHub Release notes",
+        "lifecycle CLI release doctor fails when GitHub Release notes drift from CHANGELOG"
       ]
     },
     {

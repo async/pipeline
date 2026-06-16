@@ -46,6 +46,20 @@ interface PackageContext {
   manifest: PackageManifest;
 }
 
+interface ReleaseNote {
+  tagName: string;
+  version: string;
+  date: string;
+  body: string;
+  releaseBody: string;
+}
+
+interface GitHubRelease {
+  id?: number | string;
+  tagName: string;
+  body: string;
+}
+
 export async function publishGitHubPackage(mode: GitHubPackagePublishMode, options: PackageLifecycleOptions): Promise<void> {
   const context = await readPackageContext(options.cwd, options.packagePath);
   const { packageDir, manifest } = context;
@@ -270,6 +284,11 @@ export async function ensureGitHubRelease(options: PackageLifecycleOptions): Pro
   if (!SEMVER_PATTERN.test(manifest.version)) {
     throw new Error(`${manifest.name} version must be simple semver for release creation. Found: ${manifest.version}`);
   }
+  const releaseNotes = await readChangelogReleaseNotes(options.cwd);
+  const currentReleaseNotes = releaseNotes.get(`v${manifest.version}`);
+  if (!currentReleaseNotes) {
+    throw new Error(`CHANGELOG.md has no parseable, non-empty "## ${manifest.version} - <date>" entry.`);
+  }
 
   const repository = options.env.GITHUB_REPOSITORY ?? packageRepositoryName(manifest);
   if (!repository) {
@@ -344,13 +363,14 @@ export async function ensureGitHubRelease(options: PackageLifecycleOptions): Pro
         tag_name: tagName,
         target_commitish: targetSha,
         name: `${manifest.name} ${tagName}`,
-        body: `Release ${manifest.name}@${manifest.version}.`,
+        body: currentReleaseNotes.releaseBody,
         draft: false,
         prerelease: manifest.version.includes("-")
       })
     });
     options.io.stdout(`Created GitHub Release ${repository}@${tagName}.\n`);
   }
+  await syncGitHubReleaseNotes(repository, releaseNotes, token, apiBase, options.io);
 }
 
 export async function runReleaseDoctor(options: PackageLifecycleOptions): Promise<void> {
@@ -372,6 +392,7 @@ export async function runReleaseDoctor(options: PackageLifecycleOptions): Promis
   await assertRegistryVersion(npmPackage, NPM_REGISTRY, options, "npm");
   await assertRegistryVersion(githubPackage, GITHUB_REGISTRY, options, "GitHub Packages");
   await assertGitHubRelease(repository, manifest.version, options);
+  await assertGitHubReleaseNotes(repository, await readChangelogReleaseNotes(options.cwd), options);
   options.io.stdout(`Release doctor passed for ${manifest.name}@${manifest.version}.\n`);
 }
 
@@ -584,6 +605,164 @@ async function assertGitHubRelease(repository: string, version: string, options:
     throw new Error(`Release doctor could not verify GitHub Release v${version}: ${response.status} ${text.slice(0, 500)}`);
   }
   options.io.stdout(`OK GitHub Release: ${repository}@v${version}\n`);
+}
+
+async function assertGitHubReleaseNotes(repository: string, releaseNotes: Map<string, ReleaseNote>, options: PackageLifecycleOptions): Promise<void> {
+  const token = options.env.GITHUB_TOKEN;
+  if (!token) {
+    throw new Error("Set GITHUB_TOKEN so release doctor can verify GitHub Release descriptions.");
+  }
+  const apiBase = (options.env.GITHUB_API_URL ?? "https://api.github.com").replace(/\/$/, "");
+  const releases = await listGitHubReleases(repository, token, apiBase);
+  const failures = releaseNoteFailures(releases, releaseNotes);
+  if (failures.length > 0) {
+    throw new Error(`GitHub Release descriptions do not match CHANGELOG.md: ${failures.join("; ")}`);
+  }
+  options.io.stdout(`OK GitHub Release descriptions: ${releases.filter((release) => semverTagVersion(release.tagName)).length} semver release(s) match CHANGELOG.md\n`);
+}
+
+async function syncGitHubReleaseNotes(
+  repository: string,
+  releaseNotes: Map<string, ReleaseNote>,
+  token: string,
+  apiBase: string,
+  io: PackageLifecycleIO
+): Promise<void> {
+  const releases = await listGitHubReleases(repository, token, apiBase);
+  const failures = releaseNoteMissingFailures(releases, releaseNotes);
+  if (failures.length > 0) {
+    throw new Error(`Cannot sync GitHub Release descriptions from CHANGELOG.md: ${failures.join("; ")}`);
+  }
+
+  let updated = 0;
+  for (const release of releases) {
+    const note = releaseNotes.get(release.tagName);
+    if (!note || normalizeReleaseBody(release.body) === normalizeReleaseBody(note.releaseBody)) continue;
+    if (release.id === undefined) {
+      throw new Error(`Cannot update GitHub Release ${release.tagName}: release id is missing from the GitHub API response.`);
+    }
+    await githubApi(apiBase, token, `/repos/${repository}/releases/${encodeURIComponent(String(release.id))}`, {
+      method: "PATCH",
+      body: JSON.stringify({ body: note.releaseBody })
+    });
+    updated += 1;
+    io.stdout(`Updated GitHub Release notes: ${repository}@${release.tagName}\n`);
+  }
+  if (updated === 0) {
+    io.stdout("GitHub Release descriptions already match CHANGELOG.md.\n");
+  }
+}
+
+function releaseNoteFailures(releases: GitHubRelease[], releaseNotes: Map<string, ReleaseNote>): string[] {
+  const failures = [];
+  for (const release of releases) {
+    if (!semverTagVersion(release.tagName)) continue;
+    const note = releaseNotes.get(release.tagName);
+    if (!note) {
+      failures.push(`${release.tagName} has no parseable, non-empty CHANGELOG.md section`);
+    } else if (normalizeReleaseBody(release.body) !== normalizeReleaseBody(note.releaseBody)) {
+      failures.push(`${release.tagName} body differs`);
+    }
+  }
+  return failures;
+}
+
+function releaseNoteMissingFailures(releases: GitHubRelease[], releaseNotes: Map<string, ReleaseNote>): string[] {
+  const failures = [];
+  for (const release of releases) {
+    if (!semverTagVersion(release.tagName)) continue;
+    if (!releaseNotes.has(release.tagName)) {
+      failures.push(`${release.tagName} has no parseable, non-empty CHANGELOG.md section`);
+    }
+  }
+  return failures;
+}
+
+async function readChangelogReleaseNotes(cwd: string): Promise<Map<string, ReleaseNote>> {
+  const changelog = await readFile(join(cwd, "CHANGELOG.md"), "utf8");
+  const headingPattern = /^##\s+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\s+-\s+(.+?)\s*$/gm;
+  const headings = [...changelog.matchAll(headingPattern)];
+  const notes = new Map<string, ReleaseNote>();
+  for (let index = 0; index < headings.length; index += 1) {
+    const heading = headings[index];
+    const version = heading?.[1];
+    const rawDate = heading?.[2];
+    if (!version || !rawDate || heading.index === undefined) continue;
+    const date = rawDate.trim();
+    const start = heading.index + heading[0].length;
+    const nextHeading = headings[index + 1];
+    const end = nextHeading?.index ?? changelog.length;
+    const body = changelog.slice(start, end).trim();
+    if (!body) continue;
+    const tagName = `v${version}`;
+    notes.set(tagName, {
+      tagName,
+      version,
+      date,
+      body,
+      releaseBody: renderReleaseBody(version, date, body)
+    });
+  }
+  return notes;
+}
+
+function renderReleaseBody(version: string, date: string, body: string): string {
+  return [
+    `Release notes from \`CHANGELOG.md\` for ${version} (${date}).`,
+    "",
+    body,
+    "",
+    "---",
+    `Source: \`CHANGELOG.md\` in tag \`v${version}\`.`,
+    ""
+  ].join("\n");
+}
+
+function normalizeReleaseBody(body: string): string {
+  return body.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trimEnd();
+}
+
+async function listGitHubReleases(repository: string, token: string, apiBase: string): Promise<GitHubRelease[]> {
+  const releases = [];
+  for (let page = 1; ; page += 1) {
+    const response = await githubApi(apiBase, token, `/repos/${repository}/releases?per_page=100&page=${page}`);
+    const pageReleases = Array.isArray(response) ? response : [];
+    for (const release of pageReleases) {
+      const record = asRecord(release);
+      const tagName = record.tag_name;
+      if (typeof tagName !== "string") continue;
+      releases.push({
+        id: typeof record.id === "number" || typeof record.id === "string" ? record.id : undefined,
+        tagName,
+        body: typeof record.body === "string" ? record.body : ""
+      });
+    }
+    if (pageReleases.length < 100) return releases;
+  }
+}
+
+async function githubApi(apiBase: string, token: string, path: string, init: RequestInit = {}, allowMissing = false): Promise<unknown | undefined> {
+  const response = await fetch(`${apiBase}${path}`, {
+    ...init,
+    headers: {
+      authorization: `Bearer ${token}`,
+      accept: "application/vnd.github+json",
+      "content-type": "application/json",
+      "x-github-api-version": "2022-11-28",
+      ...init.headers
+    }
+  });
+  if (allowMissing && response.status === 404) return undefined;
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`GitHub API ${init.method ?? "GET"} ${path} failed with ${response.status}: ${text.slice(0, 500)}`);
+  }
+  return response.status === 204 ? null : response.json();
+}
+
+function semverTagVersion(tagName: string): string | undefined {
+  const match = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(tagName);
+  return match ? match[1] : undefined;
 }
 
 function assertReleaseTagMatches(manifest: PackageManifest, env: NodeJS.ProcessEnv): void {

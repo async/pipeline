@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0 - 2026-06-16
+
+### Breaking
+
+- Treat `CHANGELOG.md` as the canonical source for semver GitHub Release descriptions: `release ensure` now updates existing GitHub Release bodies when they drift, and `release doctor` fails when any semver GitHub Release body does not match its changelog section.
+
 ## 0.7.0 - 2026-06-16
 
 ### Features

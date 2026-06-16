@@ -10,12 +10,52 @@ import { fileURLToPath } from "node:url";
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const cliPath = join(repoRoot, "packages/pipeline-node/dist/cli.js");
 const manifest = JSON.parse(readFileSync(join(repoRoot, "packages", "pipeline", "package.json"), "utf8"));
+const changelog = readFileSync(join(repoRoot, "CHANGELOG.md"), "utf8");
 const HEAD_SHA = "a".repeat(40);
 const TOKEN = "fake-lifecycle-token-do-not-echo";
 
 let server;
 let apiUrl;
 let apiState;
+
+function expectedReleaseBody(version = manifest.version) {
+  const headingPattern = /^##\s+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\s+-\s+(.+?)\s*$/gm;
+  const headings = [...changelog.matchAll(headingPattern)];
+  const index = headings.findIndex((heading) => heading[1] === version);
+  assert.notEqual(index, -1, `expected CHANGELOG.md to include ${version}`);
+  const heading = headings[index];
+  const start = heading.index + heading[0].length;
+  const end = index + 1 < headings.length ? headings[index + 1].index : changelog.length;
+  const body = changelog.slice(start, end).trim();
+  return [
+    `Release notes from \`CHANGELOG.md\` for ${version} (${heading[2].trim()}).`,
+    "",
+    body,
+    "",
+    "---",
+    `Source: \`CHANGELOG.md\` in tag \`v${version}\`.`,
+    ""
+  ].join("\n");
+}
+
+function releaseFixture(version = manifest.version, { id = 1, body = expectedReleaseBody(version), tagName = `v${version}` } = {}) {
+  return {
+    id,
+    tag_name: tagName,
+    name: `@async/pipeline ${tagName}`,
+    body,
+    draft: false,
+    prerelease: version.includes("-")
+  };
+}
+
+function defaultReleases() {
+  return [
+    releaseFixture(manifest.version, { id: 1 }),
+    releaseFixture("0.7.0", { id: 2 }),
+    releaseFixture(manifest.version, { id: 3, tagName: "nightly", body: "Manual non-semver release notes." })
+  ];
+}
 
 function resetApi() {
   apiState = {
@@ -24,7 +64,8 @@ function resetApi() {
     prHeadSha: HEAD_SHA,
     comments: [],
     tagSha: HEAD_SHA,
-    releaseExists: true
+    releases: defaultReleases(),
+    nextReleaseId: 100
   };
 }
 
@@ -53,14 +94,31 @@ before(async () => {
         apiState.tagSha = payload.sha;
         return respond(201, { ref: payload.ref, object: { type: "commit", sha: payload.sha } });
       }
-      if (request.method === "GET" && request.url.includes(`/releases/tags/v${manifest.version}`)) {
-        return apiState.releaseExists
-          ? respond(200, { tag_name: `v${manifest.version}` })
-          : respond(404, { message: "Not Found" });
+      if (request.method === "GET" && request.url.includes("/releases/tags/")) {
+        const tagName = decodeURIComponent(request.url.split("/releases/tags/")[1].split("?")[0]);
+        const release = apiState.releases.find((entry) => entry.tag_name === tagName);
+        return release ? respond(200, release) : respond(404, { message: "Not Found" });
+      }
+      if (request.method === "GET" && request.url.includes("/releases")) {
+        const url = new URL(request.url, "http://localhost");
+        const perPage = Number(url.searchParams.get("per_page") ?? 100);
+        const page = Number(url.searchParams.get("page") ?? 1);
+        const start = (page - 1) * perPage;
+        return respond(200, apiState.releases.slice(start, start + perPage));
       }
       if (request.method === "POST" && request.url.includes("/releases")) {
-        apiState.releaseExists = true;
-        return respond(201, { ...JSON.parse(body || "{}"), html_url: "https://github.test/release" });
+        const payload = JSON.parse(body || "{}");
+        const release = { id: apiState.nextReleaseId, ...payload, html_url: "https://github.test/release" };
+        apiState.nextReleaseId += 1;
+        apiState.releases.push(release);
+        return respond(201, release);
+      }
+      if (request.method === "PATCH" && /\/releases\/\d+$/.test(request.url)) {
+        const id = Number(request.url.split("/").at(-1));
+        const release = apiState.releases.find((entry) => entry.id === id);
+        if (!release) return respond(404, { message: "Not Found" });
+        Object.assign(release, JSON.parse(body || "{}"));
+        return respond(200, release);
       }
       respond(404, { message: "unexpected route" });
     });
@@ -251,7 +309,7 @@ test("lifecycle CLI tokenless npm publish leaves auth to trusted publishing and 
 test("lifecycle CLI release ensure creates a missing tag and GitHub Release", async () => {
   const run = await runCli(["release", "ensure", "--package", "packages/pipeline"], {
     env: { GITHUB_SHA: HEAD_SHA },
-    api: { tagSha: undefined, releaseExists: false }
+    api: { tagSha: undefined, releases: defaultReleases().filter((release) => release.tag_name !== `v${manifest.version}`) }
   });
 
   assert.equal(run.status, 0, run.stderr);
@@ -260,9 +318,55 @@ test("lifecycle CLI release ensure creates a missing tag and GitHub Release", as
   assert.deepEqual(JSON.parse(createTag.body), { ref: `refs/tags/v${manifest.version}`, sha: HEAD_SHA });
   const createRelease = run.api.requests.find((request) => request.method === "POST" && request.url.includes("/releases"));
   assert.ok(createRelease, "expected release ensure to create a GitHub Release");
-  assert.equal(JSON.parse(createRelease.body).tag_name, `v${manifest.version}`);
+  const createPayload = JSON.parse(createRelease.body);
+  assert.equal(createPayload.tag_name, `v${manifest.version}`);
+  assert.equal(createPayload.body, expectedReleaseBody(manifest.version));
   assert.match(run.stdout, /Created Git tag/);
   assert.match(run.stdout, /Created GitHub Release/);
+});
+
+test("lifecycle CLI release ensure updates stale GitHub Release notes from CHANGELOG", async () => {
+  const run = await runCli(["release", "ensure", "--package", "packages/pipeline"], {
+    env: { GITHUB_SHA: HEAD_SHA },
+    api: { releases: [releaseFixture(manifest.version, { id: 1, body: "stale notes" }), releaseFixture("0.7.0", { id: 2 })] }
+  });
+
+  assert.equal(run.status, 0, run.stderr);
+  const patch = run.api.requests.find((request) => request.method === "PATCH" && request.url.endsWith("/releases/1"));
+  assert.ok(patch, "expected release ensure to patch stale release notes");
+  assert.equal(JSON.parse(patch.body).body, expectedReleaseBody(manifest.version));
+  assert.match(run.stdout, /Updated GitHub Release notes/);
+});
+
+test("lifecycle CLI release ensure syncs multiple semver GitHub Release notes", async () => {
+  const run = await runCli(["release", "ensure", "--package", "packages/pipeline"], {
+    env: { GITHUB_SHA: HEAD_SHA },
+    api: {
+      releases: [
+        releaseFixture(manifest.version, { id: 1, body: "current stale" }),
+        releaseFixture("0.7.0", { id: 2, body: "historical stale" }),
+        releaseFixture(manifest.version, { id: 3, tagName: "nightly", body: "custom notes" })
+      ]
+    }
+  });
+
+  assert.equal(run.status, 0, run.stderr);
+  const patches = run.api.requests.filter((request) => request.method === "PATCH" && request.url.includes("/releases/"));
+  assert.equal(patches.length, 2);
+  assert.equal(JSON.parse(patches.find((request) => request.url.endsWith("/releases/1")).body).body, expectedReleaseBody(manifest.version));
+  assert.equal(JSON.parse(patches.find((request) => request.url.endsWith("/releases/2")).body).body, expectedReleaseBody("0.7.0"));
+  assert.equal(run.api.releases.find((release) => release.tag_name === "nightly").body, "custom notes");
+});
+
+test("lifecycle CLI release ensure fails when a semver GitHub Release has no CHANGELOG section", async () => {
+  const run = await runCli(["release", "ensure", "--package", "packages/pipeline"], {
+    env: { GITHUB_SHA: HEAD_SHA },
+    api: { releases: [releaseFixture(manifest.version, { id: 1 }), releaseFixture("9.9.9", { id: 2, body: "orphan release notes" })] }
+  });
+
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /v9\.9\.9 has no parseable, non-empty CHANGELOG\.md section/);
+  assert.equal(run.api.requests.some((request) => request.method === "PATCH" && request.url.includes("/releases/")), false);
 });
 
 test("lifecycle CLI release ensure refuses to move an existing release tag", async () => {
@@ -278,7 +382,7 @@ test("lifecycle CLI release ensure refuses to move an existing release tag", asy
   assert.equal(run.api.requests.some((request) => request.method === "POST" && request.url.includes("/releases")), false);
 });
 
-test("lifecycle CLI release doctor verifies npm, GitHub Packages, and GitHub Release", async () => {
+test("lifecycle CLI release doctor verifies npm, GitHub Packages, GitHub Release, and release notes", async () => {
   const run = await runCli(["release", "doctor", "--package", "packages/pipeline"], {
     env: {
       NPM_SHIM_VIEW_EXIT: "0",
@@ -290,7 +394,21 @@ test("lifecycle CLI release doctor verifies npm, GitHub Packages, and GitHub Rel
   assert.equal(run.calls.filter((call) => call.args[0] === "view").length, 2);
   assert.equal(run.calls.some((call) => call.userconfig?.includes("_authToken")), true, "GitHub Packages check must use token auth");
   assert.equal(run.api.requests.some((request) => request.url.includes(`/releases/tags/v${manifest.version}`)), true);
+  assert.equal(run.api.requests.some((request) => request.method === "GET" && request.url.includes("/releases?per_page=100")), true);
   assert.match(run.stdout, /Release doctor passed/);
+});
+
+test("lifecycle CLI release doctor fails when GitHub Release notes drift from CHANGELOG", async () => {
+  const run = await runCli(["release", "doctor", "--package", "packages/pipeline"], {
+    env: {
+      NPM_SHIM_VIEW_EXIT: "0",
+      NPM_SHIM_VIEW_VERSION: manifest.version
+    },
+    api: { releases: [releaseFixture(manifest.version, { id: 1, body: "stale notes" }), releaseFixture("0.7.0", { id: 2 })] }
+  });
+
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /GitHub Release descriptions do not match CHANGELOG\.md: v0\.8\.0 body differs/);
 });
 
 test("lifecycle CLI release doctor retries registry propagation misses", async () => {

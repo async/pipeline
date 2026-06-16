@@ -244,7 +244,7 @@ export default definePipeline({
     "release-ensure": task({
       description: "Create or verify the release tag and GitHub Release before package publishing.",
       dependsOn: ["pack"],
-      inputs: ["production", "package.json", "packages/*/package.json"],
+      inputs: ["production", "CHANGELOG.md", "package.json", "packages/*/package.json"],
       cache: false,
       run: sh`pnpm async-pipeline release ensure --package packages/pipeline`
     }),
@@ -252,7 +252,7 @@ export default definePipeline({
       // GitHub Packages first, then npm: the fallback registry is never
       // behind the primary one.
       dependsOn: ["publish-github"],
-      inputs: ["production", "package.json", "packages/*/package.json"],
+      inputs: ["production", "CHANGELOG.md", "package.json", "packages/*/package.json"],
       cache: false,
       run: [
         sh`pnpm async-pipeline publish npm --package packages/pipeline`,

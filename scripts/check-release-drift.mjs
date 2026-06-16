@@ -27,8 +27,17 @@ if (workspace.version !== published.version) {
 
 // 2. Version <-> CHANGELOG.
 const changelog = await readFile(join(root, "CHANGELOG.md"), "utf8");
-if (!new RegExp(`^## ${published.version.replaceAll(".", "\\.")}( |$)`, "m").test(changelog)) {
-  fail(`packages/pipeline is version ${published.version} but CHANGELOG.md has no "## ${published.version}" entry.`);
+const changelogHeadings = [...changelog.matchAll(/^##\s+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\s+-\s+(.+?)\s*$/gm)];
+const changelogIndex = changelogHeadings.findIndex((heading) => heading[1] === published.version);
+if (changelogIndex < 0) {
+  fail(`packages/pipeline is version ${published.version} but CHANGELOG.md has no parseable "## ${published.version} - <date>" entry.`);
+} else {
+  const heading = changelogHeadings[changelogIndex];
+  const start = heading.index + heading[0].length;
+  const end = changelogIndex + 1 < changelogHeadings.length ? changelogHeadings[changelogIndex + 1].index : changelog.length;
+  if (changelog.slice(start, end).trim().length === 0) {
+    fail(`CHANGELOG.md entry "## ${published.version} - ${heading[2].trim()}" is empty.`);
+  }
 }
 
 // 3. Engines floor consistency.
