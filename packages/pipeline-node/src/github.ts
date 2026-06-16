@@ -7,8 +7,10 @@ import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 4;
+const GENERATOR_VERSION = 5;
 const DEFAULT_NODE_VERSION = "24";
+const PNPM_SETUP_ACTION = "pnpm/setup@f7d0e5f4b1b3089d2799ef9722859e7ba314c4c8 # v1";
+const PNPM_RUNTIME_PNPM_VERSION = "11.1.0";
 
 export interface GitHubRenderOptions {
   cwd: string;
@@ -28,6 +30,7 @@ export interface GitHubLock {
   jobs: Array<{ id: string; target: string[]; trigger: string[]; env: Record<string, EnvValue>; environment?: JobEnvironment; requires?: JobRequirements; execution?: ExecutionProfileId; github?: GitHubJobConfig; if?: string }>;
   packageManager: string;
   buildCommand?: string;
+  setup: string;
   nodeVersion: string;
   taskCache: boolean;
   dependencyCache: boolean;
@@ -90,6 +93,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     jobs: renderModel.jobs,
     packageManager: renderModel.packageManager,
     buildCommand: renderModel.buildCommand,
+    setup: renderModel.setup,
     nodeVersion: renderModel.nodeVersion,
     taskCache: renderModel.taskCache,
     dependencyCache: renderModel.dependencyCache,
@@ -109,6 +113,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     jobs: renderModel.jobs,
     packageManager: renderModel.packageManager,
     buildCommand: renderModel.buildCommand,
+    setup: renderModel.setup,
     nodeVersion: renderModel.nodeVersion,
     taskCache: renderModel.taskCache,
     dependencyCache: renderModel.dependencyCache,
@@ -239,6 +244,7 @@ function buildRenderModel(
       .sort((left, right) => left.id.localeCompare(right.id)),
     packageManager: options.packageManager,
     buildCommand: options.buildCommand,
+    setup: pipeline.sync.github.setup,
     nodeVersion: pipeline.sync.github.nodeVersion ?? DEFAULT_NODE_VERSION,
     taskCache: pipeline.sync.github.cache ?? true,
     dependencyCache: pipeline.sync.github.dependencyCache ?? true,
@@ -424,20 +430,7 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
           ""
         ]
       : []),
-    "      - name: Setup Node",
-    "        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6",
-    "        with:",
-    `          node-version: ${model.nodeVersion}`,
-    "          registry-url: https://registry.npmjs.org/",
-    ...(model.dependencyCache && model.dependencyCachePath
-      ? [
-          `          cache: ${JSON.stringify(model.packageManager)}`,
-          `          cache-dependency-path: ${JSON.stringify(model.dependencyCachePath)}`
-        ]
-      : [
-          "          package-manager-cache: false"
-        ]),
-    "",
+    ...renderSetupSteps(model),
     ...(idToken === "write"
       ? [
           "      - name: Use current npm",
@@ -445,11 +438,6 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
           ""
         ]
       : []),
-    "      - name: Enable pnpm",
-    "        run: |",
-    "          corepack enable",
-    "          corepack prepare pnpm@10.20.0 --activate",
-    "",
     "      - name: Install dependencies",
     `        run: ${model.packageManager} install --frozen-lockfile`
   );
@@ -539,25 +527,7 @@ function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof build
           ""
         ]
       : []),
-    "      - name: Setup Node",
-    "        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6",
-    "        with:",
-    `          node-version: ${model.nodeVersion}`,
-    "          registry-url: https://registry.npmjs.org/",
-    ...(model.dependencyCache && model.dependencyCachePath
-      ? [
-          `          cache: ${JSON.stringify(model.packageManager)}`,
-          `          cache-dependency-path: ${JSON.stringify(model.dependencyCachePath)}`
-        ]
-      : [
-          "          package-manager-cache: false"
-        ]),
-    "",
-    "      - name: Enable pnpm",
-    "        run: |",
-    "          corepack enable",
-    "          corepack prepare pnpm@10.20.0 --activate",
-    "",
+    ...renderSetupSteps(model),
     "      - name: Install dependencies",
     `        run: ${model.packageManager} install --frozen-lockfile`
   );
@@ -698,6 +668,48 @@ function renderDependabotAutoMergeJob(lines: string[], ecosystems: string[]): vo
     "        run: gh pr merge --squash --delete-branch \"$PR_URL\"",
     ""
   );
+}
+
+function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] {
+  if (model.setup === "pnpm") {
+    return [
+      "      - name: Setup pnpm runtime",
+      `        uses: ${PNPM_SETUP_ACTION}`,
+      "        with:",
+      `          version: ${PNPM_RUNTIME_PNPM_VERSION}`,
+      `          runtime: node@${model.nodeVersion}`,
+      "          install: false",
+      `          cache: ${model.dependencyCache && model.dependencyCachePath ? "true" : "false"}`,
+      ...(model.dependencyCache && model.dependencyCachePath
+        ? [
+            `          cache-dependency-path: ${JSON.stringify(model.dependencyCachePath)}`
+          ]
+        : []),
+      ""
+    ];
+  }
+
+  return [
+    "      - name: Setup Node",
+    "        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6",
+    "        with:",
+    `          node-version: ${model.nodeVersion}`,
+    "          registry-url: https://registry.npmjs.org/",
+    ...(model.dependencyCache && model.dependencyCachePath
+      ? [
+          `          cache: ${JSON.stringify(model.packageManager)}`,
+          `          cache-dependency-path: ${JSON.stringify(model.dependencyCachePath)}`
+        ]
+      : [
+          "          package-manager-cache: false"
+        ]),
+    "",
+    "      - name: Enable pnpm",
+    "        run: |",
+    "          corepack enable",
+    "          corepack prepare pnpm@10.20.0 --activate",
+    ""
+  ];
 }
 
 function renderPagesBuildSteps(lines: string[], pages: GitHubPagesConfig): void {

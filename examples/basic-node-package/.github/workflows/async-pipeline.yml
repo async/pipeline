@@ -39,17 +39,13 @@ jobs:
           restore-keys: |
             async-pipeline-${{ runner.os }}-
 
-      - name: Setup Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      - name: Setup pnpm runtime
+        uses: pnpm/setup@f7d0e5f4b1b3089d2799ef9722859e7ba314c4c8 # v1
         with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org/
-          package-manager-cache: false
-
-      - name: Enable pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.20.0 --activate
+          version: 11.1.0
+          runtime: node@24
+          install: false
+          cache: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -90,17 +86,13 @@ jobs:
           restore-keys: |
             async-pipeline-${{ runner.os }}-
 
-      - name: Setup Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      - name: Setup pnpm runtime
+        uses: pnpm/setup@f7d0e5f4b1b3089d2799ef9722859e7ba314c4c8 # v1
         with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org/
-          package-manager-cache: false
-
-      - name: Enable pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.20.0 --activate
+          version: 11.1.0
+          runtime: node@24
+          install: false
+          cache: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

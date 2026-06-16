@@ -1,10 +1,10 @@
 {
-  "version": 4,
+  "version": 5,
   "generator": "@async/pipeline",
   "config": "pipeline.ts",
   "workflow": ".github/workflows/async-pipeline.yml",
-  "hash": "sha256:a50fc7f9e199075d356dbf7ad837a4674710953569fd7563c5b599a324b498a3",
-  "generatedAt": "2026-06-15T23:33:33.258Z",
+  "hash": "sha256:64ffe0fdc777bbbb93cceaf2ea560cd5ea17744a4bd0ea067ec4b112df701f7b",
+  "generatedAt": "2026-06-16T00:12:33.517Z",
   "triggers": {
     "pull_request": {},
     "push": {
@@ -41,6 +41,7 @@
     }
   ],
   "packageManager": "pnpm",
+  "setup": "pnpm",
   "nodeVersion": "24",
   "taskCache": true,
   "dependencyCache": true,

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.2 - 2026-06-15
+
+### Features
+
+- Generated GitHub workflows now default `sync.github.setup: "auto"` to the pinned pnpm runtime shim, with `setup: "node"` available for the older setup-node/Corepack bootloader.
+
 ## 0.6.1 - 2026-06-15
 
 ### Features

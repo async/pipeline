@@ -270,6 +270,7 @@ export type SyncRunner = "package" | "deno";
 export type SyncSelection = "all" | string[];
 export type SyncTargetSelector = { package: string; allowMultiple?: boolean } | { path: string; allowMultiple?: boolean };
 export type SyncTargets = "root" | SyncTargetSelector[];
+export type GitHubSetupProvider = "auto" | "pnpm" | "node";
 export type DependabotAutoMergeEcosystem = "github-actions" | "npm" | "deno";
 
 export interface DependabotAutoMergeConfig {
@@ -292,6 +293,7 @@ export type PackagePreviewsInput = boolean | PackagePreviewsConfig;
 export interface GitHubSyncConfig {
   workflow?: string;
   lock?: string;
+  setup?: GitHubSetupProvider;
   nodeVersion?: number | string;
   cache?: boolean;
   dependencyCache?: boolean;
@@ -321,6 +323,7 @@ export interface NormalizedGitHubSyncConfig {
   enabled: boolean;
   workflow: string;
   lock: string;
+  setup: Exclude<GitHubSetupProvider, "auto">;
   nodeVersion: string;
   cache: boolean;
   dependencyCache: boolean;
@@ -838,7 +841,8 @@ const GITHUB_PAGES_FIELDS = new Set(["artifactName", "build", "environment"]);
 const GITHUB_PAGES_JEKYLL_BUILD_FIELDS = new Set(["destination", "kind", "source"]);
 const GITHUB_PAGES_STATIC_BUILD_FIELDS = new Set(["kind", "path"]);
 const GITHUB_PERMISSION_FIELDS = new Set(["contents", "idToken", "issues", "packages", "pullRequests"]);
-const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "nodeVersion", "cache", "dependencyCache", "dependabotAutoMerge", "packagePreviews"]);
+const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "cache", "dependencyCache", "dependabotAutoMerge", "packagePreviews"]);
+const GITHUB_SETUP_PROVIDERS = new Set<GitHubSetupProvider>(["auto", "pnpm", "node"]);
 const DEPENDABOT_AUTO_MERGE_FIELDS = new Set(["ecosystems"]);
 const DEPENDABOT_AUTO_MERGE_ECOSYSTEMS = new Set<DependabotAutoMergeEcosystem>(["github-actions", "npm", "deno"]);
 const PACKAGE_PREVIEWS_FIELDS = new Set(["package", "target", "registry", "namespace", "tokenEnv", "comment"]);
@@ -1676,6 +1680,7 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       enabled: false,
       workflow: ".github/workflows/async-pipeline.yml",
       lock: ".github/async-pipeline.lock.json",
+      setup: "pnpm",
       nodeVersion: DEFAULT_GITHUB_NODE_VERSION,
       cache: true,
       dependencyCache: true,
@@ -1688,6 +1693,7 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       enabled: true,
       workflow: ".github/workflows/async-pipeline.yml",
       lock: ".github/async-pipeline.lock.json",
+      setup: "pnpm",
       nodeVersion: DEFAULT_GITHUB_NODE_VERSION,
       cache: true,
       dependencyCache: true,
@@ -1699,12 +1705,19 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
     enabled: true,
     workflow: github.workflow ?? ".github/workflows/async-pipeline.yml",
     lock: github.lock ?? ".github/async-pipeline.lock.json",
+    setup: normalizeGitHubSetup(github.setup),
     nodeVersion: normalizeGitHubNodeVersion(github.nodeVersion),
     cache: github.cache ?? true,
     dependencyCache: github.dependencyCache ?? true,
     dependabotAutoMerge: normalizeDependabotAutoMerge(github.dependabotAutoMerge),
     packagePreviews: normalizePackagePreviews(github.packagePreviews)
   };
+}
+
+function normalizeGitHubSetup(setup: GitHubSetupProvider | undefined): Exclude<GitHubSetupProvider, "auto"> {
+  if (setup === undefined || setup === "auto") return "pnpm";
+  if (GITHUB_SETUP_PROVIDERS.has(setup)) return setup;
+  throw pipelineError("ASYNC_PIPELINE_SYNC_INVALID_GITHUB_SETUP", `Invalid GitHub sync setup "${setup}". Use "auto", "pnpm", or "node".`);
 }
 
 function normalizeGitHubNodeVersion(nodeVersion: number | string | undefined): string {

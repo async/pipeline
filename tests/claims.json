@@ -171,19 +171,37 @@
     {
       "id": "github-actions.dependency-cache-step",
       "source": "docs/github-actions.md",
-      "anchor": "The generated workflow also enables `actions/setup-node` dependency caching when `sync.github.dependencyCache` is true and the package manager has a recognized lockfile.",
+      "anchor": "The generated workflow also enables pnpm runtime dependency caching when `sync.github.dependencyCache` is true and the package manager has a recognized lockfile.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
         "renders github workflow with dependency cache disabled"
       ]
     },
     {
+      "id": "github-actions.pnpm-runtime-setup",
+      "source": "docs/github-actions.md",
+      "anchor": "`setup: \"auto\"` resolves to the pnpm runtime shim.",
+      "tests": [
+        "renders github workflow triggers and bootloader steps",
+        "renders github workflow with node setup provider"
+      ]
+    },
+    {
       "id": "api.github-dependency-cache",
       "source": "docs/api.md",
-      "anchor": "`dependencyCache: true` (the default) enables `actions/setup-node` package-manager cache settings when the project has a recognized lockfile, so the generated bootloader can reuse the dependency store before `pnpm install`/`npm install`/`yarn install`; set `dependencyCache: false` for a fully cold dependency install.",
+      "anchor": "`dependencyCache: true` (the default) enables package-manager cache settings when the project has a recognized lockfile, so the generated bootloader can reuse the dependency store before `pnpm install`/`npm install`/`yarn install`; set `dependencyCache: false` for a fully cold dependency install.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
         "renders github workflow with dependency cache disabled"
+      ]
+    },
+    {
+      "id": "api.github-pnpm-runtime-setup",
+      "source": "docs/api.md",
+      "anchor": "`setup: \"auto\"` resolves to the pnpm runtime shim, which installs the Node runtime needed by the current `async-pipeline` CLI; use `setup: \"node\"` to render the older `actions/setup-node` + Corepack bootloader.",
+      "tests": [
+        "renders github workflow triggers and bootloader steps",
+        "renders github workflow with node setup provider"
       ]
     },
     {
@@ -724,7 +742,17 @@
       "anchor": "Generated GitHub workflows now enable `actions/setup-node` dependency-store caching when `sync.github.dependencyCache` is true and a recognized package-manager lockfile exists.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
-        "renders github workflow with dependency cache disabled"
+        "renders github workflow with dependency cache disabled",
+        "renders github workflow with node setup provider"
+      ]
+    },
+    {
+      "id": "changelog.github-pnpm-runtime-setup",
+      "source": "CHANGELOG.md",
+      "anchor": "Generated GitHub workflows now default `sync.github.setup: \"auto\"` to the pinned pnpm runtime shim, with `setup: \"node\"` available for the older setup-node/Corepack bootloader.",
+      "tests": [
+        "renders github workflow triggers and bootloader steps",
+        "renders github workflow with node setup provider"
       ]
     },
     {

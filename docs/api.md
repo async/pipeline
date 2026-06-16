@@ -446,6 +446,7 @@ sync: {
   github: {
     workflow: ".tmp/async-pipeline.yml",
     lock: ".tmp/async-pipeline.lock.json",
+    setup: "auto",
     nodeVersion: 24,
     cache: true,
     dependencyCache: true,
@@ -455,7 +456,7 @@ sync: {
 }
 ```
 
-`nodeVersion` selects the Node version installed by the generated workflow (default `24`). `cache: true` (the default) adds a pinned `actions/cache` step that restores `.async/cache` across CI runs so warm tasks resolve as `cached`; set `cache: false` to keep task execution cold. `dependencyCache: true` (the default) enables `actions/setup-node` package-manager cache settings when the project has a recognized lockfile, so the generated bootloader can reuse the dependency store before `pnpm install`/`npm install`/`yarn install`; set `dependencyCache: false` for a fully cold dependency install.
+`setup: "auto"` resolves to the pnpm runtime shim, which installs the Node runtime needed by the current `async-pipeline` CLI; use `setup: "node"` to render the older `actions/setup-node` + Corepack bootloader. `nodeVersion` selects the Node version installed by the generated workflow (default `24`). `cache: true` (the default) adds a pinned `actions/cache` step that restores `.async/cache` across CI runs so warm tasks resolve as `cached`; set `cache: false` to keep task execution cold. `dependencyCache: true` (the default) enables package-manager cache settings when the project has a recognized lockfile, so the generated bootloader can reuse the dependency store before `pnpm install`/`npm install`/`yarn install`; set `dependencyCache: false` for a fully cold dependency install.
 
 `dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, publishes a GitHub Packages PR preview through the lifecycle CLI, and comments install instructions on same-repo PRs.
 

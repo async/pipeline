@@ -33,11 +33,12 @@ export default definePipeline({
 
 ## Workflow Options
 
-The generated workflow installs Node 24 by default, restores the local task cache (`.async/cache`) through a pinned `actions/cache` step keyed by commit with an OS-prefixed fallback, and caches the package-manager dependency store through `actions/setup-node` when a recognized lockfile is present. These knobs live in `sync.github`:
+The generated workflow uses `pnpm/setup` as the default runtime shim, installs Node 24 for the current `async-pipeline` CLI, restores the local task cache (`.async/cache`) through a pinned `actions/cache` step keyed by commit with an OS-prefixed fallback, and caches the package-manager dependency store when a recognized lockfile is present. These knobs live in `sync.github`:
 
 ```ts
 sync: {
   github: {
+    setup: "auto",
     nodeVersion: 24,
     cache: true,
     dependencyCache: true,
@@ -47,7 +48,7 @@ sync: {
 }
 ```
 
-`cache` controls the task cache. `dependencyCache` controls the bootloader dependency-store cache; set it to `false` when you need a fully cold install.
+`setup: "auto"` resolves to the pnpm runtime shim. Use `setup: "node"` to render the older `actions/setup-node` + Corepack bootloader instead. `cache` controls the task cache. `dependencyCache` controls the bootloader dependency-store cache; set it to `false` when you need a fully cold install.
 
 Each generated job also runs `async-pipeline explain --run latest` on failure and uploads `.async/runs` with a pinned `actions/upload-artifact` step. GitHub Actions stays a bootloader for the same task graph; the uploaded evidence is the local run record, graph snapshot, cache receipts, logs, and context packs from the normal runner.
 
@@ -162,7 +163,7 @@ A minimal host setup:
 
 1. Install Tart on the Mac host and pull a base image: `tart clone ghcr.io/cirruslabs/macos-sequoia-base:latest runner-base`.
 2. Run an ephemeral runner manager such as [Tartelet](https://github.com/shapehq/tartelet) or [ekiden](https://github.com/mirego/ekiden) so every job executes in a fresh VM that is destroyed after one job.
-3. Register the runner against the repository or organization with the labels `self-hosted`, `macos`, and `tart`. The VM image needs Node `>= 24`; the generated workflow's setup-node step handles version selection from there.
+3. Register the runner against the repository or organization with the labels `self-hosted`, `macos`, and `tart`. The VM image needs to run the generated setup action; by default the pnpm runtime shim installs Node `>= 24` for the pipeline CLI.
 
 Confirm managed macOS runner availability before depending on it; self-hosting is the path this repository documents. Two cautions:
 
@@ -373,7 +374,7 @@ Generated GitHub Actions do not install PATH shims yet. Future GitHub workspace/
 
 ## Cache
 
-The generated workflow persists `.async/cache` through the generated `actions/cache` step when `sync.github.cache` is true. The generated workflow also enables `actions/setup-node` dependency caching when `sync.github.dependencyCache` is true and the package manager has a recognized lockfile. The run evidence artifact uploads `.async/runs`; it is diagnostic evidence, not a remote task-cache adapter.
+The generated workflow persists `.async/cache` through the generated `actions/cache` step when `sync.github.cache` is true. The generated workflow also enables pnpm runtime dependency caching when `sync.github.dependencyCache` is true and the package manager has a recognized lockfile. The run evidence artifact uploads `.async/runs`; it is diagnostic evidence, not a remote task-cache adapter.
 
 Keep package-manager caching separate from `@async/pipeline` task caching.
 

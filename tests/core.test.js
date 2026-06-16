@@ -668,6 +668,7 @@ test("normalizes sync github and task defaults independently from triggers", () 
 
   assert.equal(pipeline.sync.github.enabled, true);
   assert.equal(pipeline.sync.github.workflow, ".github/workflows/async-pipeline.yml");
+  assert.equal(pipeline.sync.github.setup, "pnpm");
   assert.equal(pipeline.sync.github.cache, true);
   assert.equal(pipeline.sync.github.dependencyCache, true);
   assert.deepEqual(pipeline.sync.github.dependabotAutoMerge, {
@@ -695,6 +696,7 @@ test("normalizes explicit sync task config and validates selected ids", () => {
       github: {
         workflow: ".tmp/workflow.yml",
         lock: ".tmp/lock.json",
+        setup: "node",
         dependabotAutoMerge: { ecosystems: ["github-actions"] },
         packagePreviews: {
           package: "packages/example",
@@ -725,6 +727,7 @@ test("normalizes explicit sync task config and validates selected ids", () => {
   });
 
   assert.equal(pipeline.sync.github.workflow, ".tmp/workflow.yml");
+  assert.equal(pipeline.sync.github.setup, "node");
   assert.equal(pipeline.sync.github.dependencyCache, true);
   assert.deepEqual(pipeline.sync.github.dependabotAutoMerge, {
     enabled: true,
@@ -743,6 +746,17 @@ test("normalizes explicit sync task config and validates selected ids", () => {
   assert.deepEqual(pipeline.sync.tasks.jobs, ["verify"]);
   assert.deepEqual(pipeline.sync.tasks.tasks, ["build"]);
   assert.equal(pipeline.sync.tasks.scripts["sync:check"], "sync check");
+
+  assert.throws(() => definePipeline({
+    name: "bad",
+    sync: {
+      github: {
+        setup: "python"
+      }
+    },
+    tasks: { build: task({ run: sh`echo build` }) },
+    jobs: { verify: job({ target: "build" }) }
+  }), (error) => error.code === "ASYNC_PIPELINE_SYNC_INVALID_GITHUB_SETUP" && /python/.test(error.message));
 
   assert.throws(() => definePipeline({
     name: "bad",

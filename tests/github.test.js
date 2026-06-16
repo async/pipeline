@@ -42,13 +42,20 @@ test("renders github workflow triggers and bootloader steps", async () => {
     assert.match(rendered.workflow, /async-pipeline github check/);
     assert.match(rendered.workflow, /async-pipeline run verify/);
     assert.match(rendered.workflow, /actions\/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4/);
-    assert.match(rendered.workflow, /cache: "pnpm"/);
+    assert.match(rendered.workflow, /name: Setup pnpm runtime/);
+    assert.match(rendered.workflow, /uses: pnpm\/setup@f7d0e5f4b1b3089d2799ef9722859e7ba314c4c8 # v1/);
+    assert.match(rendered.workflow, /version: 11\.1\.0/);
+    assert.match(rendered.workflow, /runtime: node@24/);
+    assert.match(rendered.workflow, /install: false/);
+    assert.match(rendered.workflow, /cache: true/);
     assert.match(rendered.workflow, /cache-dependency-path: "pnpm-lock\.yaml"/);
     assert.doesNotMatch(rendered.workflow, /package-manager-cache: false/);
+    assert.doesNotMatch(rendered.workflow, /actions\/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6/);
     assert.match(rendered.workflow, /async-pipeline explain --run latest \|\| true/);
     assert.match(rendered.workflow, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4/);
     assert.match(rendered.workflow, /path: \.async\/runs/);
     assert.equal(rendered.lock.workflow, ".github/workflows/async-pipeline.yml");
+    assert.equal(rendered.lock.setup, "pnpm");
     assert.equal(rendered.lock.dependencyCache, true);
     assert.equal(rendered.lock.dependencyCachePath, "pnpm-lock.yaml");
     assert.equal(rendered.lock.jobs[0].id, "verify");
@@ -79,11 +86,47 @@ test("renders github workflow with dependency cache disabled", async () => {
 
     const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
 
-    assert.doesNotMatch(rendered.workflow, /cache: "pnpm"/);
+    assert.match(rendered.workflow, /name: Setup pnpm runtime/);
+    assert.match(rendered.workflow, /cache: false/);
     assert.doesNotMatch(rendered.workflow, /cache-dependency-path/);
-    assert.match(rendered.workflow, /package-manager-cache: false/);
+    assert.doesNotMatch(rendered.workflow, /package-manager-cache: false/);
+    assert.equal(rendered.lock.setup, "pnpm");
     assert.equal(rendered.lock.dependencyCache, false);
     assert.equal(rendered.lock.dependencyCachePath, undefined);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("renders github workflow with node setup provider", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-node-setup-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          setup: "node"
+        }
+      },
+      tasks: {
+        verify: task({ run: sh`echo verify` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, /name: Setup Node/);
+    assert.match(rendered.workflow, /actions\/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6/);
+    assert.match(rendered.workflow, /cache: "pnpm"/);
+    assert.match(rendered.workflow, /cache-dependency-path: "pnpm-lock\.yaml"/);
+    assert.match(rendered.workflow, /corepack prepare pnpm@10\.20\.0 --activate/);
+    assert.doesNotMatch(rendered.workflow, /pnpm\/setup@/);
+    assert.equal(rendered.lock.setup, "node");
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }

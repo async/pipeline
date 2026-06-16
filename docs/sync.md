@@ -31,7 +31,7 @@ writes two files:
 .github/async-pipeline.lock.json       # hash of the trigger/job metadata it was built from
 ```
 
-The workflow checks out, sets up Node, restores the task cache, runs `async-pipeline github check` (so a stale workflow fails its own run), and delegates job selection back to the CLI. Task commands, dependency order, caching, and retries never appear in YAML — they stay in `pipeline.ts`, which means changing a task does not require touching CI.
+The workflow checks out, sets up the pipeline runtime, restores the task cache, runs `async-pipeline github check` (so a stale workflow fails its own run), and delegates job selection back to the CLI. Task commands, dependency order, caching, and retries never appear in YAML — they stay in `pipeline.ts`, which means changing a task does not require touching CI.
 
 What this deliberately does not do:
 
