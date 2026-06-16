@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.4 - 2026-06-16
+
+### Fixes
+
+- Render setup-node/Corepack bootstrapping for generated workflows when the consuming repo pins a pnpm version that does not support `pnpm runtime`, while keeping the pnpm runtime shim for compatible pnpm versions.
+
 ## 0.8.3 - 2026-06-16
 
 ### Fixes

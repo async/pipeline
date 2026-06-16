@@ -7,7 +7,7 @@ import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 6;
+const GENERATOR_VERSION = 7;
 const DEFAULT_NODE_VERSION = "24";
 const PNPM_SETUP_ACTION = "pnpm/setup@f7d0e5f4b1b3089d2799ef9722859e7ba314c4c8 # v1";
 const PNPM_RUNTIME_PNPM_VERSION = "11.1.0";
@@ -251,7 +251,7 @@ function buildRenderModel(
     packageManager: options.packageManager,
     packageManagerVersion: options.packageManagerVersion,
     buildCommand: options.buildCommand,
-    setup: pipeline.sync.github.setup,
+    setup: resolveGitHubSetup(pipeline.sync.github.setup, options.packageManager, options.packageManagerVersion),
     nodeVersion: pipeline.sync.github.nodeVersion ?? DEFAULT_NODE_VERSION,
     taskCache: pipeline.sync.github.cache ?? true,
     dependencyCache: pipeline.sync.github.dependencyCache ?? true,
@@ -678,7 +678,7 @@ function renderDependabotAutoMergeJob(lines: string[], ecosystems: string[]): vo
 }
 
 function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] {
-  const pnpmVersion = model.packageManagerVersion ?? PNPM_RUNTIME_PNPM_VERSION;
+  const pnpmVersion = pnpmRuntimeVersion(model.packageManager, model.packageManagerVersion);
   if (model.setup === "pnpm") {
     return [
       "      - name: Setup pnpm runtime",
@@ -718,6 +718,21 @@ function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] 
     `          corepack prepare pnpm@${pnpmVersion} --activate`,
     ""
   ];
+}
+
+function resolveGitHubSetup(setup: string, packageManager: string, packageManagerVersion: string | undefined): string {
+  if (setup !== "pnpm") return setup;
+  if (pnpmSupportsRuntime(pnpmRuntimeVersion(packageManager, packageManagerVersion))) return "pnpm";
+  return "node";
+}
+
+function pnpmRuntimeVersion(packageManager: string, packageManagerVersion: string | undefined): string {
+  return packageManager === "pnpm" && packageManagerVersion ? packageManagerVersion : PNPM_RUNTIME_PNPM_VERSION;
+}
+
+function pnpmSupportsRuntime(version: string): boolean {
+  const major = /^(\d+)/.exec(version)?.[1];
+  return major !== undefined && Number(major) >= 11;
 }
 
 function renderPagesBuildSteps(lines: string[], pages: GitHubPagesConfig): void {

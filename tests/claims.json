@@ -180,9 +180,10 @@
     {
       "id": "github-actions.pnpm-runtime-setup",
       "source": "docs/github-actions.md",
-      "anchor": "`setup: \"auto\"` resolves to the pnpm runtime shim.",
+      "anchor": "`setup: \"auto\"` resolves to the pnpm runtime shim when the selected pnpm version supports `pnpm runtime`; pinned pnpm versions without that command render the `actions/setup-node` + Corepack bootloader instead.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
+        "renders github workflow with setup-node when the consumer pnpm version does not support runtime",
         "renders github workflow with node setup provider"
       ]
     },
@@ -198,9 +199,10 @@
     {
       "id": "api.github-pnpm-runtime-setup",
       "source": "docs/api.md",
-      "anchor": "`setup: \"auto\"` resolves to the pnpm runtime shim, which installs the Node runtime needed by the current `async-pipeline` CLI; use `setup: \"node\"` to render the older `actions/setup-node` + Corepack bootloader.",
+      "anchor": "`setup: \"auto\"` resolves to the pnpm runtime shim when the selected pnpm version supports `pnpm runtime`; pinned pnpm versions without that command render the `actions/setup-node` + Corepack bootloader instead. Use `setup: \"node\"` to force the setup-node/Corepack bootloader.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
+        "renders github workflow with setup-node when the consumer pnpm version does not support runtime",
         "renders github workflow with node setup provider"
       ]
     },
@@ -773,6 +775,7 @@
       "anchor": "Generated GitHub workflows now default `sync.github.setup: \"auto\"` to the pinned pnpm runtime shim, with `setup: \"node\"` available for the older setup-node/Corepack bootloader.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
+        "renders github workflow with setup-node when the consumer pnpm version does not support runtime",
         "renders github workflow with node setup provider"
       ]
     },

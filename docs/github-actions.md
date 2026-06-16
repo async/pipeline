@@ -48,7 +48,7 @@ sync: {
 }
 ```
 
-`setup: "auto"` resolves to the pnpm runtime shim. Use `setup: "node"` to render the older `actions/setup-node` + Corepack bootloader instead. `cache` controls the task cache. `dependencyCache` controls the bootloader dependency-store cache; set it to `false` when you need a fully cold install.
+`setup: "auto"` resolves to the pnpm runtime shim when the selected pnpm version supports `pnpm runtime`; pinned pnpm versions without that command render the `actions/setup-node` + Corepack bootloader instead. Use `setup: "node"` to force the setup-node/Corepack bootloader. `cache` controls the task cache. `dependencyCache` controls the bootloader dependency-store cache; set it to `false` when you need a fully cold install.
 
 Each generated job also runs `async-pipeline explain --run latest` on failure and uploads `.async/runs` with a pinned `actions/upload-artifact` step. GitHub Actions stays a bootloader for the same task graph; the uploaded evidence is the local run record, graph snapshot, cache receipts, logs, and context packs from the normal runner.
 

@@ -68,7 +68,7 @@ test("renders github workflow triggers and bootloader steps", async () => {
   }
 });
 
-test("renders github workflow with the consumer pnpm packageManager version", async () => {
+test("renders github workflow with setup-node when the consumer pnpm version does not support runtime", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-pnpm-version-"));
   try {
     writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
@@ -85,11 +85,15 @@ test("renders github workflow with the consumer pnpm packageManager version", as
 
     const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
 
-    assert.match(rendered.workflow, /uses: pnpm\/setup@f7d0e5f4b1b3089d2799ef9722859e7ba314c4c8 # v1/);
-    assert.match(rendered.workflow, /version: 10\.20\.0/);
+    assert.doesNotMatch(rendered.workflow, /uses: pnpm\/setup@f7d0e5f4b1b3089d2799ef9722859e7ba314c4c8 # v1/);
+    assert.match(rendered.workflow, /uses: actions\/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6/);
+    assert.match(rendered.workflow, /node-version: 24/);
+    assert.match(rendered.workflow, /corepack prepare pnpm@10\.20\.0 --activate/);
+    assert.doesNotMatch(rendered.workflow, /runtime: node@24/);
     assert.doesNotMatch(rendered.workflow, /version: 11\.1\.0/);
     assert.equal(rendered.lock.packageManager, "pnpm");
     assert.equal(rendered.lock.packageManagerVersion, "10.20.0");
+    assert.equal(rendered.lock.setup, "node");
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
