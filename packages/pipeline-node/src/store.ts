@@ -1,8 +1,8 @@
 import { randomBytes, createHash, type Hash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { copyFile, mkdir, open, readdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, open, readdir, readFile, rename, rm, rmdir, stat, utimes } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative } from "node:path";
-import type { CandidateContext, EnvVarRef, ExecutionRecord, NormalizedPipeline, NormalizedTask, TaskCacheOptions, TaskResult, TaskSourceContext, TaskStep } from "@async/pipeline-core";
+import type { CacheBlob, CachePolicy, CachePruneOptions, CachePruneResult, CacheStoreAdapter, CacheStoreContext, CacheStoreEntry, CandidateContext, EnvVarRef, ExecutionRecord, NormalizedPipeline, NormalizedTask, TaskCacheOptions, TaskResult, TaskSourceContext, TaskStep } from "@async/pipeline-core";
 import { DEFAULT_PIPELINE_CONFIG_FILES, expandInputs } from "@async/pipeline-core";
 import type { ExecutionGraphSnapshot } from "@async/pipeline-core/graph";
 
@@ -41,6 +41,31 @@ export interface CacheOutputFile {
   sha256: string;
 }
 
+export interface CacheStoreAccess {
+  adapter: CacheStoreAdapter;
+  storeName: string;
+  policy: CachePolicy;
+  runId?: string;
+  taskId?: string;
+}
+
+type MemoryCacheBlobEntry = {
+  bytes: Uint8Array;
+  createdAt: string;
+  lastUsedAt: string;
+};
+
+interface CacheOutputArchive {
+  version: 1;
+  generatedAt: string;
+  files: CacheOutputArchiveFile[];
+}
+
+interface CacheOutputArchiveFile {
+  path: string;
+  contentBase64: string;
+}
+
 export async function createStore(root: string): Promise<PipelineStore> {
   const asyncDir = join(root, ".async");
   const runsDir = join(asyncDir, "runs");
@@ -57,11 +82,11 @@ export async function createStore(root: string): Promise<PipelineStore> {
  * the process or machine dies mid-write. rename(2) is atomic within a
  * filesystem, and the fsync keeps a crash from publishing an empty file.
  */
-export async function writeFileAtomic(path: string, data: string): Promise<void> {
+export async function writeFileAtomic(path: string, data: string | Uint8Array): Promise<void> {
   const tempPath = join(dirname(path), `.${randomBytes(6).toString("hex")}.tmp`);
   const handle = await open(tempPath, "w");
   try {
-    await handle.writeFile(data, "utf8");
+    await handle.writeFile(data);
     await handle.sync();
   } catch (error) {
     await handle.close();
@@ -111,16 +136,278 @@ export async function writeAgentTranscript(store: PipelineStore, runId: string, 
 }
 
 export async function readCacheEntry(store: PipelineStore, cacheKey: string): Promise<TaskResult | null> {
+  return readCacheEntryWithStore(store, cacheKey, defaultFileCacheAccess());
+}
+
+export async function readCacheEntryWithStore(store: PipelineStore, cacheKey: string, access: CacheStoreAccess): Promise<TaskResult | null> {
+  const result = await readCacheJson<TaskResult>(store, access, cacheEntryBlobKey(cacheKey, "result.json"));
+  if (!result) return null;
+  await access.adapter.touch?.(cacheEntryBlobKey(cacheKey, "result.json"), cacheStoreContext(store, access)).catch(() => {});
+  return result;
+}
+
+export function createFileCacheStoreAdapter(options: { root?: string } = {}): CacheStoreAdapter {
+  const adapter: CacheStoreAdapter = {
+    name: "file",
+    async get(key, context) {
+      try {
+        return await readFile(fileCachePath(options.root, key, context));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw error;
+      }
+    },
+    async put(key, value, context) {
+      const bytes = await cacheBlobToUint8Array(value);
+      const path = fileCachePath(options.root, key, context);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFileAtomic(path, bytes);
+    },
+    async touch(key, context) {
+      const path = fileCachePath(options.root, key, context);
+      const now = new Date();
+      try {
+        await utimes(path, now, now);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+        throw error;
+      }
+    },
+    async delete(key, context) {
+      const path = fileCachePath(options.root, key, context);
+      await rm(path, { force: true });
+      await pruneEmptyParents(dirname(path), fileCacheRoot(options.root, context));
+    },
+    async *list(prefix, context) {
+      if (prefix && !isSafeRelativePath(prefix)) {
+        throw storeError("ASYNC_PIPELINE_CACHE_UNSAFE_KEY", `Cache key prefix "${prefix}" is not a safe relative path.`);
+      }
+      const root = fileCacheRoot(options.root, context);
+      const normalizedPrefix = prefix ? normalizePath(prefix) : "";
+      for await (const entry of listFileCacheEntries(root, "")) {
+        if (!normalizedPrefix || entry.key.startsWith(normalizedPrefix)) yield entry;
+      }
+    },
+    async prune(pruneOptions, context) {
+      return pruneFileCacheBlobs(options.root, pruneOptions, context);
+    }
+  };
+  return adapter;
+}
+
+export function createMemoryCacheStoreAdapter(): CacheStoreAdapter {
+  const entries = new Map<string, MemoryCacheBlobEntry>();
+  return {
+    name: "memory",
+    async get(key) {
+      const entry = entries.get(key);
+      if (!entry) return null;
+      entry.lastUsedAt = new Date().toISOString();
+      return entry.bytes;
+    },
+    async put(key, value) {
+      const now = new Date().toISOString();
+      entries.set(key, { bytes: await cacheBlobToUint8Array(value), createdAt: now, lastUsedAt: now });
+    },
+    async touch(key) {
+      const entry = entries.get(key);
+      if (entry) entry.lastUsedAt = new Date().toISOString();
+    },
+    async delete(key) {
+      entries.delete(key);
+    },
+    async *list(prefix) {
+      for (const [key, entry] of [...entries.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+        if (!prefix || key.startsWith(prefix)) {
+          yield {
+            key,
+            sizeBytes: entry.bytes.byteLength,
+            createdAt: entry.createdAt,
+            lastUsedAt: entry.lastUsedAt
+          };
+        }
+      }
+    },
+    async prune(options) {
+      return pruneMemoryCacheBlobs(entries, options);
+    }
+  };
+}
+
+function defaultFileCacheAccess(): CacheStoreAccess {
+  return { adapter: createFileCacheStoreAdapter(), storeName: "file", policy: "local" };
+}
+
+function fileCachePath(root: string | undefined, key: string, context: CacheStoreContext): string {
+  if (!isSafeRelativePath(key)) {
+    throw storeError("ASYNC_PIPELINE_CACHE_UNSAFE_KEY", `Cache key path "${key}" is not a safe relative path.`);
+  }
+  return join(fileCacheRoot(root, context), key);
+}
+
+function fileCacheRoot(root: string | undefined, context: CacheStoreContext): string {
+  const cacheRoot = root ?? ".async/cache/tasks";
+  return isAbsolute(cacheRoot) ? cacheRoot : join(context.rootDir, cacheRoot);
+}
+
+async function* listFileCacheEntries(root: string, relativeDir: string): AsyncIterable<CacheStoreEntry> {
+  const dir = relativeDir ? join(root, relativeDir) : root;
+  let entries;
   try {
-    const cacheFile = join(store.cacheDir, cacheKey, "result.json");
-    const result = JSON.parse(await readFile(cacheFile, "utf8")) as TaskResult;
-    // Refresh mtime on hits so age-based `gc` pruning keeps hot entries.
-    const now = new Date();
-    await utimes(cacheFile, now, now).catch(() => {});
-    return result;
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const key = normalizePath(relativeDir ? join(relativeDir, entry.name) : entry.name);
+    if (entry.isDirectory()) {
+      yield* listFileCacheEntries(root, key);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    let fileStat;
+    try {
+      fileStat = await stat(join(root, key));
+    } catch {
+      continue;
+    }
+    yield {
+      key,
+      sizeBytes: fileStat.size,
+      createdAt: fileStat.birthtime.toISOString(),
+      lastUsedAt: fileStat.mtime.toISOString()
+    };
+  }
+}
+
+async function pruneFileCacheBlobs(root: string | undefined, options: CachePruneOptions, context: CacheStoreContext): Promise<CachePruneResult> {
+  const cacheRoot = fileCacheRoot(root, context);
+  const entries: CacheStoreEntry[] = [];
+  const prefix = options.prefix ?? "";
+  if (prefix && !isSafeRelativePath(prefix)) {
+    throw storeError("ASYNC_PIPELINE_CACHE_UNSAFE_KEY", `Cache key prefix "${prefix}" is not a safe relative path.`);
+  }
+  const normalizedPrefix = prefix ? normalizePath(prefix) : "";
+  for await (const entry of listFileCacheEntries(cacheRoot, "")) {
+    if (!normalizedPrefix || entry.key.startsWith(normalizedPrefix)) entries.push(entry);
+  }
+  const removedKeys = selectPrunedCacheBlobKeys(entries, options);
+  let bytesRemoved = 0;
+  for (const key of removedKeys) {
+    const entry = entries.find((candidate) => candidate.key === key);
+    bytesRemoved += entry?.sizeBytes ?? 0;
+    const path = fileCachePath(root, key, context);
+    await rm(path, { force: true });
+    await pruneEmptyParents(dirname(path), cacheRoot);
+  }
+  return { removed: removedKeys.length, bytesRemoved };
+}
+
+function pruneMemoryCacheBlobs(entries: Map<string, MemoryCacheBlobEntry>, options: CachePruneOptions): CachePruneResult {
+  const prefix = options.prefix ?? "";
+  const listed: CacheStoreEntry[] = [...entries.entries()]
+    .filter(([key]) => !prefix || key.startsWith(prefix))
+    .map(([key, entry]) => ({
+      key,
+      sizeBytes: entry.bytes.byteLength,
+      createdAt: entry.createdAt,
+      lastUsedAt: entry.lastUsedAt
+    }));
+  const removedKeys = selectPrunedCacheBlobKeys(listed, options);
+  let bytesRemoved = 0;
+  for (const key of removedKeys) {
+    const entry = entries.get(key);
+    bytesRemoved += entry?.bytes.byteLength ?? 0;
+    entries.delete(key);
+  }
+  return { removed: removedKeys.length, bytesRemoved };
+}
+
+function selectPrunedCacheBlobKeys(entries: CacheStoreEntry[], options: CachePruneOptions): string[] {
+  const removed = new Set<string>();
+  const now = Date.now();
+  if (options.maxAgeMs !== undefined && Number.isFinite(options.maxAgeMs) && options.maxAgeMs >= 0) {
+    const cutoff = now - options.maxAgeMs;
+    for (const entry of entries) {
+      if (cacheEntryLastUsedMs(entry) <= cutoff) removed.add(entry.key);
+    }
+  }
+
+  if (options.maxSizeBytes !== undefined && Number.isFinite(options.maxSizeBytes) && options.maxSizeBytes >= 0) {
+    const retained = entries
+      .filter((entry) => !removed.has(entry.key))
+      .sort((left, right) => cacheEntryLastUsedMs(left) - cacheEntryLastUsedMs(right) || left.key.localeCompare(right.key));
+    let totalBytes = retained.reduce((sum, entry) => sum + (entry.sizeBytes ?? 0), 0);
+    for (const entry of retained) {
+      if (totalBytes <= options.maxSizeBytes) break;
+      removed.add(entry.key);
+      totalBytes -= entry.sizeBytes ?? 0;
+    }
+  }
+
+  return [...removed].sort((left, right) => left.localeCompare(right));
+}
+
+function cacheEntryLastUsedMs(entry: CacheStoreEntry): number {
+  const parsed = entry.lastUsedAt ? Date.parse(entry.lastUsedAt) : NaN;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function pruneEmptyParents(start: string, stopAt: string): Promise<void> {
+  let current = start;
+  while (current !== stopAt) {
+    const relativeToStop = relative(stopAt, current);
+    if (relativeToStop === "" || relativeToStop.startsWith("..") || isAbsolute(relativeToStop)) return;
+    try {
+      await rmdir(current);
+    } catch {
+      return;
+    }
+    current = dirname(current);
+  }
+}
+
+async function cacheBlobToUint8Array(blob: CacheBlob): Promise<Uint8Array> {
+  if (typeof blob === "string") return new TextEncoder().encode(blob);
+  if (blob instanceof Uint8Array) return blob;
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of blob) {
+    chunks.push(chunk);
+  }
+  const size = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const output = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
+}
+
+function cacheStoreContext(store: PipelineStore, access: CacheStoreAccess): CacheStoreContext {
+  return {
+    rootDir: store.root,
+    asyncDir: store.asyncDir,
+    storeName: access.storeName,
+    policy: access.policy,
+    runId: access.runId ?? "manual",
+    taskId: access.taskId ?? "unknown"
+  };
+}
+
+async function readCacheJson<T>(store: PipelineStore, access: CacheStoreAccess, key: string): Promise<T | null> {
+  const blob = await access.adapter.get(key, cacheStoreContext(store, access));
+  if (blob === null) return null;
+  try {
+    return JSON.parse(new TextDecoder().decode(await cacheBlobToUint8Array(blob))) as T;
   } catch {
     return null;
   }
+}
+
+async function writeCacheJson(store: PipelineStore, access: CacheStoreAccess, key: string, value: unknown): Promise<void> {
+  await access.adapter.put(key, `${JSON.stringify(value, null, 2)}\n`, cacheStoreContext(store, access));
 }
 
 export interface RunLock {
@@ -245,13 +532,12 @@ export async function writeCacheEntry(
   store: PipelineStore,
   cacheKey: string,
   result: TaskResult,
-  outputOptions?: { cwd: string; outputs: readonly string[] }
+  outputOptions?: { cwd: string; outputs: readonly string[] },
+  access: CacheStoreAccess = defaultFileCacheAccess()
 ): Promise<CacheOutputManifest | null> {
-  const cacheEntryDir = join(store.cacheDir, cacheKey);
-  await mkdir(cacheEntryDir, { recursive: true });
-  await writeFileAtomic(join(cacheEntryDir, "result.json"), `${JSON.stringify({ ...result, schemaVersion: 1 }, null, 2)}\n`);
+  await writeCacheJson(store, access, cacheEntryBlobKey(cacheKey, "result.json"), { ...result, schemaVersion: 1 });
   if (!outputOptions || outputOptions.outputs.length === 0) return null;
-  return writeCacheOutputs(store, cacheKey, outputOptions.cwd, outputOptions.outputs);
+  return writeCacheOutputs(store, cacheKey, outputOptions.cwd, outputOptions.outputs, access);
 }
 
 export async function computeTaskCacheKey(
@@ -263,20 +549,23 @@ export async function computeTaskCacheKey(
   return (await computeTaskCacheKeyDetailed(pipeline, taskDefinition, cwd, options)).cacheKey;
 }
 
-export async function writeCacheInputManifest(store: PipelineStore, cacheKey: string, manifest: TaskInputManifest): Promise<void> {
-  const cacheEntryDir = join(store.cacheDir, cacheKey);
-  await mkdir(cacheEntryDir, { recursive: true });
-  await writeFileAtomic(join(cacheEntryDir, "inputs.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+export async function writeCacheInputManifest(
+  store: PipelineStore,
+  cacheKey: string,
+  manifest: TaskInputManifest,
+  access: CacheStoreAccess = defaultFileCacheAccess()
+): Promise<void> {
+  await writeCacheJson(store, access, cacheEntryBlobKey(cacheKey, "inputs.json"), manifest);
 }
 
-export async function readCacheInputManifest(store: PipelineStore, cacheKey: string): Promise<TaskInputManifest | null> {
-  try {
-    const parsed = JSON.parse(await readFile(join(store.cacheDir, cacheKey, "inputs.json"), "utf8")) as TaskInputManifest;
-    if (parsed?.schemaVersion !== 1 || typeof parsed.files !== "object" || parsed.files === null) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+export async function readCacheInputManifest(
+  store: PipelineStore,
+  cacheKey: string,
+  access: CacheStoreAccess = defaultFileCacheAccess()
+): Promise<TaskInputManifest | null> {
+  const parsed = await readCacheJson<TaskInputManifest>(store, access, cacheEntryBlobKey(cacheKey, "inputs.json"));
+  if (parsed?.schemaVersion !== 1 || typeof parsed.files !== "object" || parsed.files === null) return null;
+  return parsed;
 }
 
 export interface TaskBaseline {
@@ -384,6 +673,8 @@ export interface TaskCacheReceipt {
   dependencyFingerprints: Record<string, string | null>;
   recordedAt: string;
   cacheKey?: string;
+  store?: string;
+  policy?: CachePolicy;
   graphNodeFingerprint?: string;
   reason?: string;
   restoredOutputs?: boolean;
@@ -550,10 +841,21 @@ export async function resolveOutputFiles(cwd: string, outputs: readonly string[]
   });
 }
 
-export async function restoreCacheOutputs(store: PipelineStore, cacheKey: string, cwd: string, outputs: readonly string[]): Promise<boolean> {
-  const manifest = await readCacheOutputManifest(store, cacheKey);
+export async function restoreCacheOutputs(
+  store: PipelineStore,
+  cacheKey: string,
+  cwd: string,
+  outputs: readonly string[],
+  access: CacheStoreAccess = defaultFileCacheAccess()
+): Promise<boolean> {
+  const manifest = await readCacheOutputManifest(store, cacheKey, access);
   if (!manifest || !sameStringList(manifest.outputs, [...outputs])) return false;
 
+  const restoredFromArchive = await restoreCacheOutputArchive(store, access, cacheKey, cwd, manifest);
+  if (restoredFromArchive !== null) return restoredFromArchive;
+
+  // Backward compatibility for entries written before output blobs existed.
+  if (access.storeName !== "file") return false;
   const outputDir = cacheOutputFilesDir(store, cacheKey);
   for (const file of manifest.files) {
     if (!isSafeRelativePath(file.path)) return false;
@@ -590,25 +892,30 @@ export async function outputFilesExist(cwd: string, files: readonly string[]): P
   return true;
 }
 
-async function writeCacheOutputs(store: PipelineStore, cacheKey: string, cwd: string, outputs: readonly string[]): Promise<CacheOutputManifest> {
-  const outputDir = cacheOutputFilesDir(store, cacheKey);
-  await rm(outputDir, { force: true, recursive: true });
-  await mkdir(outputDir, { recursive: true });
-
+async function writeCacheOutputs(
+  store: PipelineStore,
+  cacheKey: string,
+  cwd: string,
+  outputs: readonly string[],
+  access: CacheStoreAccess
+): Promise<CacheOutputManifest> {
   const outputFiles = await resolveOutputFiles(cwd, outputs);
   const files: CacheOutputFile[] = [];
+  const archiveFiles: CacheOutputArchiveFile[] = [];
   for (const file of outputFiles) {
     if (!isSafeRelativePath(file)) continue;
     const source = join(cwd, file);
-    const destination = join(outputDir, file);
     const fileStat = await stat(source);
     if (!fileStat.isFile()) continue;
-    await mkdir(dirname(destination), { recursive: true });
-    await copyFile(source, destination);
+    const content = await readFile(source);
     files.push({
       path: file,
       size: fileStat.size,
-      sha256: await sha256File(source)
+      sha256: sha256Bytes(content)
+    });
+    archiveFiles.push({
+      path: file,
+      contentBase64: content.toString("base64")
     });
   }
 
@@ -618,31 +925,67 @@ async function writeCacheOutputs(store: PipelineStore, cacheKey: string, cwd: st
     outputs: [...outputs],
     files: files.sort((left, right) => left.path.localeCompare(right.path))
   };
-  // Manifest goes last and atomically: a reader either sees a complete
-  // manifest whose files all exist, or no manifest (treated as a miss).
-  await writeFileAtomic(cacheOutputManifestPath(store, cacheKey), `${JSON.stringify(manifest, null, 2)}\n`);
+  const archive: CacheOutputArchive = {
+    version: 1,
+    generatedAt: manifest.generatedAt,
+    files: archiveFiles.sort((left, right) => left.path.localeCompare(right.path))
+  };
+  // The manifest goes last: a reader either sees a complete archive plus
+  // manifest, or no manifest and treats the entry as a miss.
+  await writeCacheJson(store, access, cacheEntryBlobKey(cacheKey, "outputs.blob"), archive);
+  await writeCacheJson(store, access, cacheEntryBlobKey(cacheKey, "outputs.json"), manifest);
   return manifest;
 }
 
-async function readCacheOutputManifest(store: PipelineStore, cacheKey: string): Promise<CacheOutputManifest | null> {
-  try {
-    const parsed = JSON.parse(await readFile(cacheOutputManifestPath(store, cacheKey), "utf8")) as CacheOutputManifest;
-    if (parsed.version !== 1 || !Array.isArray(parsed.outputs) || !Array.isArray(parsed.files)) return null;
-    for (const file of parsed.files) {
-      if (typeof file.path !== "string" || typeof file.size !== "number" || typeof file.sha256 !== "string") return null;
-    }
-    return parsed;
-  } catch {
-    return null;
+async function readCacheOutputManifest(store: PipelineStore, cacheKey: string, access: CacheStoreAccess): Promise<CacheOutputManifest | null> {
+  const parsed = await readCacheJson<CacheOutputManifest>(store, access, cacheEntryBlobKey(cacheKey, "outputs.json"));
+  if (parsed?.version !== 1 || !Array.isArray(parsed.outputs) || !Array.isArray(parsed.files)) return null;
+  for (const file of parsed.files) {
+    if (typeof file.path !== "string" || typeof file.size !== "number" || typeof file.sha256 !== "string") return null;
   }
+  return parsed;
 }
 
-function cacheOutputManifestPath(store: PipelineStore, cacheKey: string): string {
-  return join(store.cacheDir, cacheKey, "outputs.json");
+async function restoreCacheOutputArchive(
+  store: PipelineStore,
+  access: CacheStoreAccess,
+  cacheKey: string,
+  cwd: string,
+  manifest: CacheOutputManifest
+): Promise<boolean | null> {
+  const archive = await readCacheJson<CacheOutputArchive>(store, access, cacheEntryBlobKey(cacheKey, "outputs.blob"));
+  if (archive === null) return null;
+  if (archive.version !== 1 || !Array.isArray(archive.files)) return false;
+
+  const archiveFiles = new Map<string, Buffer>();
+  for (const file of archive.files) {
+    if (typeof file.path !== "string" || typeof file.contentBase64 !== "string" || !isSafeRelativePath(file.path)) return false;
+    archiveFiles.set(file.path, Buffer.from(file.contentBase64, "base64"));
+  }
+
+  for (const file of manifest.files) {
+    if (!isSafeRelativePath(file.path)) return false;
+    const content = archiveFiles.get(file.path);
+    if (!content || content.byteLength !== file.size || sha256Bytes(content) !== file.sha256) return false;
+  }
+
+  for (const file of manifest.files) {
+    const content = archiveFiles.get(file.path);
+    if (!content) return false;
+    const destination = join(cwd, file.path);
+    await mkdir(dirname(destination), { recursive: true });
+    await writeFileAtomic(destination, content);
+  }
+
+  return true;
 }
 
 function cacheOutputFilesDir(store: PipelineStore, cacheKey: string): string {
   return join(store.cacheDir, cacheKey, "outputs");
+}
+
+function cacheEntryBlobKey(cacheKey: string, name: "result.json" | "inputs.json" | "outputs.json" | "outputs.blob"): string {
+  return `${cacheKey}/${name}`;
 }
 
 async function resolveFiles(cwd: string, inputs: readonly string[], options: ResolvedFileOptions): Promise<string[]> {
@@ -738,6 +1081,10 @@ async function sha256File(path: string): Promise<string> {
     hash.update(chunk as Buffer);
   }
   return hash.digest("hex");
+}
+
+function sha256Bytes(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 function sameStringList(left: readonly string[], right: readonly string[]): boolean {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0 - 2026-06-16
+
+### Features
+
+- Add executable cache store adapters through `customCache({ adapter })`. Adapters require only `get` and `put` for opaque blobs while the runner keeps ownership of cache keys, input manifests, TTL checks, output validation, baselines, and cache receipts.
+- Add optional cache store lifecycle methods: `list`, `delete`, `touch`, and `prune`, with implementations for the built-in file, memory, and Redis stores.
+- Make `redisCache(...)` executable against a user-supplied Redis URL without adding a Redis npm dependency.
+- Store declared task outputs as validated output blobs for cache entries, so file, memory, and custom adapter stores use the same restore path while legacy result-only output entries still downgrade to misses.
+
 ## 0.6.2 - 2026-06-15
 
 ### Features

@@ -256,6 +256,33 @@
           "docsUrl": "https://github.com/async/pipeline/blob/main/docs/api.md#definecache"
         },
         {
+          "id": "runtime.cache.adapter",
+          "title": "Custom cache store adapter execution",
+          "releaseTag": "beta",
+          "stability": "preview",
+          "lifecycle": "active",
+          "group": "cache",
+          "docsUrl": "https://github.com/async/pipeline/blob/main/docs/api.md#definecache"
+        },
+        {
+          "id": "runtime.cache.lifecycle",
+          "title": "Cache store lifecycle hooks",
+          "releaseTag": "beta",
+          "stability": "preview",
+          "lifecycle": "active",
+          "group": "cache",
+          "docsUrl": "https://github.com/async/pipeline/blob/main/docs/api.md#definecache"
+        },
+        {
+          "id": "runtime.cache.redis",
+          "title": "Redis cache execution",
+          "releaseTag": "beta",
+          "stability": "preview",
+          "lifecycle": "active",
+          "group": "cache",
+          "docsUrl": "https://github.com/async/pipeline/blob/main/docs/api.md#definecache"
+        },
+        {
           "id": "runtime.context-packs",
           "title": "Failure context packs",
           "releaseTag": "beta",
@@ -334,7 +361,9 @@
       "format": "api-contract.surface.v1",
       "contractId": "@async/pipeline.runtime",
       "features": [
+        "runtime.cache.adapter",
         "runtime.cache.file",
+        "runtime.cache.redis",
         "runtime.context-packs",
         "runtime.execution-records",
         "runtime.run-lock",

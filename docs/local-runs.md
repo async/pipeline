@@ -165,7 +165,7 @@ Task cache lives under:
 
 Input resolution ignores `.git/`, `.async/`, and `node_modules/` by default. A task's declared `outputs` are also excluded from that task's input files, so `dist/**` or `packages/*/dist/**` cannot make a build dirty after it writes its own artifacts.
 
-For file-cache tasks with declared outputs, cache entries include `result.json`, `outputs.json`, and copied output files. On a hit, outputs are restored before the task returns `cached`. Existing result-only entries for output-producing tasks are treated as misses and repopulated on the next successful run. Memory cache cannot restore files; it only honors output-producing hits while the output files from the previous run still exist.
+For tasks with declared outputs, cache entries include `result.json`, `outputs.json`, and an output blob. On a hit, outputs are validated and restored before the task returns `cached`. Existing result-only entries for output-producing tasks are treated as misses and repopulated on the next successful run. The file store persists blobs under `.async/cache/tasks`; the memory store keeps blobs only for the current process; custom adapters can persist the same opaque blobs elsewhere.
 
 Warm source checkouts live under:
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ASYNC_PIPELINE_DECLARATION, agent, brandDeclaration, buildGraph, cache, command, composePipelines, defineCache, definePipeline, dependsOn, env, execution, fileCache, githubConfigForJob, job, jobs as jobSection, parseTaskRef, readDeclaration, sh, source, task, tasks as taskSection, tasksForJob, trigger, sandbox } from "../packages/pipeline-core/dist/index.js";
+import { ASYNC_PIPELINE_DECLARATION, agent, brandDeclaration, buildGraph, cache, command, composePipelines, customCache, defineCache, definePipeline, dependsOn, env, execution, fileCache, githubConfigForJob, job, jobs as jobSection, parseTaskRef, readDeclaration, sh, source, task, tasks as taskSection, tasksForJob, trigger, sandbox } from "../packages/pipeline-core/dist/index.js";
 
 test("declaration factories expose non-enumerable metadata without changing JSON output", () => {
   const examples = [
@@ -269,6 +269,38 @@ test("normalizes cache refs and custom registries", () => {
   assert.equal(pipeline.tasks.build.cache.ref, "custom:local");
   assert.equal(pipeline.tasks.build.cache.store, "custom");
   assert.equal(pipeline.tasks.build.cache.policy, "local");
+});
+
+test("custom cache stores can carry executable blob adapters", () => {
+  const adapter = {
+    async get() {
+      return null;
+    },
+    async put() {},
+    async touch() {},
+    async delete() {},
+    async *list() {},
+    async prune() {
+      return { removed: 0, bytesRemoved: 0 };
+    }
+  };
+  const registry = defineCache({
+    default: "remote:local",
+    stores: {
+      remote: customCache({ adapter, namespace: "suite" })
+    }
+  });
+
+  assert.equal(registry.stores.remote.adapter, adapter);
+  assert.deepEqual(registry.stores.remote.config, { namespace: "suite" });
+  assert.throws(
+    () => customCache({ adapter: { get() {} } }),
+    (error) => error.code === "ASYNC_PIPELINE_INVALID_CACHE_ADAPTER"
+  );
+  assert.throws(
+    () => customCache({ adapter: { async get() {}, async put() {}, prune: true } }),
+    (error) => error.code === "ASYNC_PIPELINE_INVALID_CACHE_ADAPTER"
+  );
 });
 
 test("agent tasks normalize uncached unless the task explicitly opts in", () => {

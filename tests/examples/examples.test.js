@@ -127,7 +127,7 @@ test("many-repo-impact-run: impact job runs both source repos and matrix plans t
   assertPassed("many-repo-impact-run", ["run-task storefront:test"], single);
 });
 
-test("custom-cache-registry: verify runs, outputs restore from cache, and the remote store fails loudly", () => {
+test("custom-cache-registry: verify runs, outputs restore from cache, and redis requires an instance URL", () => {
   assertJobPasses("custom-cache-registry", "verify");
 
   // The README promises a cache hit restores the declared output without
@@ -141,11 +141,12 @@ test("custom-cache-registry: verify runs, outputs restore from cache, and the re
   assert.equal(existsSync(report), true, "build/report.json was not restored");
   assert.equal(readFileSync(report, "utf8"), before, "report.json was rebuilt instead of restored from cache");
 
-  // The declared-only redis store must fail with its recorded reason on the
-  // terminal, not silently skip caching.
+  // Redis is executable, but the example does not require a local Redis server
+  // for the main smoke path. Without REDIS_URL it fails before task execution
+  // instead of silently skipping remote caching.
   const remote = runCli("custom-cache-registry", ["run", "remote"]);
-  assert.notEqual(remote.status, 0, "run remote should fail: redis is declared metadata only");
-  assert.match(remote.stderr, /Cache store "redis" is registered but this runner cannot execute it/);
+  assert.notEqual(remote.status, 0, "run remote should fail without REDIS_URL");
+  assert.match(remote.stderr, /Redis cache store requires variable "REDIS_URL"/);
 });
 
 test("runtime-middleware-stack: demos and verify job stay honest", () => {

@@ -2,9 +2,28 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { definePipeline, job, sh, task } from "../packages/pipeline-core/dist/index.js";
-import { acquireRunLock, computeTaskCacheKey, createStore, pruneCacheEntries, readCacheEntry, resolveInputFiles, restoreCacheOutputs, writeCacheEntry, writeFileAtomic } from "../packages/pipeline-node/dist/store.js";
+import { acquireRunLock, computeTaskCacheKey, createFileCacheStoreAdapter, createMemoryCacheStoreAdapter, createStore, pruneCacheEntries, readCacheEntry, resolveInputFiles, restoreCacheOutputs, writeCacheEntry, writeFileAtomic } from "../packages/pipeline-node/dist/store.js";
+
+function cacheStoreContext(dir, storeName) {
+  return {
+    rootDir: dir,
+    asyncDir: join(dir, ".async"),
+    storeName,
+    policy: storeName === "memory" ? "session" : "local",
+    runId: "test",
+    taskId: "cache"
+  };
+}
+
+async function listCacheEntries(adapter, prefix, context) {
+  assert.equal(typeof adapter.list, "function");
+  const entries = [];
+  for await (const entry of adapter.list(prefix, context)) entries.push(entry);
+  return entries;
+}
 
 test("writeFileAtomic publishes complete files and leaves no temp files behind", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-atomic-"));
@@ -232,6 +251,66 @@ test("cache hits refresh mtimes and gc prunes cold cache entries", async () => {
     assert.equal(await pruneCacheEntries(dir, 30), 1);
     assert.deepEqual((await readdir(store.cacheDir)).sort(), ["hot"]);
     assert.equal(await pruneCacheEntries(dir, 0), 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("file cache store adapter lists deletes touches and prunes blob keys", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-file-cache-lifecycle-"));
+  try {
+    const adapter = createFileCacheStoreAdapter();
+    const context = cacheStoreContext(dir, "file");
+
+    await adapter.put("entry/result.json", "one", context);
+    await adapter.put("entry/outputs.blob", "two", context);
+    await adapter.put("other/result.json", "three", context);
+    const old = new Date(Date.now() - 60_000);
+    await utimes(join(dir, ".async", "cache", "tasks", "entry", "result.json"), old, old);
+
+    assert.deepEqual((await listCacheEntries(adapter, "entry/", context)).map((entry) => entry.key), [
+      "entry/outputs.blob",
+      "entry/result.json"
+    ]);
+
+    await delay(5);
+    await adapter.touch?.("entry/result.json", context);
+    const touched = (await listCacheEntries(adapter, "entry/result.json", context))[0];
+    assert.ok(Date.parse(touched.lastUsedAt) > old.getTime());
+
+    await adapter.delete?.("entry/outputs.blob", context);
+    assert.deepEqual((await listCacheEntries(adapter, "entry/", context)).map((entry) => entry.key), ["entry/result.json"]);
+
+    const pruned = await adapter.prune?.({ prefix: "other/", maxSizeBytes: 0 }, context);
+    assert.deepEqual(pruned, { removed: 1, bytesRemoved: 5 });
+    assert.deepEqual((await listCacheEntries(adapter, "", context)).map((entry) => entry.key), ["entry/result.json"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("memory cache store adapter lists deletes touches and prunes blob keys", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-memory-cache-lifecycle-"));
+  try {
+    const adapter = createMemoryCacheStoreAdapter();
+    const context = cacheStoreContext(dir, "memory");
+
+    await adapter.put("entry/result.json", "one", context);
+    await adapter.put("entry/outputs.blob", "two", context);
+    await adapter.put("other/result.json", "three", context);
+    const before = (await listCacheEntries(adapter, "entry/result.json", context))[0];
+
+    await delay(5);
+    await adapter.touch?.("entry/result.json", context);
+    const after = (await listCacheEntries(adapter, "entry/result.json", context))[0];
+    assert.ok(Date.parse(after.lastUsedAt) > Date.parse(before.lastUsedAt));
+
+    await adapter.delete?.("entry/outputs.blob", context);
+    assert.deepEqual((await listCacheEntries(adapter, "entry/", context)).map((entry) => entry.key), ["entry/result.json"]);
+
+    const pruned = await adapter.prune?.({ prefix: "other/", maxSizeBytes: 0 }, context);
+    assert.deepEqual(pruned, { removed: 1, bytesRemoved: 5 });
+    assert.deepEqual((await listCacheEntries(adapter, "", context)).map((entry) => entry.key), ["entry/result.json"]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
