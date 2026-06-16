@@ -7,7 +7,7 @@ import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 5;
+const GENERATOR_VERSION = 6;
 const DEFAULT_NODE_VERSION = "24";
 const PNPM_SETUP_ACTION = "pnpm/setup@f7d0e5f4b1b3089d2799ef9722859e7ba314c4c8 # v1";
 const PNPM_RUNTIME_PNPM_VERSION = "11.1.0";
@@ -29,6 +29,7 @@ export interface GitHubLock {
   triggers: Record<string, unknown>;
   jobs: Array<{ id: string; target: string[]; trigger: string[]; env: Record<string, EnvValue>; environment?: JobEnvironment; requires?: JobRequirements; execution?: ExecutionProfileId; github?: GitHubJobConfig; if?: string }>;
   packageManager: string;
+  packageManagerVersion?: string;
   buildCommand?: string;
   setup: string;
   nodeVersion: string;
@@ -53,6 +54,7 @@ export interface GitHubLock {
 
 interface PackageInfo {
   packageManager: string;
+  packageManagerVersion?: string;
   buildCommand?: string;
   dependencyCachePath?: string;
   publicPackagePaths: string[];
@@ -93,6 +95,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     triggers: renderModel.triggers,
     jobs: renderModel.jobs,
     packageManager: renderModel.packageManager,
+    packageManagerVersion: renderModel.packageManagerVersion,
     buildCommand: renderModel.buildCommand,
     setup: renderModel.setup,
     nodeVersion: renderModel.nodeVersion,
@@ -113,6 +116,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     triggers: renderModel.triggers,
     jobs: renderModel.jobs,
     packageManager: renderModel.packageManager,
+    packageManagerVersion: renderModel.packageManagerVersion,
     buildCommand: renderModel.buildCommand,
     setup: renderModel.setup,
     nodeVersion: renderModel.nodeVersion,
@@ -245,6 +249,7 @@ function buildRenderModel(
       }))
       .sort((left, right) => left.id.localeCompare(right.id)),
     packageManager: options.packageManager,
+    packageManagerVersion: options.packageManagerVersion,
     buildCommand: options.buildCommand,
     setup: pipeline.sync.github.setup,
     nodeVersion: pipeline.sync.github.nodeVersion ?? DEFAULT_NODE_VERSION,
@@ -673,12 +678,13 @@ function renderDependabotAutoMergeJob(lines: string[], ecosystems: string[]): vo
 }
 
 function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] {
+  const pnpmVersion = model.packageManagerVersion ?? PNPM_RUNTIME_PNPM_VERSION;
   if (model.setup === "pnpm") {
     return [
       "      - name: Setup pnpm runtime",
       `        uses: ${PNPM_SETUP_ACTION}`,
       "        with:",
-      `          version: ${PNPM_RUNTIME_PNPM_VERSION}`,
+      `          version: ${pnpmVersion}`,
       `          runtime: node@${model.nodeVersion}`,
       "          install: false",
       `          cache: ${model.dependencyCache && model.dependencyCachePath ? "true" : "false"}`,
@@ -709,7 +715,7 @@ function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] 
     "      - name: Enable pnpm",
     "        run: |",
     "          corepack enable",
-    "          corepack prepare pnpm@11.1.0 --activate",
+    `          corepack prepare pnpm@${pnpmVersion} --activate`,
     ""
   ];
 }
@@ -942,15 +948,26 @@ async function readPackageInfo(cwd: string): Promise<PackageInfo> {
     packageManager?: string;
     scripts?: Record<string, string>;
   };
-  const packageManager = packageJson.packageManager?.startsWith("npm@") ? "npm" : packageJson.packageManager?.startsWith("yarn@") ? "yarn" : "pnpm";
+  const parsedPackageManager = parsePackageManager(packageJson.packageManager);
+  const packageManager = parsedPackageManager.name;
   const asyncPipelineScript = packageJson.scripts?.["async-pipeline"] ?? "";
   const buildCommand = asyncPipelineScript.includes("dist/cli.js") && packageJson.scripts?.build ? `${packageManager} build` : undefined;
   return {
     packageManager,
+    packageManagerVersion: parsedPackageManager.version,
     buildCommand,
     dependencyCachePath: dependencyLockfilePath(cwd, packageManager),
     publicPackagePaths: await findPublicPackagePaths(cwd, packageJson)
   };
+}
+
+function parsePackageManager(packageManager: string | undefined): { name: string; version?: string } {
+  if (typeof packageManager !== "string") return { name: "pnpm" };
+  const match = /^(npm|pnpm|yarn)@(.+)$/.exec(packageManager);
+  const name = match?.[1];
+  const version = match?.[2];
+  if (!name || !version) return { name: "pnpm" };
+  return { name, version };
 }
 
 async function findPublicPackagePaths(cwd: string, rootPackageJson: { name?: string; private?: boolean }): Promise<string[]> {

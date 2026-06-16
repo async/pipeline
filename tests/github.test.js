@@ -59,9 +59,37 @@ test("renders github workflow triggers and bootloader steps", async () => {
     assert.match(rendered.workflow, /path: \.async\/runs/);
     assert.equal(rendered.lock.workflow, ".github/workflows/async-pipeline.yml");
     assert.equal(rendered.lock.setup, "pnpm");
+    assert.equal(rendered.lock.packageManagerVersion, "11.1.0");
     assert.equal(rendered.lock.dependencyCache, true);
     assert.equal(rendered.lock.dependencyCachePath, "pnpm-lock.yaml");
     assert.equal(rendered.lock.jobs[0].id, "verify");
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("renders github workflow with the consumer pnpm packageManager version", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-pnpm-version-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      tasks: {
+        verify: task({ run: sh`echo verify` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, /uses: pnpm\/setup@f7d0e5f4b1b3089d2799ef9722859e7ba314c4c8 # v1/);
+    assert.match(rendered.workflow, /version: 10\.20\.0/);
+    assert.doesNotMatch(rendered.workflow, /version: 11\.1\.0/);
+    assert.equal(rendered.lock.packageManager, "pnpm");
+    assert.equal(rendered.lock.packageManagerVersion, "10.20.0");
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
@@ -130,6 +158,36 @@ test("renders github workflow with node setup provider", async () => {
     assert.match(rendered.workflow, /corepack prepare pnpm@11\.1\.0 --activate/);
     assert.doesNotMatch(rendered.workflow, /pnpm\/setup@/);
     assert.equal(rendered.lock.setup, "node");
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("renders node setup provider with the consumer pnpm packageManager version", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-node-setup-pnpm-version-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          setup: "node"
+        }
+      },
+      tasks: {
+        verify: task({ run: sh`echo verify` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, /corepack prepare pnpm@10\.20\.0 --activate/);
+    assert.doesNotMatch(rendered.workflow, /corepack prepare pnpm@11\.1\.0 --activate/);
+    assert.equal(rendered.lock.packageManagerVersion, "10.20.0");
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }

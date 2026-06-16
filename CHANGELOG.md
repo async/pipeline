@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.3 - 2026-06-16
+
+### Fixes
+
+- Render generated GitHub workflows with the consuming repo's declared pnpm version so `pnpm/setup` does not fail when `packageManager` differs from the pipeline repo's pnpm version.
+
 ## 0.8.2 - 2026-06-16
 
 ### Fixes
