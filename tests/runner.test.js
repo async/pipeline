@@ -1,11 +1,171 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
-import { command, definePipeline, env, execution, job, sandbox, sh, task } from "../packages/pipeline-core/dist/index.js";
+import { command, customCache, defineCache, definePipeline, env, execution, job, redisCache, sandbox, sh, task } from "../packages/pipeline-core/dist/index.js";
+import { createRedisCacheStoreAdapter } from "../packages/pipeline-node/dist/redis-cache.js";
 import { commandProxy, planJob, runJob, runSingleTask } from "../packages/pipeline-node/dist/runner.js";
+
+async function cacheBlobBytes(blob) {
+  if (typeof blob === "string") return new TextEncoder().encode(blob);
+  if (blob instanceof Uint8Array) return blob;
+  const chunks = [];
+  for await (const chunk of blob) chunks.push(chunk);
+  const bytes = new Uint8Array(chunks.reduce((size, chunk) => size + chunk.byteLength, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+async function startFakeRedis() {
+  const blobs = new Map();
+  const commands = [];
+  const server = createServer((socket) => {
+    let buffer = Buffer.alloc(0);
+    socket.on("data", (chunk) => {
+      buffer = Buffer.concat([buffer, chunk]);
+      while (true) {
+        const parsed = readFakeRedisCommand(buffer);
+        if (!parsed) break;
+        buffer = parsed.rest;
+        const [commandPart, ...args] = parsed.parts;
+        const command = commandPart?.toString("utf8").toUpperCase();
+        commands.push({ command, args });
+        if (command === "GET") {
+          const key = args[0]?.toString("utf8");
+          const value = key ? blobs.get(key) : undefined;
+          socket.write(value ? fakeRedisBulk(value) : "$-1\r\n");
+        } else if (command === "SET") {
+          const key = args[0]?.toString("utf8");
+          const value = args[1];
+          if (key && value) blobs.set(key, Buffer.from(value));
+          socket.write("+OK\r\n");
+        } else if (command === "DEL") {
+          let removed = 0;
+          for (const arg of args) {
+            if (blobs.delete(arg.toString("utf8"))) removed += 1;
+          }
+          socket.write(fakeRedisInteger(removed));
+        } else if (command === "STRLEN") {
+          const key = args[0]?.toString("utf8");
+          socket.write(fakeRedisInteger(key ? (blobs.get(key)?.byteLength ?? 0) : 0));
+        } else if (command === "SCAN") {
+          let match = "*";
+          for (let index = 1; index < args.length - 1; index += 2) {
+            if (args[index]?.toString("utf8").toUpperCase() === "MATCH") {
+              match = args[index + 1]?.toString("utf8") ?? "*";
+            }
+          }
+          const matcher = fakeRedisGlobToRegExp(match);
+          socket.write(fakeRedisArray([
+            "0",
+            [...blobs.keys()].filter((key) => matcher.test(key)).sort()
+          ]));
+        } else if (command === "AUTH" || command === "SELECT") {
+          socket.write("+OK\r\n");
+        } else {
+          socket.write(`-ERR unsupported command ${command ?? "unknown"}\r\n`);
+        }
+      }
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  return {
+    url: `redis://127.0.0.1:${address.port}/0`,
+    commands,
+    keys() {
+      return [...blobs.keys()];
+    },
+    async close() {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  };
+}
+
+function readFakeRedisCommand(buffer) {
+  if (buffer.length === 0) return null;
+  if (buffer[0] !== 42) throw new Error("expected RESP array command");
+  const countLine = readFakeRedisLine(buffer, 1);
+  if (!countLine) return null;
+  const count = Number(countLine.text);
+  let offset = countLine.next;
+  const parts = [];
+  for (let index = 0; index < count; index += 1) {
+    if (buffer.length <= offset) return null;
+    if (buffer[offset] !== 36) throw new Error("expected RESP bulk command part");
+    const lengthLine = readFakeRedisLine(buffer, offset + 1);
+    if (!lengthLine) return null;
+    const length = Number(lengthLine.text);
+    const start = lengthLine.next;
+    const end = start + length;
+    if (buffer.length < end + 2) return null;
+    parts.push(Buffer.from(buffer.subarray(start, end)));
+    offset = end + 2;
+  }
+  return { parts, rest: buffer.subarray(offset) };
+}
+
+function readFakeRedisLine(buffer, offset) {
+  const end = buffer.indexOf("\r\n", offset);
+  if (end === -1) return null;
+  return { text: buffer.toString("utf8", offset, end), next: end + 2 };
+}
+
+function fakeRedisBulk(value) {
+  return Buffer.concat([Buffer.from(`$${value.byteLength}\r\n`, "utf8"), value, Buffer.from("\r\n", "utf8")]);
+}
+
+function fakeRedisInteger(value) {
+  return Buffer.from(`:${value}\r\n`, "utf8");
+}
+
+function fakeRedisArray(values) {
+  const chunks = [Buffer.from(`*${values.length}\r\n`, "utf8")];
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      chunks.push(fakeRedisArray(value));
+    } else {
+      chunks.push(fakeRedisBulk(Buffer.from(String(value), "utf8")));
+    }
+  }
+  return Buffer.concat(chunks);
+}
+
+function fakeRedisGlobToRegExp(pattern) {
+  let source = "";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+    if (char === "\\") {
+      index += 1;
+      source += escapeRegExp(pattern[index] ?? "");
+    } else if (char === "*") {
+      source += ".*";
+    } else if (char === "?") {
+      source += ".";
+    } else {
+      source += escapeRegExp(char ?? "");
+    }
+  }
+  return new RegExp(`^${source}$`);
+}
+
+function escapeRegExp(value) {
+  return value.replaceAll(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+}
 
 test("commandProxy mocks matching commands and records bounded redacted output", async () => {
   const commands = commandProxy(command.policy({
@@ -572,6 +732,288 @@ test("result-only file cache entries for output tasks rerun and repopulate outpu
   }
 });
 
+test("custom cache adapters store opaque blobs and restore declared outputs", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-custom-cache-"));
+  const blobs = new Map();
+  const putKeys = [];
+  let runs = 0;
+  try {
+    const adapter = {
+      async get(key) {
+        return blobs.get(key) ?? null;
+      },
+      async put(key, value) {
+        putKeys.push(key);
+        blobs.set(key, await cacheBlobBytes(value));
+      }
+    };
+    const pipeline = definePipeline({
+      name: "custom-cache-test",
+      cache: defineCache({
+        default: "remote:local",
+        stores: {
+          remote: customCache({ adapter })
+        }
+      }),
+      tasks: {
+        build: task({
+          cache: "remote:local",
+          outputs: ["dist/**"],
+          async run() {
+            runs += 1;
+            await mkdir(join(dir, "dist"), { recursive: true });
+            await writeFile(join(dir, "dist", "artifact.txt"), `run ${runs}\n`, "utf8");
+          }
+        })
+      },
+      jobs: {
+        verify: job({ target: "build" })
+      }
+    });
+
+    const first = await runJob(pipeline, {
+      id: "verify",
+      ...({ cwd: dir })
+    });
+    const cacheKey = first.tasks[0]?.cacheKey;
+    assert.equal(first.tasks[0]?.status, "passed");
+    assert.ok(cacheKey);
+    assert.ok(putKeys.includes(`${cacheKey}/result.json`));
+    assert.ok(putKeys.includes(`${cacheKey}/inputs.json`));
+    assert.ok(putKeys.includes(`${cacheKey}/outputs.json`));
+    assert.ok(putKeys.includes(`${cacheKey}/outputs.blob`));
+    assert.equal(putKeys.some((key) => key.includes(dir)), false, "adapter keys must not contain absolute working paths");
+
+    await rm(join(dir, "dist"), { force: true, recursive: true });
+    const second = await runJob(pipeline, {
+      id: "verify",
+      ...({ cwd: dir })
+    });
+    assert.equal(second.tasks[0]?.status, "cached");
+    assert.equal(runs, 1);
+    assert.equal(await readFile(join(dir, "dist", "artifact.txt"), "utf8"), "run 1\n");
+
+    const receipt = JSON.parse(await readFile(join(dir, ".async", "runs", second.id, "cache", "build.json"), "utf8"));
+    assert.equal(receipt.store, "remote");
+    assert.equal(receipt.policy, "local");
+    assert.equal(receipt.decision, "hit");
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("custom cache adapters downgrade hits to misses when output blobs are missing", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-custom-cache-missing-output-"));
+  const blobs = new Map();
+  let runs = 0;
+  try {
+    const adapter = {
+      async get(key) {
+        return blobs.get(key) ?? null;
+      },
+      async put(key, value) {
+        blobs.set(key, await cacheBlobBytes(value));
+      }
+    };
+    const pipeline = definePipeline({
+      name: "custom-cache-missing-output-test",
+      cache: defineCache({
+        default: "remote:local",
+        stores: {
+          remote: customCache({ adapter })
+        }
+      }),
+      tasks: {
+        build: task({
+          cache: "remote:local",
+          outputs: ["dist/**"],
+          async run() {
+            runs += 1;
+            await mkdir(join(dir, "dist"), { recursive: true });
+            await writeFile(join(dir, "dist", "artifact.txt"), `run ${runs}\n`, "utf8");
+          }
+        })
+      },
+      jobs: {
+        verify: job({ target: "build" })
+      }
+    });
+
+    const first = await runJob(pipeline, {
+      id: "verify",
+      ...({ cwd: dir })
+    });
+    const cacheKey = first.tasks[0]?.cacheKey;
+    assert.equal(first.tasks[0]?.status, "passed");
+    assert.ok(cacheKey);
+
+    blobs.delete(`${cacheKey}/outputs.blob`);
+    await rm(join(dir, "dist"), { force: true, recursive: true });
+    const second = await runJob(pipeline, {
+      id: "verify",
+      ...({ cwd: dir })
+    });
+
+    assert.equal(second.tasks[0]?.status, "passed");
+    assert.equal(runs, 2);
+    assert.equal(await readFile(join(dir, "dist", "artifact.txt"), "utf8"), "run 2\n");
+    const receipt = JSON.parse(await readFile(join(dir, ".async", "runs", second.id, "cache", "build.json"), "utf8"));
+    assert.equal(receipt.decision, "miss");
+    assert.match(receipt.reason, /declared outputs were not available in the remote cache/);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("custom cache adapter read failures fail loudly instead of becoming misses", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-custom-cache-failure-"));
+  let runs = 0;
+  try {
+    const adapter = {
+      async get() {
+        throw new Error("remote cache unavailable");
+      },
+      async put() {}
+    };
+    const pipeline = definePipeline({
+      name: "custom-cache-failure-test",
+      cache: defineCache({
+        default: "remote:local",
+        stores: {
+          remote: customCache({ adapter })
+        }
+      }),
+      tasks: {
+        build: task({
+          cache: "remote:local",
+          run() {
+            runs += 1;
+          }
+        })
+      },
+      jobs: {
+        verify: job({ target: "build" })
+      }
+    });
+
+    const record = await runJob(pipeline, {
+      id: "verify",
+      ...({ cwd: dir })
+    });
+
+    assert.equal(record.status, "failed");
+    assert.equal(record.tasks[0]?.status, "failed");
+    assert.match(record.tasks[0]?.error ?? "", /remote cache unavailable/);
+    assert.equal(runs, 0);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("redisCache executes through a supplied Redis URL without a client dependency", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-redis-cache-"));
+  const redis = await startFakeRedis();
+  let runs = 0;
+  try {
+    const pipeline = definePipeline({
+      name: "redis-cache-test",
+      cache: defineCache({
+        default: "redis:session",
+        stores: {
+          redis: redisCache({
+            url: { env: "ASYNC_PIPELINE_TEST_REDIS_URL" },
+            keyPrefix: "test:pipeline:"
+          })
+        }
+      }),
+      tasks: {
+        build: task({
+          cache: "redis:session",
+          outputs: ["dist/**"],
+          async run() {
+            runs += 1;
+            await mkdir(join(dir, "dist"), { recursive: true });
+            await writeFile(join(dir, "dist", "artifact.txt"), `redis run ${runs}\n`, "utf8");
+          }
+        })
+      },
+      jobs: {
+        verify: job({ target: "build" })
+      }
+    });
+
+    const envWithRedis = { ...process.env, ASYNC_PIPELINE_TEST_REDIS_URL: redis.url };
+    const first = await runJob(pipeline, {
+      id: "verify",
+      env: envWithRedis,
+      ...({ cwd: dir })
+    });
+    const cacheKey = first.tasks[0]?.cacheKey;
+    assert.equal(first.tasks[0]?.status, "passed");
+    assert.ok(cacheKey);
+    assert.equal(redis.keys().some((key) => key.includes(dir)), false, "redis keys must not contain absolute working paths");
+
+    await rm(join(dir, "dist"), { force: true, recursive: true });
+    const second = await runJob(pipeline, {
+      id: "verify",
+      env: envWithRedis,
+      ...({ cwd: dir })
+    });
+    assert.equal(second.tasks[0]?.status, "cached");
+    assert.equal(runs, 1);
+    assert.equal(await readFile(join(dir, "dist", "artifact.txt"), "utf8"), "redis run 1\n");
+    assert.ok(redis.commands.some((entry) => entry.command === "GET"));
+    assert.ok(redis.commands.some((entry) => entry.command === "SET"));
+  } finally {
+    await redis.close();
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("redis cache store adapter lists deletes touches and prunes blob keys", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-redis-cache-lifecycle-"));
+  const redis = await startFakeRedis();
+  try {
+    const adapter = createRedisCacheStoreAdapter({ url: redis.url, keyPrefix: "life:pipeline:" });
+    const context = {
+      rootDir: dir,
+      asyncDir: join(dir, ".async"),
+      storeName: "redis",
+      policy: "session",
+      runId: "test",
+      taskId: "cache"
+    };
+
+    await adapter.put("entry/result.json", "one", context);
+    await adapter.put("entry/outputs.blob", "two", context);
+    await adapter.put("other/result.json", "three", context);
+    const before = [];
+    for await (const entry of adapter.list("entry/result.json", context)) before.push(entry);
+
+    await delay(5);
+    await adapter.touch("entry/result.json", context);
+    const after = [];
+    for await (const entry of adapter.list("entry/result.json", context)) after.push(entry);
+    assert.ok(Date.parse(after[0].lastUsedAt) > Date.parse(before[0].lastUsedAt));
+
+    await adapter.delete("entry/outputs.blob", context);
+    const entryKeys = [];
+    for await (const entry of adapter.list("entry/", context)) entryKeys.push(entry.key);
+    assert.deepEqual(entryKeys, ["entry/result.json"]);
+
+    const pruned = await adapter.prune({ prefix: "other/", maxSizeBytes: 0 }, context);
+    assert.deepEqual(pruned, { removed: 1, bytesRemoved: 5 });
+    const remaining = [];
+    for await (const entry of adapter.list("", context)) remaining.push(entry.key);
+    assert.deepEqual(remaining, ["entry/result.json"]);
+    assert.ok(redis.commands.some((entry) => entry.command === "SCAN"));
+    assert.ok(redis.commands.some((entry) => entry.command === "DEL"));
+  } finally {
+    await redis.close();
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test("ttlMs expires otherwise valid cache entries", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-cache-ttl-"));
   let runs = 0;
@@ -667,7 +1109,7 @@ test("dependency cache keys invalidate direct dependents", async () => {
   }
 });
 
-test("memory cache only honors output task hits while outputs still exist", async () => {
+test("memory cache restores declared outputs within the same process", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-memory-output-cache-"));
   let runs = 0;
   try {
@@ -705,9 +1147,9 @@ test("memory cache only honors output task hits while outputs still exist", asyn
 
     assert.equal(first.tasks[0]?.status, "passed");
     assert.equal(second.tasks[0]?.status, "cached");
-    assert.equal(third.tasks[0]?.status, "passed");
-    assert.equal(runs, 2);
-    assert.equal(await readFile(join(dir, "dist", "artifact.txt"), "utf8"), "run 2\n");
+    assert.equal(third.tasks[0]?.status, "cached");
+    assert.equal(runs, 1);
+    assert.equal(await readFile(join(dir, "dist", "artifact.txt"), "utf8"), "run 1\n");
   } finally {
     await rm(dir, { force: true, recursive: true });
   }
@@ -822,6 +1264,8 @@ test("PROMISE: cache receipts record cache decisions without file contents", asy
     const warmBuild = await readReceipt(warm.id, "build");
     const forcedBuild = await readReceipt(forced.id, "build");
     assert.equal(coldBuild.decision, "miss");
+    assert.equal(coldBuild.store, "file");
+    assert.equal(coldBuild.policy, "local");
     assert.equal(coldBuild.inputManifestRecorded, true);
     assert.equal(coldBuild.graphNodeFingerprint.length, 64);
     assert.deepEqual(coldBuild.dependencyFingerprints, {});

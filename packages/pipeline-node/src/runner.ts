@@ -4,11 +4,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { dirname, join, posix, relative } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import type { AgentStep, CandidateContext, CommandAction, CommandOutputPolicy, CommandPolicy, ContainerProvider, EnvValue, EnvVarRef, ExecutionProfileId, ExecutionRecord, NormalizedPipeline, NormalizedTask, ResolvedAgentStep, SandboxDefinition, SandboxId, ShellCommand, TaskContext, TaskResult, TaskRunFunction, TaskSourceContext, TaskStep } from "@async/pipeline-core";
+import type { AgentStep, CacheStoreAdapter, CacheStoreDefinition, CandidateContext, CommandAction, CommandOutputPolicy, CommandPolicy, ContainerProvider, EnvValue, EnvVarRef, ExecutionProfileId, ExecutionRecord, NormalizedPipeline, NormalizedTask, ResolvedAgentStep, SandboxDefinition, SandboxId, ShellCommand, TaskContext, TaskResult, TaskRunFunction, TaskSourceContext, TaskStep } from "@async/pipeline-core";
 import { isAgentStep, isResolvedAgentStep, pipelineError, sh } from "@async/pipeline-core";
 import type { DefinitionGraphNode, ExecutionGraph } from "@async/pipeline-core/graph";
 import { selectJobExecutionGraph, snapshotExecutionGraph } from "@async/pipeline-core/graph";
-import { acquireRunLock, computeTaskCacheKey, computeTaskCacheKeyDetailed, createStore, diffInputManifests, outputFilesExist, readCacheEntry, readCacheInputManifest, readTaskBaseline, resolveOutputFiles, restoreCacheOutputs, writeAgentPrompt, writeAgentTranscript, writeCacheEntry, writeCacheInputManifest, writeContextPack, writeExecution, writeGraphSnapshot, writeTaskBaseline, writeTaskCacheReceipt, writeTaskLog, type PipelineStore, type TaskCacheReceipt, type TaskContextPack, type TaskInputManifest } from "./store.js";
+import { createRedisCacheStoreAdapter } from "./redis-cache.js";
+import { acquireRunLock, computeTaskCacheKey, computeTaskCacheKeyDetailed, createFileCacheStoreAdapter, createMemoryCacheStoreAdapter, createStore, diffInputManifests, readCacheEntryWithStore, readCacheInputManifest, readTaskBaseline, restoreCacheOutputs, writeAgentPrompt, writeAgentTranscript, writeCacheEntry, writeCacheInputManifest, writeContextPack, writeExecution, writeGraphSnapshot, writeTaskBaseline, writeTaskCacheReceipt, writeTaskLog, type CacheStoreAccess, type PipelineStore, type TaskCacheReceipt, type TaskContextPack, type TaskInputManifest } from "./store.js";
 import { createRunPlan, sourceContext, type ResolvedSource } from "./sources.js";
 
 export interface CommandResult {
@@ -323,12 +324,7 @@ export function commandProxy(policy: CommandPolicy = { rules: [] }): PipelineCom
   };
 }
 
-interface MemoryTaskCacheEntry {
-  result: TaskResult;
-  outputFiles: string[];
-}
-
-const memoryCacheEntries = new Map<string, MemoryTaskCacheEntry>();
+const memoryCacheAdapters = new Map<string, CacheStoreAdapter>();
 
 const DEFAULT_MAX_CONCURRENCY = 4;
 
@@ -663,7 +659,7 @@ export async function planJob(pipeline: NormalizedPipeline, options: { id: strin
         entries.push({ id: taskId, cacheEnabled: false, predicted: "run", cacheKey });
         continue;
       }
-      const cached = await readTaskCacheEntry(taskDefinition, store, cacheKey);
+      const cached = await readTaskCacheEntry(plan.pipeline, taskDefinition, store, "dry-run", cacheKey, resolvedEnv.env);
       const fresh = cached?.status === "passed" && isCacheEntryFresh(cached, taskDefinition.cache.ttlMs);
       entries.push({
         id: taskId,
@@ -757,6 +753,8 @@ async function runTask(
       decision: receipt.decision,
       dependencyFingerprints: options.dependencyFingerprints ?? {},
       recordedAt: new Date().toISOString(),
+      ...(taskDefinition.cache.store === undefined ? {} : { store: taskDefinition.cache.store }),
+      ...(taskDefinition.cache.policy === undefined ? {} : { policy: taskDefinition.cache.policy }),
       ...(options.graphNodeFingerprint === undefined ? {} : { graphNodeFingerprint: options.graphNodeFingerprint }),
       ...(receipt.cacheKey === undefined ? {} : { cacheKey: receipt.cacheKey }),
       ...(receipt.reason === undefined ? {} : { reason: receipt.reason }),
@@ -815,6 +813,7 @@ async function runTask(
   let resolvedSteps: TaskStep[];
   let cacheKey: string;
   let inputManifest: TaskInputManifest;
+  let cacheAccess: CacheStoreAccess;
   try {
     resolvedSteps = await resolveTaskSteps(pipeline.agents, taskDefinition.steps, context);
     const detailedCacheKey = await computeTaskCacheKeyDetailed(pipeline, taskDefinition, options.cwd, {
@@ -826,6 +825,9 @@ async function runTask(
     });
     cacheKey = detailedCacheKey.cacheKey;
     inputManifest = detailedCacheKey.inputs;
+    cacheAccess = taskDefinition.cache.enabled
+      ? cacheAccessForTask(pipeline, taskDefinition, options.runId, taskEnv)
+      : { adapter: createFileCacheStoreAdapter(), storeName: "file", policy: "local", runId: options.runId, taskId: taskDefinition.id };
   } catch (error) {
     const lastError = redactLog(error instanceof Error ? error.message : String(error));
     await writeTaskLog(options.store, options.runId, taskDefinition.id, `[cache] ${lastError}\n`);
@@ -845,9 +847,9 @@ async function runTask(
 
   let cacheReceipt: (Pick<TaskCacheReceipt, "decision" | "cacheKey"> & Partial<Pick<TaskCacheReceipt, "reason" | "restoredOutputs" | "inputManifestRecorded">>) | null = null;
   if (taskDefinition.cache.enabled && !options.force) {
-    const cached = await readTaskCacheEntry(taskDefinition, options.store, cacheKey);
+    const cached = await readTaskCacheEntry(pipeline, taskDefinition, options.store, options.runId, cacheKey, taskEnv);
     if (cached?.status === "passed") {
-      const cacheHit = await validateTaskCacheHit(taskDefinition, options.store, cacheKey, options.cwd, cached);
+      const cacheHit = await validateTaskCacheHit(taskDefinition, options.store, cacheAccess, cacheKey, options.cwd, cached);
       if (cacheHit.ok) {
         const result: TaskResult = {
           ...cached,
@@ -863,8 +865,8 @@ async function runTask(
         await writeTaskLog(options.store, options.runId, taskDefinition.id, `[cache hit] ${cacheKey}\n`);
         // A hit proves this input state passes: refresh the diff baseline, and
         // backfill the digest manifest for entries created before 0.2.3.
-        if ((await readCacheInputManifest(options.store, cacheKey)) === null) {
-          await writeCacheInputManifest(options.store, cacheKey, inputManifest);
+        if ((await readCacheInputManifest(options.store, cacheKey, cacheAccess)) === null) {
+          await writeCacheInputManifest(options.store, cacheKey, inputManifest, cacheAccess);
         }
         await writeTaskBaseline(options.store, taskDefinition.id, cacheKey);
         await writeCacheReceipt({
@@ -969,8 +971,8 @@ async function runTask(
       };
       await writeTaskLog(options.store, options.runId, taskDefinition.id, redactLog(taskLog.read()));
       if (taskDefinition.cache.enabled) {
-        await writeTaskCacheEntry(taskDefinition, options.store, cacheKey, result, options.cwd);
-        await writeCacheInputManifest(options.store, cacheKey, inputManifest);
+        await writeTaskCacheEntry(taskDefinition, options.store, cacheKey, result, options.cwd, cacheAccess);
+        await writeCacheInputManifest(options.store, cacheKey, inputManifest, cacheAccess);
         await writeTaskBaseline(options.store, taskDefinition.id, cacheKey);
         if (cacheReceipt) {
           await writeCacheReceipt({ ...cacheReceipt, inputManifestRecorded: true });
@@ -1013,6 +1015,7 @@ async function runTask(
       cacheKey,
       redactedLog,
       inputManifest,
+      cacheAccess,
       rootCwd: options.rootCwd
     });
   } catch {
@@ -1039,12 +1042,13 @@ async function writeFailureContextPack(options: {
   cacheKey: string | undefined;
   redactedLog: string;
   inputManifest: TaskInputManifest;
+  cacheAccess: CacheStoreAccess;
   rootCwd: string;
 }): Promise<void> {
   let inputDiff: TaskContextPack["inputDiff"] = { baselineMissing: true };
   const baseline = await readTaskBaseline(options.store, options.taskDefinition.id);
   if (baseline) {
-    const baselineManifest = await readCacheInputManifest(options.store, baseline.cacheKey);
+    const baselineManifest = await readCacheInputManifest(options.store, baseline.cacheKey, options.cacheAccess);
     if (baselineManifest) {
       inputDiff = {
         baselineCacheKey: baseline.cacheKey,
@@ -1413,35 +1417,28 @@ function isShellCommand(step: TaskStep): step is ShellCommand {
   return typeof step !== "function" && step.kind === "shell";
 }
 
-async function readTaskCacheEntry(taskDefinition: NormalizedTask, store: PipelineStore, cacheKey: string): Promise<TaskResult | null> {
-  const storeName = taskDefinition.cache.store ?? "file";
-  if (storeName === "file") return readCacheEntry(store, cacheKey);
-  if (storeName === "memory") return memoryCacheEntries.get(cacheKey)?.result ?? null;
-  throw new Error(`Cache store "${storeName}" is registered but this runner cannot execute it. Use "file" or "memory", or provide a runtime-specific executor.`);
+async function readTaskCacheEntry(pipeline: NormalizedPipeline, taskDefinition: NormalizedTask, store: PipelineStore, runId: string, cacheKey: string, env: NodeJS.ProcessEnv): Promise<TaskResult | null> {
+  return readCacheEntryWithStore(store, cacheKey, cacheAccessForTask(pipeline, taskDefinition, runId, env));
 }
 
-async function writeTaskCacheEntry(taskDefinition: NormalizedTask, store: PipelineStore, cacheKey: string, result: TaskResult, cwd: string): Promise<void> {
-  const storeName = taskDefinition.cache.store ?? "file";
-  if (storeName === "file") {
-    await writeCacheEntry(store, cacheKey, result, {
-      cwd,
-      outputs: taskDefinition.outputs
-    });
-    return;
-  }
-  if (storeName === "memory") {
-    memoryCacheEntries.set(cacheKey, {
-      result,
-      outputFiles: taskDefinition.outputs.length > 0 ? await resolveOutputFiles(cwd, taskDefinition.outputs) : []
-    });
-    return;
-  }
-  throw new Error(`Cache store "${storeName}" is registered but this runner cannot execute it. Use "file" or "memory", or provide a runtime-specific executor.`);
+async function writeTaskCacheEntry(
+  taskDefinition: NormalizedTask,
+  store: PipelineStore,
+  cacheKey: string,
+  result: TaskResult,
+  cwd: string,
+  cacheAccess: CacheStoreAccess
+): Promise<void> {
+  await writeCacheEntry(store, cacheKey, result, {
+    cwd,
+    outputs: taskDefinition.outputs
+  }, cacheAccess);
 }
 
 async function validateTaskCacheHit(
   taskDefinition: NormalizedTask,
   store: PipelineStore,
+  cacheAccess: CacheStoreAccess,
   cacheKey: string,
   cwd: string,
   cached: TaskResult
@@ -1452,24 +1449,41 @@ async function validateTaskCacheHit(
 
   if (taskDefinition.outputs.length === 0) return { ok: true };
 
+  const restored = await restoreCacheOutputs(store, cacheKey, cwd, taskDefinition.outputs, cacheAccess);
+  return restored
+    ? { ok: true }
+    : { ok: false, reason: `declared outputs were not available in the ${cacheAccess.storeName} cache` };
+}
+
+function cacheAccessForTask(pipeline: NormalizedPipeline, taskDefinition: NormalizedTask, runId: string, env: NodeJS.ProcessEnv): CacheStoreAccess {
   const storeName = taskDefinition.cache.store ?? "file";
-  if (storeName === "file") {
-    const restored = await restoreCacheOutputs(store, cacheKey, cwd, taskDefinition.outputs);
-    return restored
-      ? { ok: true }
-      : { ok: false, reason: "declared outputs were not available in the file cache" };
+  const policy = taskDefinition.cache.policy ?? (storeName === "memory" ? "session" : "local");
+  const storeDefinition = pipeline.cache.stores[storeName];
+  if (!storeDefinition) {
+    throw pipelineError("ASYNC_PIPELINE_UNKNOWN_CACHE_STORE", `Unknown cache store "${storeName}".`);
   }
+  return {
+    adapter: adapterForCacheStore(storeName, storeDefinition, env),
+    storeName,
+    policy,
+    runId,
+    taskId: taskDefinition.id
+  };
+}
 
-  if (storeName === "memory") {
-    const entry = memoryCacheEntries.get(cacheKey);
-    if (!entry) return { ok: false, reason: "memory cache entry was not available" };
-    const outputsExist = await outputFilesExist(cwd, entry.outputFiles);
-    return outputsExist
-      ? { ok: true }
-      : { ok: false, reason: "declared outputs were missing from the working tree" };
+function adapterForCacheStore(storeName: string, storeDefinition: CacheStoreDefinition, env: NodeJS.ProcessEnv): CacheStoreAdapter {
+  if (storeDefinition.type === "file") return createFileCacheStoreAdapter({ root: storeDefinition.root });
+  if (storeDefinition.type === "memory") {
+    let adapter = memoryCacheAdapters.get(storeName);
+    if (!adapter) {
+      adapter = createMemoryCacheStoreAdapter();
+      memoryCacheAdapters.set(storeName, adapter);
+    }
+    return adapter;
   }
-
-  return { ok: false, reason: `cache store "${storeName}" is not executable by this runner` };
+  if (storeDefinition.adapter) return storeDefinition.adapter;
+  if (storeDefinition.config?.adapter === "redis") return createRedisCacheStoreAdapter(storeDefinition.config, env);
+  throw new Error(`Cache store "${storeName}" is registered but this runner cannot execute it. Use "file", "memory", or customCache({ adapter }).`);
 }
 
 function isCacheEntryFresh(cached: TaskResult, ttlMs: number | undefined): boolean {

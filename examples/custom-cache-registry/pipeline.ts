@@ -3,7 +3,7 @@ import { cache, defineCache, definePipeline, fileCache, job, memoryCache, redisC
 // One registry, three store shapes:
 // - file:    persistent, restores declared outputs on a hit
 // - memory:  process-local, gone when the CLI exits
-// - redis:   declared metadata only — the node runner refuses to execute it
+// - redis:   executable when REDIS_URL points at a Redis instance
 const caches = defineCache({
   default: "file:local",
   stores: {
@@ -51,9 +51,9 @@ export default definePipeline({
     }),
 
     remoteEcho: task({
-      description: "References the declared redis store. Running this fails: no runtime executor ships for remote stores.",
+      description: "References the Redis store. Set REDIS_URL to cache this through your Redis instance.",
       cache: "redis:session",
-      run: sh`echo "this never caches through redis"`
+      run: sh`echo "this can cache through redis"`
     })
   },
 
@@ -64,7 +64,7 @@ export default definePipeline({
     }),
 
     remote: job({
-      description: "Exists to demonstrate the clear error for declared-only remote stores.",
+      description: "Runs when REDIS_URL points at a Redis instance.",
       target: "remoteEcho",
       trigger: ["manual"]
     })

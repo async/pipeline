@@ -83,7 +83,10 @@ Contract: `@async/pipeline.runtime`
 
 | Feature | Title | Release | Stability | Lifecycle | Replacement | Docs |
 | --- | --- | --- | --- | --- | --- | --- |
+| `runtime.cache.adapter` | Custom cache store adapter execution | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#definecache) |
 | `runtime.cache.file` | File cache execution and output restoration | public | stable | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#definecache) |
+| `runtime.cache.lifecycle` | Cache store lifecycle hooks | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#definecache) |
+| `runtime.cache.redis` | Redis cache execution | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#definecache) |
 
 ### Diagnostics
 
@@ -110,7 +113,7 @@ Contract: `@async/pipeline.runtime`
 | --- | --- | --- |
 | `@async/pipeline.cli` | `sha256:b2c8e70d98df0154ebaf48b36dfae473f9b06887c5ad2ddfcc8d0f35c071ebf7` | `cli.github.check`, `cli.github.generate`, `cli.mcp`, `cli.publish.github`, `cli.publish.npm`, `cli.release.doctor`, `cli.run`, `cli.run-task`, `cli.sync.check`, `cli.sync.generate` |
 | `@async/pipeline.declaration` | `sha256:470a50761f909c6c36f133dd906287a656b646742f59fd0534fd75f148563071` | `agent.stdoutTo`, `agent.step`, `config.definePipeline`, `config.env`, `config.github.pages`, `config.job`, `config.source`, `config.sync.github`, `config.sync.tasks`, `config.task`, `config.trigger.github`, `config.trigger.manual`, `step.shell` |
-| `@async/pipeline.runtime` | `sha256:4f7a485135832d86e4f628b632ec6ebd648fe5fefea0cc9a4d34224d96ae66f9` | `runtime.cache.file`, `runtime.context-packs`, `runtime.execution-records`, `runtime.run-lock`, `runtime.sandbox.container` |
+| `@async/pipeline.runtime` | `sha256:71c3e018e8def16f9fd73fe9551169dff6672b21a082fea776a7d101a2932a30` | `runtime.cache.adapter`, `runtime.cache.file`, `runtime.cache.redis`, `runtime.context-packs`, `runtime.execution-records`, `runtime.run-lock`, `runtime.sandbox.container` |
 
 ## Required Surfaces
 

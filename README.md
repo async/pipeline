@@ -311,17 +311,27 @@ task({ cache: "file:local", run: sh`pnpm run test` })
 
 Cache keys are derived from the task config, resolved commands, declared inputs, direct dependency cache fingerprints, and portable source/candidate metadata. Input resolution ignores `.git/`, `.async/`, and `node_modules/` by default, and a task's declared `outputs` are excluded from that task's inputs so build artifacts do not dirty their own cache entry.
 
-When a cached file task declares `outputs`, the runner stores those files next to `result.json` and restores them before returning a cache hit. Memory cache entries cannot restore files, so output-producing memory hits are honored only while the previously observed output files still exist. `ttlMs` is enforced when present; expired entries rerun.
+When a cached task declares `outputs`, the runner stores a validated output manifest and an output blob next to `result.json`, then restores those files before returning a cache hit. `file` persists those blobs under `.async/cache/tasks`; `memory` keeps them process-local; `customCache({ adapter })` lets callers provide another blob store with only `get` and `put`. `ttlMs` is enforced when present; expired entries rerun.
 
 You can override the registry without adding Redis or remote cache dependencies to this package:
 
 ```ts
-import { defineCache, definePipeline, fileCache, job, sh, task } from "@async/pipeline";
+import { customCache, defineCache, definePipeline, fileCache, job, sh, task } from "@async/pipeline";
+
+const remoteAdapter = {
+  async get(key) {
+    return await readFromRemoteCache(key);
+  },
+  async put(key, value) {
+    await writeToRemoteCache(key, value);
+  }
+};
 
 const caches = defineCache({
   default: "file:local",
   stores: {
-    file: fileCache({ root: ".async/cache/tasks" })
+    file: fileCache({ root: ".async/cache/tasks" }),
+    remote: customCache({ adapter: remoteAdapter })
   }
 });
 
@@ -337,7 +347,7 @@ export default definePipeline({
 });
 ```
 
-Remote cache stores are metadata for future runtimes; the node runner executes the built-in `file` and `memory` stores today.
+Adapters are deliberately dumb blob stores: pipeline computes keys, writes manifests, enforces TTL, validates restored outputs, and records hit/miss receipts. `get` and `put` are the only required adapter methods; built-in stores also expose optional `list`, `delete`, `touch`, and `prune` hooks for deeper cache integration. `redisCache(...)` uses a user-supplied `redis://` or `rediss://` URL through Node's built-in socket APIs, so no Redis npm client is required.
 
 ## Many-Repo Impact Runs
 
@@ -394,7 +404,7 @@ The checked-in workflow targets Node `>= 24` on GitHub-hosted Linux (`ubuntu-lat
 
 ## Not Yet For
 
-- Built-in Redis or remote task cache execution. Remote stores can be declared, but no Redis dependency is shipped.
+- Redis lifecycle management. `redisCache(...)` can use a Redis instance you provide, but it does not start, migrate, or prune Redis for you.
 - Automatic dependency discovery. Sources are explicit by design.
 - Automatic sandbox routing. Isolation is opt-in: select it with `--sandbox`, `--execution`, or programmatic run options; `sandbox.container(...)` is portable OCI image intent, while Docker, Apple container, and Lima are provider choices.
 - Deno or Ollama runtime integration. They can be declared as optional tool requirements, but they are not package dependencies.

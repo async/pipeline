@@ -109,14 +109,17 @@ Each run writes:
 The default file task cache is local:
 
 ```txt
-.async/cache/tasks/<cache-key>/result.json
-.async/cache/tasks/<cache-key>/outputs.json
-.async/cache/tasks/<cache-key>/outputs/<declared-output-file>
+.async/cache/tasks/<cache-key>/
+  result.json
+  outputs.json
+  outputs.blob
 ```
+
+That path layout is specific to the file store. Custom adapters and Redis stores receive logical blob keys such as `<cache-key>/outputs.blob` and choose their own backing layout.
 
 To make a task dirty when a file changes, include that file or glob in `inputs`. Input resolution ignores `.git/`, `.async/`, and `node_modules/` by default. A task's declared `outputs` are excluded from its own input files so generated artifacts do not dirty the task that produced them.
 
-If a cached file task declares outputs, the runner snapshots those output files after a successful run and restores them before returning a cache hit. Result-only cache entries remain usable for tasks without outputs; output-producing tasks rerun once when an old entry has no output snapshot. `ttlMs` expires otherwise valid entries.
+If a cached task declares outputs, the runner snapshots those output files after a successful run, stores a manifest plus output blob through the selected cache store, and restores the files before returning a cache hit. Result-only cache entries remain usable for tasks without outputs; output-producing tasks rerun once when an old entry has no output snapshot. `ttlMs` expires otherwise valid entries.
 
 Cache refs are normalized during definition:
 
@@ -124,7 +127,7 @@ Cache refs are normalized during definition:
 task({ cache: "file:local", run: sh`pnpm run test` })
 ```
 
-`memory` and `file` are registered by default. Remote stores can be declared as metadata for future runtimes without adding mandatory package dependencies.
+`memory` and `file` are registered by default. `customCache({ adapter })` registers an executable blob store with required `get` and `put` methods plus optional lifecycle hooks for `list`, `delete`, `touch`, and `prune`. `redisCache(...)` uses a user-supplied `redis://` or `rediss://` URL and the runner's built-in RESP client, so no Redis npm dependency is required.
 
 Many-repo impact runs can also reuse warm git checkouts under:
 

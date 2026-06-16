@@ -7,7 +7,7 @@ This is the first public API surface for `@async/pipeline`.
 Use the public package for normal authoring:
 
 ```ts
-import { cache, defineCache, definePipeline, dependsOn, env, fileCache, job, memoryCache, redisCache, sh, source, task, trigger } from "@async/pipeline";
+import { cache, customCache, defineCache, definePipeline, dependsOn, env, fileCache, job, memoryCache, redisCache, sh, source, task, trigger } from "@async/pipeline";
 ```
 
 Subpaths are available for advanced use:
@@ -252,11 +252,21 @@ Normalization lifts directives into task metadata. Metadata readers inspect dire
 ## defineCache
 
 ```ts
+const remoteAdapter = {
+  async get(key) {
+    return await readFromRemoteCache(key);
+  },
+  async put(key, value) {
+    await writeToRemoteCache(key, value);
+  }
+};
+
 const caches = defineCache({
   default: "file:local",
   stores: {
     memory: memoryCache(),
     file: fileCache({ root: ".async/cache/tasks" }),
+    remote: customCache({ adapter: remoteAdapter }),
     redis: redisCache({ url: { env: "REDIS_URL" } })
   }
 });
@@ -281,12 +291,38 @@ Built-in runner support:
 
 | Store | Behavior |
 | --- | --- |
-| `file` | Persistent local task cache under `.async/cache/tasks` by default. Output-producing tasks store `outputs.json` and copied output files next to `result.json`. |
-| `memory` | Process-local task cache. Output-producing hits are honored only while the previously observed output files still exist. |
+| `file` | Persistent local task cache under `.async/cache/tasks` by default. Output-producing tasks store `outputs.json` and an output blob next to `result.json`. |
+| `memory` | Process-local blob cache. Output-producing hits can restore declared outputs while the process is alive. |
+| `customCache({ adapter })` | Executable blob store supplied by the caller. The adapter persists opaque blobs; pipeline still owns cache keys, manifests, TTL checks, and output validation. |
+| `redisCache(...)` | Executable Redis blob store. Supply `url` as a string, `env.var(...)`, or `{ env: "REDIS_URL" }`; the runner uses Node sockets and does not depend on a Redis npm package. |
 
-Remote stores can be declared as runtime metadata, but `@async/pipeline` does not ship a Redis dependency.
+The adapter surface keeps `get` and `put` as the only required methods. Lifecycle methods are optional management hooks that deeper integrations can use for listing, single-key deletion, last-used refreshes, and bounded pruning:
 
-Cache keys include direct dependency cache fingerprints, so changing a dependency invalidates its dependents without hashing every task's inputs into every key. `ttlMs` is enforced for built-in stores; expired entries rerun.
+```ts
+interface CacheStoreEntry {
+  key: string;
+  sizeBytes?: number;
+  createdAt?: string;
+  lastUsedAt?: string;
+}
+
+interface CacheStoreAdapter {
+  get(key: string, context: CacheStoreContext): Promise<CacheBlob | null>;
+  put(key: string, value: CacheBlob, context: CacheStoreContext): Promise<void>;
+  touch?(key: string, context: CacheStoreContext): Promise<void>;
+  delete?(key: string, context: CacheStoreContext): Promise<void>;
+  list?(prefix: string, context: CacheStoreContext): AsyncIterable<CacheStoreEntry>;
+  prune?(options: {
+    prefix?: string;
+    maxAgeMs?: number;
+    maxSizeBytes?: number;
+  }, context: CacheStoreContext): Promise<{ removed: number; bytesRemoved?: number }>;
+}
+```
+
+Only `get` and `put` are required. The built-in `file`, `memory`, and `redisCache(...)` adapters implement the optional lifecycle methods; custom adapters can add them when their backing store can support the behavior cheaply. Adapters treat keys as opaque strings and must not inspect source inputs, calculate cache keys, or decide whether an entry is valid. Missing blobs return `null`; backend outages should throw, so the runner fails loudly instead of pretending a remote cache is just cold.
+
+Cache keys include direct dependency cache fingerprints, so changing a dependency invalidates its dependents without hashing every task's inputs into every key. `ttlMs` is enforced by the runner before a cached result is accepted; expired entries rerun. Cache receipts include the selected store and policy but never backend credentials, input file contents, or secret values.
 
 ## source
 
@@ -796,7 +832,7 @@ On task failure the runner writes a context pack to `.async/runs/<run-id>/contex
 
 The diff baseline comes from two pieces of persisted state: every cache entry persists a per-file digest manifest (`inputs.json`) for the input state that produced it, and a per-task baseline pointer (`.async/cache/baselines/<task>.json`) tracks the most recent passing entry. A task that has never passed reports `baselineMissing` instead of a diff. When the project keeps a claims registry (`tests/claims.json`), packs also name the claim ids whose registered test titles appear in the failing log. `gc` prunes baseline pointers whose cache entries were removed.
 
-Every run also writes cache receipts under `.async/runs/<run-id>/cache/<task>.json`. A receipt records whether the task was a cache `hit`, cache `miss`, cache-disabled run, or forced bypass, along with the task cache key, graph node fingerprint, dependency fingerprints, and any miss reason. Receipts do not store input file contents, raw cache configuration, or secret values.
+Every run also writes cache receipts under `.async/runs/<run-id>/cache/<task>.json`. A receipt records whether the task was a cache `hit`, cache `miss`, cache-disabled run, or forced bypass, along with the cache store, cache policy, task cache key, graph node fingerprint, dependency fingerprints, and any miss reason. Receipts do not store input file contents, raw cache configuration, backend credentials, or secret values.
 
 Inspect packs and diffs from the CLI:
 

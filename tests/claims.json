@@ -602,7 +602,9 @@
       "anchor": "A cache hit restores declared outputs, or downgrades to a recorded miss when it cannot.",
       "tests": [
         "file cache restores declared outputs on cache hit",
-        "result-only file cache entries for output tasks rerun and repopulate outputs"
+        "result-only file cache entries for output tasks rerun and repopulate outputs",
+        "custom cache adapters store opaque blobs and restore declared outputs",
+        "custom cache adapters downgrade hits to misses when output blobs are missing"
       ]
     },
     {
@@ -1165,6 +1167,43 @@
       "anchor": "Every run also writes cache receipts under `.async/runs/<run-id>/cache/<task>.json`.",
       "tests": [
         "PROMISE: cache receipts record cache decisions without file contents"
+      ]
+    },
+    {
+      "id": "api.custom-cache-adapter-required-methods",
+      "source": "docs/api.md",
+      "anchor": "Only `get` and `put` are required.",
+      "tests": [
+        "custom cache stores can carry executable blob adapters",
+        "custom cache adapters store opaque blobs and restore declared outputs"
+      ]
+    },
+    {
+      "id": "api.cache-store-lifecycle-hooks",
+      "source": "docs/api.md",
+      "anchor": "The built-in `file`, `memory`, and `redisCache(...)` adapters implement the optional lifecycle methods",
+      "tests": [
+        "file cache store adapter lists deletes touches and prunes blob keys",
+        "memory cache store adapter lists deletes touches and prunes blob keys",
+        "redis cache store adapter lists deletes touches and prunes blob keys"
+      ]
+    },
+    {
+      "id": "api.custom-cache-adapter-boundary",
+      "source": "docs/api.md",
+      "anchor": "Adapters treat keys as opaque strings and must not inspect source inputs, calculate cache keys, or decide whether an entry is valid.",
+      "tests": [
+        "custom cache adapters store opaque blobs and restore declared outputs",
+        "custom cache adapters downgrade hits to misses when output blobs are missing",
+        "custom cache adapter read failures fail loudly instead of becoming misses"
+      ]
+    },
+    {
+      "id": "api.redis-cache-executes-without-client-dependency",
+      "source": "docs/api.md",
+      "anchor": "the runner uses Node sockets and does not depend on a Redis npm package",
+      "tests": [
+        "redisCache executes through a supplied Redis URL without a client dependency"
       ]
     },
     {
