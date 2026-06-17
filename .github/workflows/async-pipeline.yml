@@ -53,7 +53,7 @@ jobs:
             async-pipeline-${{ runner.os }}-
 
       - name: Setup pnpm runtime
-        uses: pnpm/setup@5d160c5bc68a09337ad0d5654e237e03253b5879 # v1.0.0
+        uses: pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0
         with:
           version: 11.1.0
           runtime: node@24
@@ -61,9 +61,10 @@ jobs:
           cache: true
           cache-dependency-path: "pnpm-lock.yaml"
 
-      - name: Setup additional runtimes
-        run: |
-          pnpm runtime set deno 2 -g
+      - name: Setup Deno
+        uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+        with:
+          deno-version: 2
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -139,7 +140,7 @@ jobs:
             async-pipeline-${{ runner.os }}-
 
       - name: Setup pnpm runtime
-        uses: pnpm/setup@5d160c5bc68a09337ad0d5654e237e03253b5879 # v1.0.0
+        uses: pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0
         with:
           version: 11.1.0
           runtime: node@24
@@ -147,9 +148,10 @@ jobs:
           cache: true
           cache-dependency-path: "pnpm-lock.yaml"
 
-      - name: Setup additional runtimes
-        run: |
-          pnpm runtime set deno 2 -g
+      - name: Setup Deno
+        uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+        with:
+          deno-version: 2
 
       - name: Use current npm
         run: npm install -g npm@11.16.0
@@ -202,7 +204,7 @@ jobs:
             async-pipeline-${{ runner.os }}-
 
       - name: Setup pnpm runtime
-        uses: pnpm/setup@5d160c5bc68a09337ad0d5654e237e03253b5879 # v1.0.0
+        uses: pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0
         with:
           version: 11.1.0
           runtime: node@24
@@ -210,9 +212,10 @@ jobs:
           cache: true
           cache-dependency-path: "pnpm-lock.yaml"
 
-      - name: Setup additional runtimes
-        run: |
-          pnpm runtime set deno 2 -g
+      - name: Setup Deno
+        uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+        with:
+          deno-version: 2
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -264,7 +267,7 @@ jobs:
             async-pipeline-${{ runner.os }}-
 
       - name: Setup pnpm runtime
-        uses: pnpm/setup@5d160c5bc68a09337ad0d5654e237e03253b5879 # v1.0.0
+        uses: pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0
         with:
           version: 11.1.0
           runtime: node@24
@@ -272,9 +275,10 @@ jobs:
           cache: true
           cache-dependency-path: "pnpm-lock.yaml"
 
-      - name: Setup additional runtimes
-        run: |
-          pnpm runtime set deno 2 -g
+      - name: Setup Deno
+        uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+        with:
+          deno-version: 2
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -432,7 +436,7 @@ jobs:
             async-pipeline-${{ runner.os }}-
 
       - name: Setup pnpm runtime
-        uses: pnpm/setup@5d160c5bc68a09337ad0d5654e237e03253b5879 # v1.0.0
+        uses: pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0
         with:
           version: 11.1.0
           runtime: node@24
@@ -440,9 +444,10 @@ jobs:
           cache: true
           cache-dependency-path: "pnpm-lock.yaml"
 
-      - name: Setup additional runtimes
-        run: |
-          pnpm runtime set deno 2 -g
+      - name: Setup Deno
+        uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+        with:
+          deno-version: 2
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

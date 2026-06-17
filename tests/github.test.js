@@ -46,7 +46,7 @@ test("renders github workflow triggers and bootloader steps", async () => {
     assert.match(rendered.workflow, /async-pipeline run verify/);
     assert.match(rendered.workflow, /actions\/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4/);
     assert.match(rendered.workflow, /name: Setup pnpm runtime/);
-    assert.match(rendered.workflow, /uses: pnpm\/setup@5d160c5bc68a09337ad0d5654e237e03253b5879 # v1\.0\.0/);
+    assert.match(rendered.workflow, /uses: pnpm\/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1\.0\.0/);
     assert.match(rendered.workflow, /version: 11\.1\.0/);
     assert.match(rendered.workflow, /runtime: node@24/);
     assert.match(rendered.workflow, /^\s+install: false$/m);
@@ -87,7 +87,7 @@ test("renders github workflow with pnpm runtime setup using the consumer package
 
     const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
 
-    assert.match(rendered.workflow, /uses: pnpm\/setup@5d160c5bc68a09337ad0d5654e237e03253b5879 # v1\.0\.0/);
+    assert.match(rendered.workflow, /uses: pnpm\/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1\.0\.0/);
     assert.match(rendered.workflow, /version: 10\.20\.0/);
     assert.match(rendered.workflow, /runtime: node@24/);
     assert.match(rendered.workflow, /^\s+install: false$/m);
@@ -231,13 +231,17 @@ test("renders deno-only github workflow without package-manager install", async 
 
     const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
 
-    assert.match(rendered.workflow, /name: Setup pnpm runtime/);
-    assert.match(rendered.workflow, /runtime: deno@2/);
-    assert.match(rendered.workflow, /cache-dependency-path: "deno\.lock"/);
+    assert.match(rendered.workflow, /name: Setup Deno/);
+    assert.match(rendered.workflow, /uses: denoland\/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2\.0\.4/);
+    assert.match(rendered.workflow, /deno-version: 2/);
+    assert.match(rendered.workflow, /cache: true/);
+    assert.match(rendered.workflow, /cache-hash: \$\{\{ hashFiles\('deno\.lock'\) \}\}/);
     assert.match(rendered.workflow, /run: deno install --frozen=true/);
     assert.match(rendered.workflow, /run: deno run -A npm:@async\/pipeline\/cli github check/);
     assert.match(rendered.workflow, /run: deno run -A npm:@async\/pipeline\/cli run verify/);
     assert.match(rendered.workflow, /run: deno run -A npm:@async\/pipeline\/cli explain --run latest \|\| true/);
+    assert.doesNotMatch(rendered.workflow, /pnpm\/setup@/);
+    assert.doesNotMatch(rendered.workflow, /pnpm runtime set deno/);
     assert.doesNotMatch(rendered.workflow, /pnpm install --frozen-lockfile/);
     assert.equal(rendered.lock.packageManager, "deno");
     assert.deepEqual(rendered.lock.runtime, ["deno@2"]);
@@ -248,7 +252,7 @@ test("renders deno-only github workflow without package-manager install", async 
   }
 });
 
-test("renders mixed node and deno runtimes through pnpm setup", async () => {
+test("renders mixed node and deno runtimes through pnpm and setup-deno providers", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-mixed-runtime-"));
   try {
     writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
@@ -271,8 +275,10 @@ test("renders mixed node and deno runtimes through pnpm setup", async () => {
     const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
 
     assert.match(rendered.workflow, /runtime: node@24/);
-    assert.match(rendered.workflow, /name: Setup additional runtimes/);
-    assert.match(rendered.workflow, /pnpm runtime set deno 2 -g/);
+    assert.match(rendered.workflow, /name: Setup Deno/);
+    assert.match(rendered.workflow, /uses: denoland\/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2\.0\.4/);
+    assert.match(rendered.workflow, /deno-version: 2/);
+    assert.doesNotMatch(rendered.workflow, /pnpm runtime set deno/);
     assert.match(rendered.workflow, /run: pnpm async-pipeline run verify/);
     assert.deepEqual(rendered.lock.runtime, ["node@24", "deno@2"]);
     assert.equal(rendered.lock.command, "pnpm async-pipeline");

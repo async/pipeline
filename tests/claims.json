@@ -171,41 +171,75 @@
     {
       "id": "github-actions.dependency-cache-step",
       "source": "docs/github-actions.md",
-      "anchor": "`dependencyCache` controls dependency-store cache settings: with the default pnpm setup, the action caches the pnpm store or Deno lockfile when one exists; with the forced Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup.",
+      "anchor": "`dependencyCache` controls dependency-store cache settings: with the default pnpm setup, the action caches the pnpm store when a package lockfile exists; Deno-only workflows cache Deno dependencies through the generated `denoland/setup-deno` step when `deno.lock` exists; with the forced Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
         "renders github workflow with pnpm runtime setup using the consumer packageManager version",
-        "renders github workflow with dependency cache disabled"
+        "renders github workflow with dependency cache disabled",
+        "renders deno-only github workflow without package-manager install"
       ]
     },
     {
       "id": "github-actions.pnpm-runtime-setup",
       "source": "docs/github-actions.md",
-      "anchor": "`setup: \"auto\"` resolves to the official `pnpm/setup` runtime bootloader.",
+      "anchor": "`setup: \"auto\"` resolves to the official `pnpm/setup` runtime bootloader for package projects.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
         "renders github workflow with pnpm runtime setup using the consumer packageManager version",
         "renders github workflow with node setup provider"
+      ]
+    },
+    {
+      "id": "github-actions.pnpm-setup-single-runtime-note",
+      "source": "docs/github-actions.md",
+      "anchor": "`pnpm/setup` installs pnpm plus one requested JavaScript runtime.",
+      "tests": [
+        "renders mixed node and deno runtimes through pnpm and setup-deno providers"
+      ]
+    },
+    {
+      "id": "github-actions.deno-runtime-provider-split",
+      "source": "docs/github-actions.md",
+      "anchor": "Generated mixed Node+Deno workflows use the pinned `pnpm/setup` action for Node and the pinned `denoland/setup-deno` action for Deno.",
+      "tests": [
+        "renders mixed node and deno runtimes through pnpm and setup-deno providers"
+      ]
+    },
+    {
+      "id": "github-actions.deno-only-setup-deno",
+      "source": "docs/github-actions.md",
+      "anchor": "Generated Deno-only workflows use `denoland/setup-deno` without `pnpm/setup`.",
+      "tests": [
+        "renders deno-only github workflow without package-manager install"
       ]
     },
     {
       "id": "api.github-dependency-cache",
       "source": "docs/api.md",
-      "anchor": "`dependencyCache: true` (the default) enables dependency-store cache settings when the setup path can safely initialize the package manager before the cache step and the project has a recognized lockfile: with the default pnpm setup, the action caches the pnpm store or Deno lockfile; with forced Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup.",
+      "anchor": "`dependencyCache: true` (the default) enables dependency-store cache settings when the setup path can safely initialize the package manager before the cache step and the project has a recognized lockfile: with the default pnpm setup, the action caches the pnpm store; Deno-only workflows cache Deno dependencies through `denoland/setup-deno` when `deno.lock` exists; with forced Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
         "renders github workflow with pnpm runtime setup using the consumer packageManager version",
-        "renders github workflow with dependency cache disabled"
+        "renders github workflow with dependency cache disabled",
+        "renders deno-only github workflow without package-manager install"
       ]
     },
     {
       "id": "api.github-pnpm-runtime-setup",
       "source": "docs/api.md",
-      "anchor": "`setup: \"auto\"` resolves to the official `pnpm/setup` runtime bootloader.",
+      "anchor": "`setup: \"auto\"` resolves to the official `pnpm/setup` runtime bootloader for package projects.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
         "renders github workflow with pnpm runtime setup using the consumer packageManager version",
         "renders github workflow with node setup provider"
+      ]
+    },
+    {
+      "id": "api.github-deno-runtime-provider-split",
+      "source": "docs/api.md",
+      "anchor": "Generated mixed Node+Deno workflows use `pnpm/setup` for Node and `denoland/setup-deno` for Deno, because `pnpm/setup` accepts one runtime input and internally runs one `pnpm runtime set` command.",
+      "tests": [
+        "renders mixed node and deno runtimes through pnpm and setup-deno providers"
       ]
     },
     {
@@ -1298,7 +1332,7 @@
       "tests": [
         "renders github workflow triggers and bootloader steps",
         "renders deno-only github workflow without package-manager install",
-        "renders mixed node and deno runtimes through pnpm setup"
+        "renders mixed node and deno runtimes through pnpm and setup-deno providers"
       ]
     },
     {
@@ -1347,7 +1381,7 @@
       "tests": [
         "renders github workflow triggers and bootloader steps",
         "renders deno-only github workflow without package-manager install",
-        "renders mixed node and deno runtimes through pnpm setup"
+        "renders mixed node and deno runtimes through pnpm and setup-deno providers"
       ]
     },
     {
@@ -1383,9 +1417,18 @@
         "normalizes sync command and github runtime declarations",
         "sync.tasks true renders Deno CLI commands for a Deno-only root",
         "renders deno-only github workflow without package-manager install",
-        "renders mixed node and deno runtimes through pnpm setup",
+        "renders mixed node and deno runtimes through pnpm and setup-deno providers",
         "requires.runtime fails before running a missing runtime command",
         "deno-only-pipeline: verify runs through Deno and sync artifacts are current"
+      ]
+    },
+    {
+      "id": "changelog.github-deno-runtime-provider-split",
+      "source": "CHANGELOG.md",
+      "anchor": "Render generated Deno runtime setup through pinned `denoland/setup-deno` steps instead of `pnpm runtime set deno ...`, while keeping `pnpm/setup` as the package-project Node and pnpm bootloader.",
+      "tests": [
+        "renders deno-only github workflow without package-manager install",
+        "renders mixed node and deno runtimes through pnpm and setup-deno providers"
       ]
     },
     {

@@ -7,10 +7,12 @@ import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 9;
+const GENERATOR_VERSION = 10;
 const DEFAULT_NODE_VERSION = "24";
 const DEFAULT_DENO_VERSION = "2";
-const PNPM_SETUP_ACTION = "pnpm/setup@5d160c5bc68a09337ad0d5654e237e03253b5879 # v1.0.0";
+const PNPM_SETUP_ACTION = "pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0";
+const DENO_SETUP_ACTION = "denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4";
+const SETUP_NODE_ACTION = "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6";
 const DEFAULT_PNPM_VERSION = "11.1.0";
 const DEFAULT_DENO_PIPELINE_COMMAND = "deno run -A npm:@async/pipeline/cli";
 
@@ -712,10 +714,15 @@ function renderDependabotAutoMergeJob(lines: string[], ecosystems: string[]): vo
 function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] {
   const pnpmVersion = pnpmSetupVersion(model.packageManager, model.packageManagerVersion);
   if (model.setup === "pnpm") {
-    const [primaryRuntime, ...additionalRuntimes] = model.runtime;
+    if (model.projectKind === "deno") {
+      return renderDenoOnlySetupSteps(model);
+    }
+    const primaryRuntimeIndex = pnpmSetupRuntimeIndex(model.runtime);
+    const primaryRuntime = model.runtime[primaryRuntimeIndex];
     if (!primaryRuntime) {
       throw pipelineError("ASYNC_PIPELINE_SYNC_INVALID_RUNTIME", "sync.github.runtime must resolve to at least one runtime.");
     }
+    const additionalRuntimes = model.runtime.filter((_runtime, index) => index !== primaryRuntimeIndex);
     return [
       "      - name: Setup pnpm runtime",
       `        uses: ${PNPM_SETUP_ACTION}`,
@@ -730,7 +737,7 @@ function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] 
           ]
         : []),
       "",
-      ...renderAdditionalRuntimeSetupSteps(additionalRuntimes),
+      ...renderRuntimeSetupSteps(additionalRuntimes),
       ...(additionalRuntimes.length > 0 ? [""] : [])
     ];
   }
@@ -745,7 +752,7 @@ function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] 
 
   return [
     "      - name: Setup Node",
-    "        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6",
+    `        uses: ${SETUP_NODE_ACTION}`,
     "        with:",
     `          node-version: ${nodeRuntime.version ?? model.nodeVersion}`,
     "          registry-url: https://registry.npmjs.org/",
@@ -759,8 +766,82 @@ function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] 
   ];
 }
 
-function renderAdditionalRuntimeSetupSteps(runtimes: RuntimeSpec[]): string[] {
+function renderDenoOnlySetupSteps(model: ReturnType<typeof buildRenderModel>): string[] {
+  const lines: string[] = [];
+  for (const runtime of model.runtime) {
+    if (runtime.name === "deno") {
+      lines.push(
+        ...renderDenoSetupSteps(runtime, {
+          dependencyCache: model.dependencyCache,
+          dependencyCachePath: model.dependencyCachePath
+        }),
+        ""
+      );
+    } else if (runtime.name === "node") {
+      lines.push(...renderNodeSetupSteps(runtime, model.nodeVersion), "");
+    } else {
+      lines.push(
+        "      - name: Setup additional runtimes",
+        "        run: |",
+        `          pnpm runtime set ${runtime.name} ${runtime.version ?? "latest"} -g`,
+        ""
+      );
+    }
+  }
+  return lines;
+}
+
+function pnpmSetupRuntimeIndex(runtimes: RuntimeSpec[]): number {
+  const nodeIndex = runtimes.findIndex((runtime) => runtime.name === "node");
+  if (nodeIndex >= 0) return nodeIndex;
+  const nonDenoIndex = runtimes.findIndex((runtime) => runtime.name !== "deno");
+  if (nonDenoIndex >= 0) return nonDenoIndex;
+  return 0;
+}
+
+function renderRuntimeSetupSteps(runtimes: RuntimeSpec[]): string[] {
   if (runtimes.length === 0) return [];
+  const lines: string[] = [];
+  const pnpmRuntimes = runtimes.filter((runtime) => runtime.name !== "deno");
+  for (const runtime of runtimes) {
+    if (runtime.name === "deno") {
+      if (lines.length > 0) lines.push("");
+      lines.push(...renderDenoSetupSteps(runtime));
+    }
+  }
+  if (pnpmRuntimes.length > 0) {
+    if (lines.length > 0) lines.push("");
+    lines.push(...renderPnpmRuntimeSetupSteps(pnpmRuntimes));
+  }
+  return lines;
+}
+
+function renderDenoSetupSteps(runtime: RuntimeSpec, options: { dependencyCache?: boolean; dependencyCachePath?: string } = {}): string[] {
+  return [
+    "      - name: Setup Deno",
+    `        uses: ${DENO_SETUP_ACTION}`,
+    "        with:",
+    `          deno-version: ${runtime.version ?? "latest"}`,
+    ...(options.dependencyCache && options.dependencyCachePath
+      ? [
+          "          cache: true",
+          `          cache-hash: \${{ hashFiles('${options.dependencyCachePath}') }}`
+        ]
+      : [])
+  ];
+}
+
+function renderNodeSetupSteps(runtime: RuntimeSpec, defaultNodeVersion: string): string[] {
+  return [
+    "      - name: Setup Node",
+    `        uses: ${SETUP_NODE_ACTION}`,
+    "        with:",
+    `          node-version: ${runtime.version ?? defaultNodeVersion}`,
+    "          registry-url: https://registry.npmjs.org/"
+  ];
+}
+
+function renderPnpmRuntimeSetupSteps(runtimes: RuntimeSpec[]): string[] {
   return [
     "      - name: Setup additional runtimes",
     "        run: |",

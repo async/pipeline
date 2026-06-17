@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.7 - 2026-06-17
+
+### Fixes
+
+- Render generated Deno runtime setup through pinned `denoland/setup-deno` steps instead of `pnpm runtime set deno ...`, while keeping `pnpm/setup` as the package-project Node and pnpm bootloader.
+
 ## 0.8.6 - 2026-06-17
 
 ### Features

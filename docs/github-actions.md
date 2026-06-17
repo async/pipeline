@@ -49,7 +49,13 @@ sync: {
 }
 ```
 
-`setup: "auto"` resolves to the official `pnpm/setup` runtime bootloader. Package projects default to `node@<nodeVersion>`; Deno-only projects with `deno.json` or `deno.jsonc` and no `package.json` default to `deno@2`; explicit `runtime` accepts a string or array such as `["node@24", "deno@2"]`. Additional runtimes render `pnpm runtime set ...` after the primary setup step. Use `setup: "node"` only when you explicitly want the older `actions/setup-node` + Corepack bootloader for a single Node runtime. `cache` controls the task cache. `dependencyCache` controls dependency-store cache settings: with the default pnpm setup, the action caches the pnpm store or Deno lockfile when one exists; with the forced Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup. Set it to `false` when you need a fully cold install.
+`setup: "auto"` resolves to the official `pnpm/setup` runtime bootloader for package projects. Package projects default to `node@<nodeVersion>`; Deno-only projects with `deno.json` or `deno.jsonc` and no `package.json` default to `deno@2`; explicit `runtime` accepts a string or array such as `["node@24", "deno@2"]`. Use `setup: "node"` only when you explicitly want the older `actions/setup-node` + Corepack bootloader for a single Node runtime. `cache` controls the task cache. `dependencyCache` controls dependency-store cache settings: with the default pnpm setup, the action caches the pnpm store when a package lockfile exists; Deno-only workflows cache Deno dependencies through the generated `denoland/setup-deno` step when `deno.lock` exists; with the forced Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup. Set it to `false` when you need a fully cold install.
+
+### Runtime Setup Notes For Agents
+
+`pnpm/setup` installs pnpm plus one requested JavaScript runtime. Its action `runtime` input is a single `<name>@<version>` value, and its implementation runs one `pnpm runtime set <name> <version> -g` command. Do not generate a `pnpm/setup` `runtime:` value like `["node@24", "deno@2"]`, comma-separated runtime values, or a separate `pnpm runtime set deno ...` shell step for Deno.
+
+Generated mixed Node+Deno workflows use the pinned `pnpm/setup` action for Node and the pinned `denoland/setup-deno` action for Deno. Generated Deno-only workflows use `denoland/setup-deno` without `pnpm/setup`. If `pnpm/setup` later adds true multi-runtime support, update this note, `packages/pipeline-node/src/github.ts`, and the GitHub renderer tests together.
 
 Each generated job also runs `async-pipeline explain --run latest` on failure and uploads `.async/runs` with a pinned `actions/upload-artifact` step. GitHub Actions stays a bootloader for the same task graph; the uploaded evidence is the local run record, graph snapshot, cache receipts, logs, and context packs from the normal runner.
 
