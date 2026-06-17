@@ -2,15 +2,17 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, JobEnvironment, JobRequirements, JobId, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, TriggerDefinition, TriggerId } from "@async/pipeline-core";
+import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, TriggerDefinition, TriggerId } from "@async/pipeline-core";
 import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 8;
+const GENERATOR_VERSION = 9;
 const DEFAULT_NODE_VERSION = "24";
+const DEFAULT_DENO_VERSION = "2";
 const PNPM_SETUP_ACTION = "pnpm/setup@5d160c5bc68a09337ad0d5654e237e03253b5879 # v1.0.0";
 const DEFAULT_PNPM_VERSION = "11.1.0";
+const DEFAULT_DENO_PIPELINE_COMMAND = "deno run -A npm:@async/pipeline/cli";
 
 export interface GitHubRenderOptions {
   cwd: string;
@@ -31,8 +33,10 @@ export interface GitHubLock {
   packageManager: string;
   packageManagerVersion?: string;
   buildCommand?: string;
+  command: string;
   setup: string;
   nodeVersion: string;
+  runtime: string[];
   taskCache: boolean;
   dependencyCache: boolean;
   dependencyCachePath?: string;
@@ -56,8 +60,15 @@ interface PackageInfo {
   packageManager: string;
   packageManagerVersion?: string;
   buildCommand?: string;
+  projectKind: "package" | "deno";
   dependencyCachePath?: string;
   publicPackagePaths: string[];
+}
+
+interface RuntimeSpec {
+  name: GitHubRuntimeName;
+  version?: string;
+  spec: string;
 }
 
 export interface GitHubRenderResult {
@@ -97,8 +108,10 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     packageManager: renderModel.packageManager,
     packageManagerVersion: renderModel.packageManagerVersion,
     buildCommand: renderModel.buildCommand,
+    command: renderModel.command,
     setup: renderModel.setup,
     nodeVersion: renderModel.nodeVersion,
+    runtime: renderModel.runtime.map((entry) => entry.spec),
     taskCache: renderModel.taskCache,
     dependencyCache: renderModel.dependencyCache,
     dependencyCachePath: renderModel.dependencyCachePath,
@@ -118,8 +131,10 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     packageManager: renderModel.packageManager,
     packageManagerVersion: renderModel.packageManagerVersion,
     buildCommand: renderModel.buildCommand,
+    command: renderModel.command,
     setup: renderModel.setup,
     nodeVersion: renderModel.nodeVersion,
+    runtime: renderModel.runtime.map((entry) => entry.spec),
     taskCache: renderModel.taskCache,
     dependencyCache: renderModel.dependencyCache,
     dependencyCachePath: renderModel.dependencyCachePath,
@@ -230,10 +245,14 @@ function buildRenderModel(
     .filter((job) => job.trigger.some((triggerId) => pipeline.triggers[triggerId]?.type === "manual"))
     .map((job) => job.id)
     .sort((left, right) => left.localeCompare(right));
+  const setup = resolveGitHubSetup(pipeline.sync.github.setup);
+  const nodeVersion = pipeline.sync.github.nodeVersion ?? DEFAULT_NODE_VERSION;
+  const runtime = resolveRuntimeSpecs(pipeline.sync.github.runtime, options.projectKind, nodeVersion);
   return {
     name: "Async Pipeline",
     configPath: options.configPath,
     workflowPath: options.workflowPath,
+    projectKind: options.projectKind,
     triggers,
     jobs: Object.values(pipeline.jobs)
       .map((job) => ({
@@ -251,8 +270,10 @@ function buildRenderModel(
     packageManager: options.packageManager,
     packageManagerVersion: options.packageManagerVersion,
     buildCommand: options.buildCommand,
-    setup: resolveGitHubSetup(pipeline.sync.github.setup),
-    nodeVersion: pipeline.sync.github.nodeVersion ?? DEFAULT_NODE_VERSION,
+    command: resolvePipelineCommand(pipeline.sync.command, options.projectKind, options.packageManager),
+    setup,
+    nodeVersion,
+    runtime,
     taskCache: pipeline.sync.github.cache ?? true,
     dependencyCache: pipeline.sync.github.dependencyCache ?? true,
     dependencyCachePath: pipeline.sync.github.dependencyCache === false ? undefined : options.dependencyCachePath,
@@ -445,8 +466,7 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
           ""
         ]
       : []),
-    "      - name: Install dependencies",
-    `        run: ${model.packageManager} install --frozen-lockfile`
+    ...renderDependencyInstallSteps(model)
   );
   if (model.buildCommand) {
     lines.push(
@@ -458,10 +478,10 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
   lines.push(
     "",
     "      - name: Check generated workflow",
-    `        run: ${model.packageManager} async-pipeline github check`,
+    `        run: ${model.command} github check`,
     "",
     "      - name: Run pipeline job",
-    `        run: ${model.packageManager} async-pipeline run ${shellWord(job.id)}${job.execution ? ` --execution ${shellWord(job.execution)}` : ""}`,
+    `        run: ${model.command} run ${shellWord(job.id)}${job.execution ? ` --execution ${shellWord(job.execution)}` : ""}`,
     "        env:",
     "          CI: true"
   );
@@ -476,15 +496,28 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
     renderPagesBuildSteps(lines, job.github.pages);
   }
   lines.push("");
-  renderRunEvidenceSteps(lines, model.packageManager);
+  renderRunEvidenceSteps(lines, model.command);
   lines.push("");
 }
 
-function renderRunEvidenceSteps(lines: string[], packageManager: string): void {
+function renderDependencyInstallSteps(model: ReturnType<typeof buildRenderModel>): string[] {
+  if (model.projectKind === "deno") {
+    return [
+      "      - name: Install dependencies",
+      `        run: deno install --frozen=${model.dependencyCachePath ? "true" : "false"}`
+    ];
+  }
+  return [
+    "      - name: Install dependencies",
+    `        run: ${model.packageManager} install --frozen-lockfile`
+  ];
+}
+
+function renderRunEvidenceSteps(lines: string[], command: string): void {
   lines.push(
     "      - name: Explain async-pipeline run",
     "        if: failure()",
-    `        run: ${packageManager} async-pipeline explain --run latest || true`,
+    `        run: ${command} explain --run latest || true`,
     "",
     "      - name: Upload async-pipeline run evidence",
     "        if: always()",
@@ -500,7 +533,7 @@ function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof build
   const preview = model.packagePreviews;
   if (!preview.package || !preview.target) return;
   const publishCommand = [
-    `${model.packageManager} async-pipeline publish github pr`,
+    `${model.command} publish github pr`,
     `--package ${shellWord(preview.package)}`,
     `--registry ${shellWord(preview.registry)}`,
     ...(preview.namespace ? [`--namespace ${shellWord(preview.namespace)}`] : []),
@@ -535,8 +568,7 @@ function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof build
         ]
       : []),
     ...renderSetupSteps(model),
-    "      - name: Install dependencies",
-    `        run: ${model.packageManager} install --frozen-lockfile`
+    ...renderDependencyInstallSteps(model)
   );
   if (model.buildCommand) {
     lines.push(
@@ -548,10 +580,10 @@ function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof build
   lines.push(
     "",
     "      - name: Check generated workflow",
-    `        run: ${model.packageManager} async-pipeline github check`,
+    `        run: ${model.command} github check`,
     "",
     "      - name: Run package preview target",
-    `        run: ${model.packageManager} async-pipeline run-task ${shellWord(preview.target)}`,
+    `        run: ${model.command} run-task ${shellWord(preview.target)}`,
     "        env:",
     "          CI: true",
     "",
@@ -562,7 +594,7 @@ function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof build
     `          GITHUB_TOKEN: \${{ secrets.${preview.tokenEnv} }}`,
     ""
   );
-  renderRunEvidenceSteps(lines, model.packageManager);
+  renderRunEvidenceSteps(lines, model.command);
   lines.push("");
 }
 
@@ -680,12 +712,16 @@ function renderDependabotAutoMergeJob(lines: string[], ecosystems: string[]): vo
 function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] {
   const pnpmVersion = pnpmSetupVersion(model.packageManager, model.packageManagerVersion);
   if (model.setup === "pnpm") {
+    const [primaryRuntime, ...additionalRuntimes] = model.runtime;
+    if (!primaryRuntime) {
+      throw pipelineError("ASYNC_PIPELINE_SYNC_INVALID_RUNTIME", "sync.github.runtime must resolve to at least one runtime.");
+    }
     return [
       "      - name: Setup pnpm runtime",
       `        uses: ${PNPM_SETUP_ACTION}`,
       "        with:",
       `          version: ${pnpmVersion}`,
-      `          runtime: node@${model.nodeVersion}`,
+      `          runtime: ${primaryRuntime.spec}`,
       "          install: false",
       `          cache: ${model.dependencyCache && model.dependencyCachePath ? "true" : "false"}`,
       ...(model.dependencyCache && model.dependencyCachePath
@@ -693,15 +729,25 @@ function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] 
             `          cache-dependency-path: ${JSON.stringify(model.dependencyCachePath)}`
           ]
         : []),
-      ""
+      "",
+      ...renderAdditionalRuntimeSetupSteps(additionalRuntimes),
+      ...(additionalRuntimes.length > 0 ? [""] : [])
     ];
+  }
+
+  const nodeRuntime = model.runtime.find((runtime) => runtime.name === "node");
+  if (!nodeRuntime || model.runtime.length > 1) {
+    throw pipelineError(
+      "ASYNC_PIPELINE_SYNC_INVALID_RUNTIME_SETUP",
+      'sync.github.setup: "node" can only install a single Node runtime. Use setup: "auto" or "pnpm" for deno or bun runtimes.'
+    );
   }
 
   return [
     "      - name: Setup Node",
     "        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6",
     "        with:",
-    `          node-version: ${model.nodeVersion}`,
+    `          node-version: ${nodeRuntime.version ?? model.nodeVersion}`,
     "          registry-url: https://registry.npmjs.org/",
     ...renderSetupNodeCacheLines(model, { pnpmAvailableBeforeSetupNode: false }),
     "",
@@ -710,6 +756,15 @@ function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] 
     "          corepack enable",
     `          corepack prepare pnpm@${pnpmVersion} --activate`,
     ""
+  ];
+}
+
+function renderAdditionalRuntimeSetupSteps(runtimes: RuntimeSpec[]): string[] {
+  if (runtimes.length === 0) return [];
+  return [
+    "      - name: Setup additional runtimes",
+    "        run: |",
+    ...runtimes.map((runtime) => `          pnpm runtime set ${runtime.name} ${runtime.version ?? "latest"} -g`)
   ];
 }
 
@@ -735,6 +790,31 @@ function resolveGitHubSetup(setup: string): string {
 
 function pnpmSetupVersion(packageManager: string, packageManagerVersion: string | undefined): string {
   return packageManager === "pnpm" && packageManagerVersion ? packageManagerVersion : DEFAULT_PNPM_VERSION;
+}
+
+function resolveRuntimeSpecs(configured: string[], projectKind: PackageInfo["projectKind"], nodeVersion: string): RuntimeSpec[] {
+  const runtimeSpecs = configured.length > 0 ? configured : [projectKind === "deno" ? `deno@${DEFAULT_DENO_VERSION}` : `node@${nodeVersion}`];
+  return runtimeSpecs.map(parseRuntimeSpec);
+}
+
+function parseRuntimeSpec(spec: string): RuntimeSpec {
+  const match = /^(node|deno|bun)(?:@(.+))?$/.exec(spec);
+  if (!match) {
+    throw pipelineError("ASYNC_PIPELINE_SYNC_INVALID_RUNTIME", `Invalid GitHub runtime "${spec}". Use node, deno, or bun with an optional version.`);
+  }
+  const name = match[1] as GitHubRuntimeName;
+  const version = match[2];
+  return {
+    name,
+    version,
+    spec: version ? `${name}@${version}` : name
+  };
+}
+
+function resolvePipelineCommand(command: string, projectKind: PackageInfo["projectKind"], packageManager: string): string {
+  if (command !== "async-pipeline") return command;
+  if (projectKind === "deno") return DEFAULT_DENO_PIPELINE_COMMAND;
+  return `${packageManager} ${command}`;
 }
 
 function renderPagesBuildSteps(lines: string[], pages: GitHubPagesConfig): void {
@@ -957,7 +1037,16 @@ function globToRegExp(pattern: string): RegExp {
 async function readPackageInfo(cwd: string): Promise<PackageInfo> {
   const packagePath = join(cwd, "package.json");
   if (!existsSync(packagePath)) {
-    return { packageManager: "pnpm", publicPackagePaths: [] };
+    const denoManifest = denoManifestPath(cwd);
+    if (denoManifest) {
+      return {
+        packageManager: "deno",
+        projectKind: "deno",
+        dependencyCachePath: existsSync(join(cwd, "deno.lock")) ? "deno.lock" : undefined,
+        publicPackagePaths: []
+      };
+    }
+    return { packageManager: "pnpm", projectKind: "package", publicPackagePaths: [] };
   }
   const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as {
     name?: string;
@@ -973,9 +1062,17 @@ async function readPackageInfo(cwd: string): Promise<PackageInfo> {
     packageManager,
     packageManagerVersion: parsedPackageManager.version,
     buildCommand,
+    projectKind: "package",
     dependencyCachePath: dependencyLockfilePath(cwd, packageManager),
     publicPackagePaths: await findPublicPackagePaths(cwd, packageJson)
   };
+}
+
+function denoManifestPath(cwd: string): string | undefined {
+  for (const name of ["deno.json", "deno.jsonc"]) {
+    if (existsSync(join(cwd, name))) return name;
+  }
+  return undefined;
 }
 
 function parsePackageManager(packageManager: string | undefined): { name: string; version?: string } {
@@ -1008,6 +1105,7 @@ async function findPublicPackagePaths(cwd: string, rootPackageJson: { name?: str
 }
 
 function dependencyLockfilePath(cwd: string, packageManager: string): string | undefined {
+  if (packageManager === "deno") return existsSync(join(cwd, "deno.lock")) ? "deno.lock" : undefined;
   const lockfile = packageManager === "npm"
     ? "package-lock.json"
     : packageManager === "yarn"

@@ -55,6 +55,42 @@ test("explicit section factories are accepted and mismatched sections are reject
   }), (error) => error.code === "ASYNC_PIPELINE_SECTION_KIND_MISMATCH");
 });
 
+test("normalizes sync command and github runtime declarations", () => {
+  const pipeline = definePipeline({
+    name: "deno-sync",
+    sync: {
+      command: "deno task async-pipeline",
+      github: {
+        runtime: ["node@24", "deno@2"]
+      }
+    },
+    tasks: {
+      verify: task({ requires: { runtime: "deno" }, run: sh`deno test` })
+    },
+    jobs: {
+      verify: job({ target: "verify" })
+    }
+  });
+
+  assert.equal(pipeline.sync.command, "deno task async-pipeline");
+  assert.deepEqual(pipeline.sync.github.runtime, ["node@24", "deno@2"]);
+  assert.equal(pipeline.tasks.verify.requires.runtime, "deno");
+
+  assert.throws(() => definePipeline({
+    name: "bad-command",
+    sync: { command: "" },
+    tasks: { verify: task({ run: sh`echo ok` }) },
+    jobs: { verify: job({ target: "verify" }) }
+  }), (error) => error.code === "ASYNC_PIPELINE_SYNC_INVALID_COMMAND");
+
+  assert.throws(() => definePipeline({
+    name: "bad-runtime",
+    sync: { github: { runtime: "python@3" } },
+    tasks: { verify: task({ run: sh`echo ok` }) },
+    jobs: { verify: job({ target: "verify" }) }
+  }), (error) => error.code === "ASYNC_PIPELINE_SYNC_INVALID_RUNTIME");
+});
+
 test("portable branded task and shell nodes normalize through validation", () => {
   const portableShell = brandDeclaration({ command: "echo portable" }, "shell");
   const pipeline = definePipeline({

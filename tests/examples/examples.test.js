@@ -111,6 +111,26 @@ test("deno-worker: verify runs without the deno binary and both manifests are sy
   assert.match(list.stdout, /package\.json/);
 });
 
+test("deno-only-pipeline: verify runs through Deno and sync artifacts are current", () => {
+  const verify = spawnSync("deno", ["task", "pipeline:verify"], {
+    cwd: exampleDir("deno-only-pipeline"),
+    encoding: "utf8",
+    env: { ...process.env },
+    timeout: 240_000
+  });
+  assert.equal(verify.status, 0, `deno-only-pipeline verify failed:\n${verify.stdout}\n${verify.stderr}`);
+  assert.match(verify.stdout, /Pipeline passed/);
+
+  const sync = spawnSync("deno", ["task", "pipeline:sync:check"], {
+    cwd: exampleDir("deno-only-pipeline"),
+    encoding: "utf8",
+    env: { ...process.env },
+    timeout: 240_000
+  });
+  assert.equal(sync.status, 0, `deno-only-pipeline sync check failed:\n${sync.stdout}\n${sync.stderr}`);
+  assert.match(sync.stdout, /Sync targets are current/);
+});
+
 test("many-repo-impact-run: impact job runs both source repos and matrix plans them", () => {
   assertJobPasses("many-repo-impact-run", "verifyImpact");
   assertSyncCurrent("many-repo-impact-run");

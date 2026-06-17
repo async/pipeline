@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.6 - 2026-06-17
+
+### Features
+
+- Add first-class Deno-only pipeline support: export the CLI as `@async/pipeline/cli`, add `sync.command` and `sync.github.runtime`, render Deno-only task and GitHub workflow commands without a `package.json`, enforce declared Node and Deno task runtimes before command execution, and ship a no-`package.json` Deno-only example.
+
 ## 0.8.5 - 2026-06-16
 
 ### Fixes

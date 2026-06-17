@@ -1,16 +1,16 @@
 ---
-title: "Sync: Choose What GitHub And npm See"
-description: "pipeline.ts is the single source of truth. Sync is the explicit, checked boundary that decides what GitHub Actions and package.json receive."
+title: "Sync: Choose What GitHub And Package Managers See"
+description: "pipeline.ts is the single source of truth. Sync is the explicit, checked boundary that decides what GitHub Actions and package-manager manifests receive."
 ---
 
-# Sync: Choose What GitHub And npm See
+# Sync: Choose What GitHub And Package Managers See
 
-`pipeline.ts` owns the workflow. GitHub Actions and `package.json` are read surfaces other tools depend on — so instead of taking them over, `@async/pipeline` generates exactly the pieces you opt into, records ownership, and fails loudly on drift or collision.
+`pipeline.ts` owns the workflow. GitHub Actions and package-manager manifests are read surfaces other tools depend on — so instead of taking them over, `@async/pipeline` generates exactly the pieces you opt into, records ownership, and fails loudly on drift or collision.
 
 ```ts
 sync: {
   github: true,   // one bootloader workflow + lock
-  tasks: true     // job scripts in package.json
+  tasks: true     // job scripts in package.json or tasks in deno.json
 }
 ```
 
@@ -39,7 +39,7 @@ What this deliberately does not do:
 - It does not put secrets in the workflow; `env.secret("NAME")` renders as `${{ secrets.NAME }}` references.
 - It does not grant permissions; the bootloader is `contents: read` unless a job declares more (for example npm provenance).
 
-## npm Scripts Stay Yours
+## Package Scripts And Deno Tasks Stay Yours
 
 `sync.tasks` writes package-manager aliases for the jobs you pick — and nothing else:
 
@@ -66,6 +66,8 @@ sync: {
 
 Every generated script is namespaced under your chosen prefix and recorded in `.async-pipeline/tasks.lock.json`. That lock is the ownership boundary: sync only ever rewrites scripts the lock claims. If a generated name collides with a script it does not own, generation fails with `ASYNC_PIPELINE_SYNC_CONFLICT` instead of overwriting your work. Your hand-written scripts are never rewritten, reordered, or removed.
 
+Deno-only repos can omit `package.json`: with `deno.json` or `deno.jsonc` at the root, generated tasks default to `deno run -A npm:@async/pipeline/cli`.
+
 ## Drift Is An Error, Not A Surprise
 
 The generated files are committed, so they are reviewable in every PR — and checkable:
@@ -84,7 +86,7 @@ The exit test for any tool that generates files: what happens when you remove it
 1. Delete the `sync` block from `pipeline.ts`.
 2. Delete `.github/workflows/async-pipeline.yml`, the lock files, and the `pipeline:*` scripts.
 
-That is the whole list. The generated workflow and scripts are plain artifacts with no runtime hook back into the package — until that day, they are simply the parts of your pipeline you chose to publish to GitHub and npm.
+That is the whole list. The generated workflow, scripts, and tasks are plain artifacts with no runtime hook back into the package — until that day, they are simply the parts of your pipeline you chose to publish to GitHub and package managers.
 
 ## Where To Go Next
 

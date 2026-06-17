@@ -1,0 +1,16 @@
+{
+  "name": "@async/example-deno-only-pipeline",
+  "version": "0.1.0",
+  "exports": "./src/check.ts",
+  "imports": {
+    "@async/pipeline": "../../packages/pipeline/dist/index.js",
+    "@async/pipeline/cli": "../../packages/pipeline/dist/cli.js"
+  },
+  "tasks": {
+    "async-pipeline": "deno run -A ../../packages/pipeline/dist/cli.js",
+    "check": "deno check pipeline.ts src/check.ts",
+    "pipeline:sync:check": "deno run -A ../../packages/pipeline/dist/cli.js sync check",
+    "pipeline:verify": "deno run -A ../../packages/pipeline/dist/cli.js run verify",
+    "test": "deno test src/check_test.ts"
+  }
+}

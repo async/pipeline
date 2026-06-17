@@ -26,6 +26,7 @@ export default definePipeline({
   },
   sync: {
     github: {
+      runtime: ["node@24", "deno@2"],
       dependabotAutoMerge: true,
       packagePreviews: true
     },

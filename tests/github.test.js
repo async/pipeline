@@ -211,6 +211,76 @@ test("renders node setup provider with the consumer pnpm packageManager version"
   }
 });
 
+test("renders deno-only github workflow without package-manager install", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-deno-only-"));
+  try {
+    writeFileSync(join(dir, "deno.json"), JSON.stringify({ tasks: {} }), "utf8");
+    writeFileSync(join(dir, "deno.lock"), JSON.stringify({ version: "5", specifiers: {}, npm: {}, workspace: {} }), "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: true
+      },
+      tasks: {
+        verify: task({ requires: { runtime: "deno" }, run: sh`deno test` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, /name: Setup pnpm runtime/);
+    assert.match(rendered.workflow, /runtime: deno@2/);
+    assert.match(rendered.workflow, /cache-dependency-path: "deno\.lock"/);
+    assert.match(rendered.workflow, /run: deno install --frozen=true/);
+    assert.match(rendered.workflow, /run: deno run -A npm:@async\/pipeline\/cli github check/);
+    assert.match(rendered.workflow, /run: deno run -A npm:@async\/pipeline\/cli run verify/);
+    assert.match(rendered.workflow, /run: deno run -A npm:@async\/pipeline\/cli explain --run latest \|\| true/);
+    assert.doesNotMatch(rendered.workflow, /pnpm install --frozen-lockfile/);
+    assert.equal(rendered.lock.packageManager, "deno");
+    assert.deepEqual(rendered.lock.runtime, ["deno@2"]);
+    assert.equal(rendered.lock.command, "deno run -A npm:@async/pipeline/cli");
+    assert.equal(rendered.lock.dependencyCachePath, "deno.lock");
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("renders mixed node and deno runtimes through pnpm setup", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-mixed-runtime-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          runtime: ["node@24", "deno@2"]
+        }
+      },
+      tasks: {
+        verify: task({ requires: { runtime: "deno" }, run: sh`deno test` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, /runtime: node@24/);
+    assert.match(rendered.workflow, /name: Setup additional runtimes/);
+    assert.match(rendered.workflow, /pnpm runtime set deno 2 -g/);
+    assert.match(rendered.workflow, /run: pnpm async-pipeline run verify/);
+    assert.deepEqual(rendered.lock.runtime, ["node@24", "deno@2"]);
+    assert.equal(rendered.lock.command, "pnpm async-pipeline");
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
 test("renders generated Dependabot auto-merge workflow job", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-dependabot-"));
   try {

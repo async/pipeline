@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { definePipeline, job, sh, task } from "../packages/pipeline-core/dist/index.js";
 import { runDoctor } from "../packages/pipeline-node/dist/doctor.js";
 
 test("doctor flags crashed runs stuck in running state", async () => {
@@ -61,6 +62,28 @@ test("doctor passes on consistent or absent run records", async () => {
 
     checks = await runDoctor(dir);
     assert.equal(checks.find((check) => check.name === "runs")?.status, "pass");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("doctor checks declared runtimes without assuming node and pnpm", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-doctor-deno-"));
+  try {
+    const pipeline = definePipeline({
+      name: "deno-only",
+      tasks: {
+        verify: task({ requires: { runtime: "deno" }, run: sh`deno test` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+
+    const checks = await runDoctor(dir, pipeline);
+    assert.equal(checks.some((check) => check.name === "deno"), true);
+    assert.equal(checks.some((check) => check.name === "node"), false);
+    assert.equal(checks.some((check) => check.name === "pnpm"), false);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

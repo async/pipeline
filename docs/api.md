@@ -229,6 +229,8 @@ Fields:
 | `run` | One shell command/function step or an array of steps/directives. |
 | `steps` | Multiple shell commands, function steps, or static directives. |
 
+`requires.runtime` enforces declared `node` and `deno` runtimes before task commands execute; `shell` remains a generic runtime declaration.
+
 `dependsOn` is the author-facing dependency keyword.
 
 Nested task groups flatten with `.`. A child named `default` is the group default, so `tasks.claims.default` normalizes to task id `claims`, while `tasks.claims.report` normalizes to `claims.report`. `index` remains accepted as a compatibility alias for older task groups.
@@ -482,11 +484,13 @@ Use object form to render elsewhere or tune the generated workflow:
 
 ```ts
 sync: {
+  command: "async-pipeline",
   github: {
     workflow: ".tmp/async-pipeline.yml",
     lock: ".tmp/async-pipeline.lock.json",
     setup: "auto",
     nodeVersion: 24,
+    runtime: ["node@24", "deno@2"],
     cache: true,
     dependencyCache: true,
     dependabotAutoMerge: true,
@@ -495,7 +499,7 @@ sync: {
 }
 ```
 
-`setup: "auto"` resolves to the official `pnpm/setup` runtime bootloader. The generated pnpm step uses the consuming repo's declared `packageManager` pnpm version when present and sets `runtime: node@<nodeVersion>`, so the default path does not need `actions/setup-node` or Corepack. Use `setup: "node"` only when you explicitly want the older `actions/setup-node` + Corepack bootloader. `nodeVersion` selects the Node runtime installed by the generated workflow (default `24`). `cache: true` (the default) adds a pinned `actions/cache` step that restores `.async/cache` across CI runs so warm tasks resolve as `cached`; set `cache: false` to keep task execution cold. `dependencyCache: true` (the default) enables dependency-store cache settings when the setup path can safely initialize the package manager before the cache step and the project has a recognized lockfile: with the default pnpm setup, the action caches the pnpm store; with forced Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup. Set `dependencyCache: false` for a fully cold dependency install.
+`sync.command` defaults to `async-pipeline` and is used by generated task commands and generated GitHub workflow commands. `setup: "auto"` resolves to the official `pnpm/setup` runtime bootloader. Package projects default generated GitHub workflows to `node@<nodeVersion>`; Deno-only projects with `deno.json` or `deno.jsonc` and no `package.json` default to `deno@2`; explicit `runtime` accepts a string or array such as `["node@24", "deno@2"]`. Use `setup: "node"` only when you explicitly want the older `actions/setup-node` + Corepack bootloader for a single Node runtime. `nodeVersion` selects the default Node runtime installed by the generated workflow (default `24`). `cache: true` (the default) adds a pinned `actions/cache` step that restores `.async/cache` across CI runs so warm tasks resolve as `cached`; set `cache: false` to keep task execution cold. `dependencyCache: true` (the default) enables dependency-store cache settings when the setup path can safely initialize the package manager before the cache step and the project has a recognized lockfile: with the default pnpm setup, the action caches the pnpm store or Deno lockfile; with forced Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup. Set `dependencyCache: false` for a fully cold dependency install.
 
 `dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, publishes a GitHub Packages PR preview through the lifecycle CLI, and comments install instructions on same-repo PRs.
 
@@ -517,6 +521,8 @@ sync: {
   }
 }
 ```
+
+Deno-only roots with `deno.json` or `deno.jsonc` and no `package.json` render generated task and workflow commands through `deno run -A npm:@async/pipeline/cli` unless `sync.command` is set.
 
 Use object form for explicit targets:
 

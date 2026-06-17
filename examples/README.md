@@ -10,6 +10,7 @@ Every example runs from its own directory and is exercised by this repo's `relea
 | [github-native-npm-preview-package](github-native-npm-preview-package/README.md) | Ready | A pipeline version of the GitHub-native npm preview package workflow from PatrickJS's Gist. |
 | [generated-package-previews](generated-package-previews/README.md) | Ready | `packagePreviews: true` and `dependabotAutoMerge: true` generating PR package previews and Dependabot auto-merge. |
 | [monorepo-package-selection](monorepo-package-selection/README.md) | Ready | Syncing package-manager scripts into selected workspace packages by `package.json#name`. |
+| [deno-only-pipeline](deno-only-pipeline/README.md) | Ready | A no-`package.json` project using Deno tasks, Deno runtime requirements, and Deno-native generated GitHub workflow commands. |
 | [deno-worker](deno-worker/README.md) | Ready | Writing generated commands into `deno.json` tasks alongside `package.json` scripts. |
 | [many-repo-impact-run](many-repo-impact-run/README.md) | Ready | Explicit source repos, namespaced tasks, candidate wiring through `prepare`, and GitHub matrix planning. |
 | [custom-cache-registry](custom-cache-registry/README.md) | Ready | File, memory, and placeholder remote cache registry definitions, with observable cache behavior per store. |

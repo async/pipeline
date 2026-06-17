@@ -7,6 +7,7 @@ import { pipelineError } from "@async/pipeline-core";
 
 export const TASK_SYNC_LOCK_PATH = ".async-pipeline/tasks.lock.json";
 const TASK_SYNC_GENERATOR_VERSION = 1;
+const DEFAULT_DENO_PIPELINE_COMMAND = "deno run -A npm:@async/pipeline/cli";
 
 export interface TaskSyncOptions {
   cwd: string;
@@ -48,7 +49,7 @@ export interface TaskSyncRenderResult {
 export async function renderTaskSync(pipeline: NormalizedPipeline, options: TaskSyncOptions): Promise<TaskSyncRenderResult> {
   const config = pipeline.sync.tasks;
   const manifests = config.enabled ? await resolveTaskSyncManifests(config, options.cwd) : [];
-  const commands = config.enabled ? renderCommands(pipeline, config) : [];
+  const commands = config.enabled ? renderCommands(pipeline, config, options.cwd) : [];
   const manifestEntries = manifests.map((manifest) => ({
     ...manifest,
     commands
@@ -153,13 +154,14 @@ export function describeTaskSync(result: TaskSyncRenderResult): string[] {
   return lines;
 }
 
-function renderCommands(pipeline: NormalizedPipeline, config: NormalizedTaskSyncConfig): TaskSyncCommand[] {
+function renderCommands(pipeline: NormalizedPipeline, config: NormalizedTaskSyncConfig, cwd: string): TaskSyncCommand[] {
   const commands: TaskSyncCommand[] = [];
+  const pipelineCommand = resolvePipelineCommand(pipeline.sync.command, cwd);
   const jobIds = config.jobs === "all" ? Object.keys(pipeline.jobs).sort() : [...config.jobs].sort();
   for (const jobId of jobIds) {
     commands.push({
       name: `${config.prefix}:${jobId}`,
-      value: `async-pipeline run ${jobId}`
+      value: `${pipelineCommand} run ${jobId}`
     });
   }
 
@@ -167,18 +169,26 @@ function renderCommands(pipeline: NormalizedPipeline, config: NormalizedTaskSync
   for (const taskId of taskIds) {
     commands.push({
       name: `${config.prefix}:task:${taskId}`,
-      value: `async-pipeline run-task ${taskId}`
+      value: `${pipelineCommand} run-task ${taskId}`
     });
   }
 
   for (const [name, command] of Object.entries(config.scripts).sort(([left], [right]) => left.localeCompare(right))) {
     commands.push({
       name: `${config.prefix}:${name}`,
-      value: `async-pipeline ${command}`
+      value: `${pipelineCommand} ${command}`
     });
   }
 
   return commands;
+}
+
+function resolvePipelineCommand(command: string, cwd: string): string {
+  if (command !== "async-pipeline") return command;
+  if (!existsSync(join(cwd, "package.json")) && (existsSync(join(cwd, "deno.json")) || existsSync(join(cwd, "deno.jsonc")))) {
+    return DEFAULT_DENO_PIPELINE_COMMAND;
+  }
+  return command;
 }
 
 async function resolveTaskSyncManifests(config: NormalizedTaskSyncConfig, cwd: string): Promise<Array<Omit<TaskSyncManifest, "commands">>> {

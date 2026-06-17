@@ -901,6 +901,16 @@ async function runTask(
   while (attempts < maxAttempts) {
     attempts += 1;
     try {
+      const runtimeTool = taskDefinition.requires?.runtime === "node" || taskDefinition.requires?.runtime === "deno"
+        ? taskDefinition.requires.runtime
+        : undefined;
+      if (runtimeTool) {
+        const ok = await options.executor.checkTool?.(runtimeTool);
+        if (ok === false) {
+          throw new Error(`Required runtime "${runtimeTool}" is not available for task "${taskDefinition.id}".`);
+        }
+      }
+
       for (const requirement of taskDefinition.requires?.tools ?? []) {
         const ok = await options.executor.checkTool?.(requirement);
         if (ok === false) {

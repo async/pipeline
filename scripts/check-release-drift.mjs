@@ -87,7 +87,12 @@ async function collectWorkflows(dir) {
 const workflows = [...await collectWorkflows(".github"), ...await collectWorkflows("examples")];
 for (const workflow of workflows) {
   const text = await readFile(join(root, workflow), "utf8");
-  for (const match of text.matchAll(/node-version:\s*["']?(\d+)/g)) {
+  const nodeVersionMatches = [
+    ...text.matchAll(/node-version:\s*["']?(\d+)/g),
+    ...text.matchAll(/runtime:\s*["']?node@(\d+)/g),
+    ...text.matchAll(/pnpm runtime set node\s+(\d+)/g)
+  ];
+  for (const match of nodeVersionMatches) {
     const version = Number(match[1]);
     if (Number.isFinite(floor) && version < floor) {
       fail(`${workflow} installs Node ${version}, below the engines floor >=${floor}.`);

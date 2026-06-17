@@ -171,7 +171,7 @@
     {
       "id": "github-actions.dependency-cache-step",
       "source": "docs/github-actions.md",
-      "anchor": "`dependencyCache` controls dependency-store cache settings: with the default pnpm setup, the action caches the pnpm store when a lockfile exists; with the forced Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup.",
+      "anchor": "`dependencyCache` controls dependency-store cache settings: with the default pnpm setup, the action caches the pnpm store or Deno lockfile when one exists; with the forced Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
         "renders github workflow with pnpm runtime setup using the consumer packageManager version",
@@ -191,7 +191,7 @@
     {
       "id": "api.github-dependency-cache",
       "source": "docs/api.md",
-      "anchor": "`dependencyCache: true` (the default) enables dependency-store cache settings when the setup path can safely initialize the package manager before the cache step and the project has a recognized lockfile: with the default pnpm setup, the action caches the pnpm store; with forced Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup.",
+      "anchor": "`dependencyCache: true` (the default) enables dependency-store cache settings when the setup path can safely initialize the package manager before the cache step and the project has a recognized lockfile: with the default pnpm setup, the action caches the pnpm store or Deno lockfile; with forced Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
         "renders github workflow with pnpm runtime setup using the consumer packageManager version",
@@ -230,7 +230,7 @@
     {
       "id": "readme.platform-workflow",
       "source": "README.md",
-      "anchor": "The checked-in workflow targets Node `>= 24` on GitHub-hosted Linux (`ubuntu-latest`) and macOS (`macos-latest`) runners",
+      "anchor": "The checked-in workflow targets GitHub-hosted Linux (`ubuntu-latest`) and macOS (`macos-latest`) runners",
       "tests": [
         "renders github job runner labels and runner matrices"
       ]
@@ -1280,6 +1280,112 @@
       "anchor": "`doctor` warns when an agent task declares no outputs",
       "tests": [
         "PROMISE: doctor warns when an agent task declares no outputs"
+      ]
+    },
+    {
+      "id": "readme.deno-only-task-sync",
+      "source": "README.md",
+      "anchor": "Deno-only roots with `deno.json` or `deno.jsonc` and no `package.json` default generated task commands to `deno run -A npm:@async/pipeline/cli`; set `sync.command` when you want a local wrapper such as `deno task async-pipeline`.",
+      "tests": [
+        "sync.tasks true renders Deno CLI commands for a Deno-only root",
+        "deno-only-pipeline: verify runs through Deno and sync artifacts are current"
+      ]
+    },
+    {
+      "id": "readme.github-runtime-defaults",
+      "source": "README.md",
+      "anchor": "Node projects default generated GitHub workflows to `node@24`; Deno-only projects with `deno.json` or `deno.jsonc` and no `package.json` default to `deno@2`; mixed projects can set `sync.github.runtime` to both.",
+      "tests": [
+        "renders github workflow triggers and bootloader steps",
+        "renders deno-only github workflow without package-manager install",
+        "renders mixed node and deno runtimes through pnpm setup"
+      ]
+    },
+    {
+      "id": "readme.deno-cli-subpath",
+      "source": "README.md",
+      "anchor": "Deno-only repos can omit `package.json` and run the published CLI through Deno's npm compatibility layer:",
+      "tests": [
+        "PROMISE: package exports the CLI subpath for Deno npm entrypoints",
+        "deno-only-pipeline: verify runs through Deno and sync artifacts are current"
+      ]
+    },
+    {
+      "id": "api.sync-command-runtime-defaults",
+      "source": "docs/api.md",
+      "anchor": "`sync.command` defaults to `async-pipeline` and is used by generated task commands and generated GitHub workflow commands.",
+      "tests": [
+        "PROMISE: package exports the CLI subpath for Deno npm entrypoints",
+        "normalizes sync command and github runtime declarations",
+        "sync.tasks true renders Deno CLI commands for a Deno-only root",
+        "renders deno-only github workflow without package-manager install"
+      ]
+    },
+    {
+      "id": "api.deno-only-generated-commands",
+      "source": "docs/api.md",
+      "anchor": "Deno-only roots with `deno.json` or `deno.jsonc` and no `package.json` render generated task and workflow commands through `deno run -A npm:@async/pipeline/cli` unless `sync.command` is set.",
+      "tests": [
+        "sync.tasks true renders Deno CLI commands for a Deno-only root",
+        "renders deno-only github workflow without package-manager install",
+        "deno-only-pipeline: verify runs through Deno and sync artifacts are current"
+      ]
+    },
+    {
+      "id": "api.requires-runtime-enforcement",
+      "source": "docs/api.md",
+      "anchor": "`requires.runtime` enforces declared `node` and `deno` runtimes before task commands execute; `shell` remains a generic runtime declaration.",
+      "tests": [
+        "requires.runtime fails before running a missing runtime command",
+        "doctor checks declared runtimes without assuming node and pnpm"
+      ]
+    },
+    {
+      "id": "github.runtime-defaults",
+      "source": "docs/github-actions.md",
+      "anchor": "Package projects default to `node@<nodeVersion>`; Deno-only projects with `deno.json` or `deno.jsonc` and no `package.json` default to `deno@2`; explicit `runtime` accepts a string or array such as `[\"node@24\", \"deno@2\"]`.",
+      "tests": [
+        "renders github workflow triggers and bootloader steps",
+        "renders deno-only github workflow without package-manager install",
+        "renders mixed node and deno runtimes through pnpm setup"
+      ]
+    },
+    {
+      "id": "github.deno-only-install",
+      "source": "docs/github-actions.md",
+      "anchor": "Deno-only generated workflows run `deno install` instead of package-manager install.",
+      "tests": [
+        "renders deno-only github workflow without package-manager install"
+      ]
+    },
+    {
+      "id": "sync.deno-only-generated-tasks",
+      "source": "docs/sync.md",
+      "anchor": "Deno-only repos can omit `package.json`: with `deno.json` or `deno.jsonc` at the root, generated tasks default to `deno run -A npm:@async/pipeline/cli`.",
+      "tests": [
+        "sync.tasks true renders Deno CLI commands for a Deno-only root",
+        "deno-only-pipeline: verify runs through Deno and sync artifacts are current"
+      ]
+    },
+    {
+      "id": "examples.deno-only-pipeline",
+      "source": "examples/README.md",
+      "anchor": "A no-`package.json` project using Deno tasks, Deno runtime requirements, and Deno-native generated GitHub workflow commands.",
+      "tests": [
+        "deno-only-pipeline: verify runs through Deno and sync artifacts are current"
+      ]
+    },
+    {
+      "id": "changelog.deno-only-pipeline-support",
+      "source": "CHANGELOG.md",
+      "anchor": "Add first-class Deno-only pipeline support: export the CLI as `@async/pipeline/cli`, add `sync.command` and `sync.github.runtime`, render Deno-only task and GitHub workflow commands without a `package.json`, enforce declared Node and Deno task runtimes before command execution, and ship a no-`package.json` Deno-only example.",
+      "tests": [
+        "normalizes sync command and github runtime declarations",
+        "sync.tasks true renders Deno CLI commands for a Deno-only root",
+        "renders deno-only github workflow without package-manager install",
+        "renders mixed node and deno runtimes through pnpm setup",
+        "requires.runtime fails before running a missing runtime command",
+        "deno-only-pipeline: verify runs through Deno and sync artifacts are current"
       ]
     },
     {

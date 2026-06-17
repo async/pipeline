@@ -20,7 +20,8 @@ export async function runDoctor(cwd: string = process.cwd(), pipeline?: Normaliz
     if (agentOutputsCheck) checks.push(agentOutputsCheck);
   }
 
-  for (const tool of ["node", "pnpm"]) {
+  const requiredTools = pipeline ? requiredToolsForPipeline(pipeline) : new Set(["node", "pnpm"]);
+  for (const tool of [...requiredTools].sort()) {
     const available = await host.checkTool(tool);
     checks.push({
       name: tool,
@@ -39,6 +40,19 @@ export async function runDoctor(cwd: string = process.cwd(), pipeline?: Normaliz
   checks.push(await checkRunRecords(cwd));
 
   return checks;
+}
+
+function requiredToolsForPipeline(pipeline: NormalizedPipeline): Set<string> {
+  const tools = new Set<string>();
+  for (const taskDefinition of Object.values(pipeline.tasks)) {
+    for (const tool of taskDefinition.requires?.tools ?? []) {
+      tools.add(tool);
+    }
+    if (taskDefinition.requires?.runtime === "node" || taskDefinition.requires?.runtime === "deno") {
+      tools.add(taskDefinition.requires.runtime);
+    }
+  }
+  return tools;
 }
 
 /**

@@ -1,6 +1,6 @@
 {
   "name": "@async/pipeline",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "description": "Local-first TypeScript pipelines with one task graph for laptops and CI.",
   "license": "MIT",
   "type": "module",
@@ -17,6 +17,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "default": "./dist/cli.js"
     },
     "./core": {
       "types": "./dist/core.d.ts",

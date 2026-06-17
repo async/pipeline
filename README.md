@@ -18,21 +18,21 @@ Write the workflow in TypeScript, run it locally, and generate the thin GitHub A
 
 ## Syncs Without Taking Over
 
-`pipeline.ts` is the single source of truth, but GitHub Actions and `package.json` are never taken over — they receive only what you opt into through `sync`:
+`pipeline.ts` is the single source of truth, but GitHub Actions and package-manager manifests are never taken over — they receive only what you opt into through `sync`:
 
 ```txt
                  ┌─ run ──────▶  your laptop and CI, evidence under .async/
  pipeline.ts ────┤
  (the source)    └─ sync ─────▶  .github/workflows/async-pipeline.yml   (thin bootloader)
-                    opt-in,  ─▶  package.json scripts you select        (namespaced, locked)
+                    opt-in,  ─▶  package scripts or Deno tasks          (namespaced, locked)
                     checked
 ```
 
-GitHub Actions keeps triggers, runners, permissions, and secrets; it stops being where workflow logic lives. npm scripts stay readable aliases; sync writes only namespaced, lock-owned entries and fails on collisions instead of overwriting yours. `sync check` fails CI when either surface drifts from `pipeline.ts`, and leaving is two deletions: the `sync` block and the generated files. The full story: [docs/sync.md](docs/sync.md).
+GitHub Actions keeps triggers, runners, permissions, and secrets; it stops being where workflow logic lives. Package scripts and Deno tasks stay readable aliases; sync writes only namespaced, lock-owned entries and fails on collisions instead of overwriting yours. `sync check` fails CI when either surface drifts from `pipeline.ts`, and leaving is two deletions: the `sync` block and the generated files. The full story: [docs/sync.md](docs/sync.md).
 
 ## Quick Start
 
-Try the repo's own pipeline (requires Node >= 24 on macOS or Linux; `pipeline.ts` loads natively):
+Try the repo's own pipeline (requires Node >= 24 and Deno >= 2 on macOS or Linux; `pipeline.ts` loads natively):
 
 ```sh
 git clone https://github.com/async/pipeline.git
@@ -54,7 +54,7 @@ The self pipeline lives in [pipeline.ts](pipeline.ts). It runs `build`, `typeche
 
 ## Examples
 
-See [examples](examples/README.md) for copyable pipeline shapes, all exercised by this repo's own `release:check`: a [basic node package](examples/basic-node-package/README.md), [generated package previews](examples/generated-package-previews/README.md), the [GitHub-native npm preview package workflow](examples/github-native-npm-preview-package/README.md), [monorepo package selection](examples/monorepo-package-selection/README.md), a [Deno worker](examples/deno-worker/README.md), a [many-repo impact run](examples/many-repo-impact-run/README.md), a [custom cache registry](examples/custom-cache-registry/README.md), and a [runtime middleware stack](examples/runtime-middleware-stack/README.md).
+See [examples](examples/README.md) for copyable pipeline shapes, all exercised by this repo's own `release:check`: a [basic node package](examples/basic-node-package/README.md), [generated package previews](examples/generated-package-previews/README.md), the [GitHub-native npm preview package workflow](examples/github-native-npm-preview-package/README.md), [monorepo package selection](examples/monorepo-package-selection/README.md), a [Deno-only pipeline](examples/deno-only-pipeline/README.md), a [Deno worker](examples/deno-worker/README.md), a [many-repo impact run](examples/many-repo-impact-run/README.md), a [custom cache registry](examples/custom-cache-registry/README.md), and a [runtime middleware stack](examples/runtime-middleware-stack/README.md).
 
 ## How It Compares
 
@@ -75,6 +75,14 @@ After the package is published, install the public package:
 ```sh
 pnpm add -D @async/pipeline
 ```
+
+Deno-only repos can omit `package.json` and run the published CLI through Deno's npm compatibility layer:
+
+```sh
+deno run -A npm:@async/pipeline/cli run verify
+```
+
+Deno support relies on Deno's npm and `node:` compatibility layer for the pipeline package internals; see the [Deno Node/npm compatibility docs](https://docs.deno.com/runtime/fundamentals/node/).
 
 Create `pipeline.ts`:
 
@@ -301,6 +309,8 @@ That can generate:
 
 Task sync records ownership in `.async-pipeline/tasks.lock.json`. `sync tasks generate` never overwrites an existing unmanaged script or Deno task. If a generated command exists but is not claimed by the lock, it fails with `ASYNC_PIPELINE_SYNC_CONFLICT`.
 
+Deno-only roots with `deno.json` or `deno.jsonc` and no `package.json` default generated task commands to `deno run -A npm:@async/pipeline/cli`; set `sync.command` when you want a local wrapper such as `deno task async-pipeline`.
+
 ## Cache Registry
 
 The default pipeline cache registry includes `file` and `memory`. `cache: true` uses the pipeline default, and explicit refs make task behavior easy to read:
@@ -392,7 +402,7 @@ Pin `ref` to a commit SHA for reproducible impact runs. A branch name like `"mai
 
 ## Platform Support
 
-The checked-in workflow targets Node `>= 24` on GitHub-hosted Linux (`ubuntu-latest`) and macOS (`macos-latest`) runners; self-hosted label sets such as Tart-backed Apple Silicon runners are supported through `runsOn`/`runsOnMatrix` (see [GitHub Actions setup](docs/github-actions.md)). Windows is untested; use WSL.
+Node projects default generated GitHub workflows to `node@24`; Deno-only projects with `deno.json` or `deno.jsonc` and no `package.json` default to `deno@2`; mixed projects can set `sync.github.runtime` to both. The checked-in workflow targets GitHub-hosted Linux (`ubuntu-latest`) and macOS (`macos-latest`) runners; self-hosted label sets such as Tart-backed Apple Silicon runners are supported through `runsOn`/`runsOnMatrix` (see [GitHub Actions setup](docs/github-actions.md)). Windows is untested; use WSL.
 
 ## Use It When
 
@@ -407,7 +417,7 @@ The checked-in workflow targets Node `>= 24` on GitHub-hosted Linux (`ubuntu-lat
 - Redis lifecycle management. `redisCache(...)` can use a Redis instance you provide, but it does not start, migrate, or prune Redis for you.
 - Automatic dependency discovery. Sources are explicit by design.
 - Automatic sandbox routing. Isolation is opt-in: select it with `--sandbox`, `--execution`, or programmatic run options; `sandbox.container(...)` is portable OCI image intent, while Docker, Apple container, and Lima are provider choices.
-- Deno or Ollama runtime integration. They can be declared as optional tool requirements, but they are not package dependencies.
+- Ollama runtime integration. It can be declared as an optional tool requirement, but it is not a package dependency.
 
 ## Releases, Snapshots, And The npm Fallback
 
@@ -437,7 +447,7 @@ pnpm add @async/pipeline@pr-123
 ## Docs
 
 - [Docs home](docs/index.md)
-- [Sync: choose what GitHub and npm see](docs/sync.md)
+- [Sync: choose what GitHub and package managers see](docs/sync.md)
 - [Getting started](docs/getting-started.md)
 - [How it works](docs/how-it-works.md)
 - [Running locally](docs/local-runs.md)

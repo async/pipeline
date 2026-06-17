@@ -272,6 +272,7 @@ export type SyncSelection = "all" | string[];
 export type SyncTargetSelector = { package: string; allowMultiple?: boolean } | { path: string; allowMultiple?: boolean };
 export type SyncTargets = "root" | SyncTargetSelector[];
 export type GitHubSetupProvider = "auto" | "pnpm" | "node";
+export type GitHubRuntimeName = "node" | "deno" | "bun";
 export type DependabotAutoMergeEcosystem = "github-actions" | "npm" | "deno";
 
 export interface DependabotAutoMergeConfig {
@@ -296,6 +297,7 @@ export interface GitHubSyncConfig {
   lock?: string;
   setup?: GitHubSetupProvider;
   nodeVersion?: number | string;
+  runtime?: string | string[];
   cache?: boolean;
   dependencyCache?: boolean;
   dependabotAutoMerge?: DependabotAutoMergeInput;
@@ -316,6 +318,7 @@ export interface TaskSyncConfig {
 export type TaskSyncInput = boolean | TaskSyncConfig;
 
 export interface PipelineSyncConfig {
+  command?: string;
   github?: GitHubSyncInput;
   tasks?: TaskSyncInput;
 }
@@ -326,6 +329,7 @@ export interface NormalizedGitHubSyncConfig {
   lock: string;
   setup: Exclude<GitHubSetupProvider, "auto">;
   nodeVersion: string;
+  runtime: string[];
   cache: boolean;
   dependencyCache: boolean;
   dependabotAutoMerge: NormalizedDependabotAutoMergeConfig;
@@ -358,6 +362,7 @@ export interface NormalizedTaskSyncConfig {
 }
 
 export interface NormalizedPipelineSync {
+  command: string;
   github: NormalizedGitHubSyncConfig;
   tasks: NormalizedTaskSyncConfig;
 }
@@ -843,7 +848,8 @@ const GITHUB_PAGES_FIELDS = new Set(["artifactName", "build", "environment"]);
 const GITHUB_PAGES_JEKYLL_BUILD_FIELDS = new Set(["destination", "kind", "source"]);
 const GITHUB_PAGES_STATIC_BUILD_FIELDS = new Set(["kind", "path"]);
 const GITHUB_PERMISSION_FIELDS = new Set(["contents", "idToken", "issues", "packages", "pullRequests"]);
-const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "cache", "dependencyCache", "dependabotAutoMerge", "packagePreviews"]);
+const SYNC_FIELDS = new Set(["command", "github", "tasks"]);
+const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "dependabotAutoMerge", "packagePreviews"]);
 const GITHUB_SETUP_PROVIDERS = new Set<GitHubSetupProvider>(["auto", "pnpm", "node"]);
 const DEPENDABOT_AUTO_MERGE_FIELDS = new Set(["ecosystems"]);
 const DEPENDABOT_AUTO_MERGE_ECOSYSTEMS = new Set<DependabotAutoMergeEcosystem>(["github-actions", "npm", "deno"]);
@@ -883,6 +889,9 @@ function rejectUnknownFields(known: Set<string>, value: object, where: string): 
  */
 function validateDefinitionShape(definition: PipelineDefinition): void {
   rejectUnknownFields(PIPELINE_FIELDS, definition, "Pipeline");
+  if (definition.sync && typeof definition.sync === "object") {
+    rejectUnknownFields(SYNC_FIELDS, definition.sync, "sync");
+  }
   if (definition.sync?.github && typeof definition.sync.github === "object") {
     rejectUnknownFields(GITHUB_SYNC_FIELDS, definition.sync.github, "sync.github");
     if (definition.sync.github.dependabotAutoMerge && typeof definition.sync.github.dependabotAutoMerge === "object") {
@@ -1669,9 +1678,22 @@ function normalizeCacheRegistry(cache: PipelineDefinition["cache"]): CacheRegist
 
 function normalizeSync(sync: PipelineDefinition["sync"]): NormalizedPipelineSync {
   return {
+    command: normalizeSyncCommand(sync?.command),
     github: normalizeGitHubSync(sync?.github),
     tasks: normalizeTaskSync(sync?.tasks)
   };
+}
+
+function normalizeSyncCommand(command: string | undefined): string {
+  if (command === undefined) return "async-pipeline";
+  if (typeof command !== "string") {
+    throw pipelineError("ASYNC_PIPELINE_SYNC_INVALID_COMMAND", "sync.command must be a string.");
+  }
+  const normalized = command.trim();
+  if (!normalized) {
+    throw pipelineError("ASYNC_PIPELINE_SYNC_INVALID_COMMAND", "sync.command cannot be empty.");
+  }
+  return normalized;
 }
 
 const DEFAULT_GITHUB_NODE_VERSION = "24";
@@ -1684,6 +1706,7 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       lock: ".github/async-pipeline.lock.json",
       setup: "pnpm",
       nodeVersion: DEFAULT_GITHUB_NODE_VERSION,
+      runtime: [],
       cache: true,
       dependencyCache: true,
       dependabotAutoMerge: normalizeDependabotAutoMerge(undefined),
@@ -1697,6 +1720,7 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       lock: ".github/async-pipeline.lock.json",
       setup: "pnpm",
       nodeVersion: DEFAULT_GITHUB_NODE_VERSION,
+      runtime: [],
       cache: true,
       dependencyCache: true,
       dependabotAutoMerge: normalizeDependabotAutoMerge(undefined),
@@ -1709,11 +1733,32 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
     lock: github.lock ?? ".github/async-pipeline.lock.json",
     setup: normalizeGitHubSetup(github.setup),
     nodeVersion: normalizeGitHubNodeVersion(github.nodeVersion),
+    runtime: normalizeGitHubRuntime(github.runtime),
     cache: github.cache ?? true,
     dependencyCache: github.dependencyCache ?? true,
     dependabotAutoMerge: normalizeDependabotAutoMerge(github.dependabotAutoMerge),
     packagePreviews: normalizePackagePreviews(github.packagePreviews)
   };
+}
+
+function normalizeGitHubRuntime(runtime: string | string[] | undefined): string[] {
+  if (runtime === undefined) return [];
+  const entries = Array.isArray(runtime) ? runtime : [runtime];
+  if (entries.length === 0) {
+    throw pipelineError("ASYNC_PIPELINE_SYNC_INVALID_RUNTIME", "sync.github.runtime cannot be empty.");
+  }
+  const normalized = entries.map((entry) => {
+    if (typeof entry !== "string") {
+      throw pipelineError("ASYNC_PIPELINE_SYNC_INVALID_RUNTIME", "sync.github.runtime entries must be strings like node@24 or deno@2.");
+    }
+    const value = entry.trim();
+    const match = /^(node|deno|bun)(?:@([A-Za-z0-9._+/-]+))?$/.exec(value);
+    if (!match) {
+      throw pipelineError("ASYNC_PIPELINE_SYNC_INVALID_RUNTIME", `Invalid GitHub runtime "${entry}". Use node, deno, or bun with an optional version, for example node@24 or deno@2.`);
+    }
+    return value;
+  });
+  return [...new Set(normalized)];
 }
 
 function normalizeGitHubSetup(setup: GitHubSetupProvider | undefined): Exclude<GitHubSetupProvider, "auto"> {

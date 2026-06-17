@@ -96,6 +96,43 @@ async function startFakeRedis() {
   };
 }
 
+test("requires.runtime fails before running a missing runtime command", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-runtime-requirement-"));
+  try {
+    const calls = [];
+    const executor = {
+      name: "mock",
+      async checkTool(tool) {
+        calls.push(["checkTool", tool]);
+        return tool !== "deno";
+      },
+      async runShell(command) {
+        calls.push(["runShell", command]);
+        return { code: 0, stdout: "", stderr: "" };
+      }
+    };
+    const pipeline = definePipeline({
+      name: "runtime-requirement",
+      cache: false,
+      tasks: {
+        verify: task({ requires: { runtime: "deno" }, run: sh`deno test` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+
+    const record = await runJob(pipeline, { id: "verify", cwd: dir, env: {}, executor });
+
+    assert.equal(record.status, "failed");
+    assert.equal(record.tasks[0].status, "failed");
+    assert.match(record.tasks[0].error, /Required runtime "deno" is not available/);
+    assert.deepEqual(calls, [["checkTool", "deno"]]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 function readFakeRedisCommand(buffer) {
   if (buffer.length === 0) return null;
   if (buffer[0] !== 42) throw new Error("expected RESP array command");

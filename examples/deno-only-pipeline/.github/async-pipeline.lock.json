@@ -3,8 +3,8 @@
   "generator": "@async/pipeline",
   "config": "pipeline.ts",
   "workflow": ".github/workflows/async-pipeline.yml",
-  "hash": "sha256:5fc1eac56c693d0b8754bf5afdade671b7d591689e5ac86b4302919bf8a234dc",
-  "generatedAt": "2026-06-17T08:09:05.566Z",
+  "hash": "sha256:787e5af06dc06f6c20a52112ff1c2e003c8e47891e0699c1a2c88353940eb084",
+  "generatedAt": "2026-06-17T08:09:05.502Z",
   "triggers": {
     "pull_request": {},
     "push": {
@@ -27,26 +27,14 @@
       ],
       "env": {},
       "if": "(github.event_name == 'pull_request') || (github.event_name == 'push' && (github.ref == 'refs/heads/main')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'verify')"
-    },
-    {
-      "id": "workerCheck",
-      "target": [
-        "denoCheck"
-      ],
-      "trigger": [
-        "manual"
-      ],
-      "env": {},
-      "if": "github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'workerCheck'"
     }
   ],
-  "packageManager": "pnpm",
-  "packageManagerVersion": "11.1.0",
-  "command": "pnpm async-pipeline",
+  "packageManager": "deno",
+  "command": "deno run -A ../../packages/pipeline/dist/cli.js",
   "setup": "pnpm",
   "nodeVersion": "24",
   "runtime": [
-    "node@24"
+    "deno@2"
   ],
   "taskCache": true,
   "dependencyCache": true,
@@ -65,7 +53,6 @@
     "comment": true
   },
   "manualDispatchJobs": [
-    "verify",
-    "workerCheck"
+    "verify"
   ]
 }

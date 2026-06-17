@@ -61,6 +61,10 @@ jobs:
           cache: true
           cache-dependency-path: "pnpm-lock.yaml"
 
+      - name: Setup additional runtimes
+        run: |
+          pnpm runtime set deno 2 -g
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -143,6 +147,10 @@ jobs:
           cache: true
           cache-dependency-path: "pnpm-lock.yaml"
 
+      - name: Setup additional runtimes
+        run: |
+          pnpm runtime set deno 2 -g
+
       - name: Use current npm
         run: npm install -g npm@11.16.0
 
@@ -202,6 +210,10 @@ jobs:
           cache: true
           cache-dependency-path: "pnpm-lock.yaml"
 
+      - name: Setup additional runtimes
+        run: |
+          pnpm runtime set deno 2 -g
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -259,6 +271,10 @@ jobs:
           install: false
           cache: true
           cache-dependency-path: "pnpm-lock.yaml"
+
+      - name: Setup additional runtimes
+        run: |
+          pnpm runtime set deno 2 -g
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -423,6 +439,10 @@ jobs:
           install: false
           cache: true
           cache-dependency-path: "pnpm-lock.yaml"
+
+      - name: Setup additional runtimes
+        run: |
+          pnpm runtime set deno 2 -g
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

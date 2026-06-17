@@ -394,6 +394,15 @@ test("PROMISE: package API surface artifacts are published with @async/pipeline"
   assert.ok(packageJson.files.includes("API_SURFACE.md"), "API_SURFACE.md must be included in npm package files");
 });
 
+test("PROMISE: package exports the CLI subpath for Deno npm entrypoints", async () => {
+  const packageJson = JSON.parse(await readFile(new URL("../packages/pipeline/package.json", import.meta.url), "utf8"));
+
+  assert.deepEqual(packageJson.exports["./cli"], {
+    types: "./dist/cli.d.ts",
+    default: "./dist/cli.js"
+  });
+});
+
 test("PROMISE: API surface drift checks are wired through @async/api-contract and the release gate", async () => {
   const { default: pipeline } = await import("../pipeline.ts");
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));

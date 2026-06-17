@@ -154,6 +154,32 @@ test("renders deno tasks for explicit path targets", async () => {
   }
 });
 
+test("sync.tasks true renders Deno CLI commands for a Deno-only root", async () => {
+  const dir = mkdtempSyncCompat("async-pipeline-sync-deno-only-");
+  try {
+    writeJson(join(dir, "deno.json"), { tasks: {} });
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        tasks: true
+      },
+      tasks: {
+        test: task({ run: sh`deno test` })
+      },
+      jobs: {
+        verify: job({ target: "test" })
+      }
+    });
+
+    const rendered = await renderTaskSync(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+    await writeTaskSync(rendered, dir);
+    const denoJson = JSON.parse(readFileSync(join(dir, "deno.json"), "utf8"));
+    assert.equal(denoJson.tasks["pipeline:verify"], "deno run -A npm:@async/pipeline/cli run verify");
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
 test("resolves package-name targets and rejects unmanaged conflicts", async () => {
   const dir = mkdtempSyncCompat("async-pipeline-sync-targets-");
   try {
