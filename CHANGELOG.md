@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.1 - 2026-06-18
+
+### Fixes
+
+- Render pipeline lifecycle publish tasks as `async/actions/preview` and `async/actions/publish` steps in generated GitHub Actions, so downstream repos can keep `pipeline.ts` release/snapshot tasks while the published `@async/pipeline` tarball remains free of release networking code.
+
 ## 0.9.0 - 2026-06-18
 
 ### Breaking

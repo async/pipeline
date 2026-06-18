@@ -422,6 +422,83 @@ test("renders generated package preview job from packagePreviews true", async ()
   }
 });
 
+test("renders lifecycle publish tasks as async action steps", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-lifecycle-actions-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@async/example", version: "1.2.3", packageManager: "pnpm@11.1.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      triggers: {
+        main: trigger.github({ events: ["push"], branches: ["main"] }),
+        release: trigger.github({ events: ["release"], types: ["published"] })
+      },
+      tasks: {
+        pack: task({ run: sh`npm pack --dry-run` }),
+        snapshot: task({
+          dependsOn: ["pack"],
+          run: sh`pnpm async-pipeline publish github main --package .`
+        }),
+        "release-ensure": task({
+          dependsOn: ["pack"],
+          run: sh`pnpm async-pipeline release ensure --package .`
+        }),
+        "publish-github": task({
+          dependsOn: ["release-ensure"],
+          run: sh`pnpm async-pipeline publish github release --package .`
+        }),
+        publish: task({
+          dependsOn: ["publish-github"],
+          run: [
+            sh`pnpm async-pipeline publish npm --package .`,
+            sh`pnpm async-pipeline release doctor --package .`
+          ]
+        })
+      },
+      jobs: {
+        snapshot: job({
+          target: "snapshot",
+          trigger: ["main"],
+          env: { GITHUB_TOKEN: env.secret("GITHUB_TOKEN") },
+          github: { permissions: { packages: "write" } }
+        }),
+        publish: job({
+          target: "publish",
+          trigger: ["release"],
+          requires: { provenance: true },
+          env: {
+            GITHUB_TOKEN: env.secret("GITHUB_TOKEN"),
+            NODE_AUTH_TOKEN: env.secret("NPM_TOKEN")
+          },
+          github: { permissions: { contents: "write", packages: "write" } }
+        })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.doesNotMatch(rendered.workflow, /async-pipeline run snapshot/);
+    assert.doesNotMatch(rendered.workflow, /async-pipeline run publish/);
+    assert.match(rendered.workflow, /name: Run pipeline task pack/);
+    assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"/);
+    assert.match(rendered.workflow, /artifact-name: async-pipeline-\$\{\{ github\.job \}\}-pack-runs/);
+    assert.match(rendered.workflow, /uses: async\/actions\/preview@v0/);
+    assert.match(rendered.workflow, /package-path: "\."/);
+    assert.match(rendered.workflow, /target-registry: "https:\/\/npm\.pkg\.github\.com"/);
+    assert.match(rendered.workflow, /mode: main/);
+    assert.match(rendered.workflow, /comment: false/);
+    assert.match(rendered.workflow, /uses: async\/actions\/publish@v0/);
+    assert.match(rendered.workflow, /mode: github-release/);
+    assert.match(rendered.workflow, /mode: github-packages/);
+    assert.match(rendered.workflow, /mode: npm/);
+    assert.match(rendered.workflow, /provenance: true/);
+    assert.match(rendered.workflow, /mode: doctor/);
+    assert.match(rendered.workflow, /NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
 test("packagePreviews true requires explicit package when multiple public packages exist", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-package-preview-ambiguous-"));
   try {

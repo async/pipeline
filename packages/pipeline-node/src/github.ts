@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubPagesSyncConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, TriggerDefinition, TriggerId } from "@async/pipeline-core";
+import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubPagesSyncConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, TriggerDefinition, TriggerId } from "@async/pipeline-core";
 import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
@@ -14,6 +14,7 @@ const ASYNC_SETUP_ACTION = "async/actions/setup@v0";
 const ASYNC_RUN_ACTION = "async/actions/run@v0";
 const ASYNC_PAGES_ACTION = "async/actions/pages@v0";
 const ASYNC_PREVIEW_ACTION = "async/actions/preview@v0";
+const ASYNC_PUBLISH_ACTION = "async/actions/publish@v0";
 const ASYNC_DEPENDABOT_MERGE_ACTION = "async/actions/dependabot-merge@v0";
 const PNPM_SETUP_ACTION = "pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0";
 const DENO_SETUP_ACTION = "denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4";
@@ -78,6 +79,11 @@ interface RuntimeSpec {
   version?: string;
   spec: string;
 }
+
+type LifecyclePlanItem =
+  | { kind: "run-task"; taskId: string }
+  | { kind: "preview"; mode: "main" | "pr"; packagePath: string; registry: string; namespace?: string; comment: boolean; tokenEnv: string }
+  | { kind: "publish"; mode: "npm" | "github-packages" | "github-release" | "doctor"; packagePath: string; registry: string; distTag: string };
 
 export interface GitHubRenderResult {
   workflowPath: string;
@@ -290,6 +296,7 @@ function buildRenderModel(
         if: renderGitHubJobCondition(job, pipeline.triggers)
       }))
       .sort((left, right) => left.id.localeCompare(right.id)),
+    tasks: pipeline.tasks,
     packageManager: options.packageManager,
     packageManagerVersion: options.packageManagerVersion,
     buildCommand: options.buildCommand,
@@ -561,7 +568,12 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
       `        run: ${model.buildCommand}`
     );
   }
-  renderRunActionStep(lines, "Run pipeline job", `${model.command} github check && ${model.command} run ${shellWord(job.id)}${job.execution ? ` --execution ${shellWord(job.execution)}` : ""}`, job.env);
+  const lifecyclePlan = resolveLifecycleJobPlan(model, job);
+  if (lifecyclePlan) {
+    renderLifecycleJobPlan(lines, model, job, lifecyclePlan);
+  } else {
+    renderRunActionStep(lines, "Run pipeline job", `${model.command} github check && ${model.command} run ${shellWord(job.id)}${job.execution ? ` --execution ${shellWord(job.execution)}` : ""}`, job.env);
+  }
   if (job.github?.pages) {
     lines.push("");
     renderPagesBuildSteps(lines, job.github.pages);
@@ -637,7 +649,7 @@ function renderDependencyInstallSteps(model: ReturnType<typeof buildRenderModel>
   ];
 }
 
-function renderRunActionStep(lines: string[], name: string, command: string, env: Record<string, EnvValue>): void {
+function renderRunActionStep(lines: string[], name: string, command: string, env: Record<string, EnvValue>, options: { artifactName?: string } = {}): void {
   lines.push(
     "",
     `      - name: ${name}`,
@@ -645,7 +657,178 @@ function renderRunActionStep(lines: string[], name: string, command: string, env
     "        with:",
     `          command: ${JSON.stringify(command)}`,
     "          check-generated: false",
-    "          artifact-name: async-pipeline-${{ github.job }}-runs",
+    `          artifact-name: ${options.artifactName ?? "async-pipeline-${{ github.job }}-runs"}`
+  );
+  renderActionEnv(lines, env);
+}
+
+function resolveLifecycleJobPlan(
+  model: ReturnType<typeof buildRenderModel>,
+  job: ReturnType<typeof buildRenderModel>["jobs"][number]
+): LifecyclePlanItem[] | undefined {
+  if (job.execution || job.target.length !== 1) return undefined;
+  const plan: LifecyclePlanItem[] = [];
+  if (!appendLifecycleTaskPlan(model.tasks, job.target[0] ?? "", plan, new Set())) return undefined;
+  return plan.some((item) => item.kind !== "run-task") ? plan : undefined;
+}
+
+function appendLifecycleTaskPlan(
+  tasks: Record<string, NormalizedTask>,
+  taskId: string,
+  plan: LifecyclePlanItem[],
+  visited: Set<string>
+): boolean {
+  if (visited.has(taskId)) return true;
+  visited.add(taskId);
+  const task = tasks[taskId];
+  if (!task) return false;
+
+  const lifecycleSteps = task.steps.map((step) => {
+    if (typeof step === "object" && step && "kind" in step && step.kind === "shell") {
+      return parseLifecycleCommand(step.command);
+    }
+    return undefined;
+  });
+  const lifecycleActions = lifecycleSteps.filter((step): step is LifecyclePlanItem => Boolean(step));
+  if (lifecycleActions.length > 0) {
+    if (lifecycleActions.length !== task.steps.length) return false;
+    for (const dependency of task.dependsOn) {
+      if (!appendLifecycleTaskPlan(tasks, dependency, plan, visited)) return false;
+    }
+    plan.push(...lifecycleActions);
+    return true;
+  }
+
+  plan.push({ kind: "run-task", taskId });
+  return true;
+}
+
+function parseLifecycleCommand(command: string): LifecyclePlanItem | undefined {
+  const argv = splitShellWords(command);
+  const cliIndex = argv.findIndex(isPipelineCliToken);
+  if (cliIndex < 0) return undefined;
+  const args = argv.slice(cliIndex + 1);
+  const packagePath = flagValue(args, "--package") ?? ".";
+  if (args[0] === "publish" && args[1] === "github" && (args[2] === "main" || args[2] === "pr")) {
+    return {
+      kind: "preview",
+      mode: args[2],
+      packagePath,
+      registry: flagValue(args, "--registry") ?? "https://npm.pkg.github.com",
+      namespace: flagValue(args, "--namespace"),
+      comment: args[2] === "pr",
+      tokenEnv: flagValue(args, "--token-env-name") ?? "GITHUB_TOKEN"
+    };
+  }
+  if (args[0] === "publish" && args[1] === "github" && args[2] === "release") {
+    return {
+      kind: "publish",
+      mode: "github-packages",
+      packagePath,
+      registry: flagValue(args, "--registry") ?? "https://npm.pkg.github.com",
+      distTag: flagValue(args, "--tag") ?? flagValue(args, "--dist-tag") ?? "latest"
+    };
+  }
+  if (args[0] === "publish" && args[1] === "npm") {
+    return {
+      kind: "publish",
+      mode: "npm",
+      packagePath,
+      registry: flagValue(args, "--registry") ?? "https://registry.npmjs.org",
+      distTag: flagValue(args, "--tag") ?? flagValue(args, "--dist-tag") ?? "latest"
+    };
+  }
+  if (args[0] === "release" && args[1] === "ensure") {
+    return {
+      kind: "publish",
+      mode: "github-release",
+      packagePath,
+      registry: "https://registry.npmjs.org",
+      distTag: "latest"
+    };
+  }
+  if (args[0] === "release" && args[1] === "doctor") {
+    return {
+      kind: "publish",
+      mode: "doctor",
+      packagePath,
+      registry: "https://registry.npmjs.org",
+      distTag: "latest"
+    };
+  }
+  return undefined;
+}
+
+function renderLifecycleJobPlan(
+  lines: string[],
+  model: ReturnType<typeof buildRenderModel>,
+  job: ReturnType<typeof buildRenderModel>["jobs"][number],
+  plan: LifecyclePlanItem[]
+): void {
+  for (const item of plan) {
+    if (item.kind === "run-task") {
+      renderRunActionStep(
+        lines,
+        `Run pipeline task ${item.taskId}`,
+        `${model.command} github check && ${model.command} run-task ${shellWord(item.taskId)}`,
+        job.env,
+        { artifactName: `async-pipeline-\${{ github.job }}-${safeArtifactPart(item.taskId)}-runs` }
+      );
+      continue;
+    }
+    if (item.kind === "preview") {
+      renderPreviewActionStep(lines, item, job.env);
+      continue;
+    }
+    renderPublishActionStep(lines, item, job.env, job.requires?.provenance === true);
+  }
+}
+
+function renderPreviewActionStep(lines: string[], preview: Extract<LifecyclePlanItem, { kind: "preview" }>, env: Record<string, EnvValue>): void {
+  lines.push(
+    "",
+    `      - name: Publish ${preview.mode === "main" ? "main" : "PR"} package preview`,
+    `        uses: ${ASYNC_PREVIEW_ACTION}`,
+    "        with:",
+    `          package-path: ${JSON.stringify(preview.packagePath)}`,
+    `          target-registry: ${JSON.stringify(preview.registry)}`,
+    ...(preview.namespace ? [`          namespace: ${JSON.stringify(preview.namespace)}`] : []),
+    `          mode: ${preview.mode}`,
+    `          comment: ${preview.comment ? "true" : "false"}`,
+    `          token-env-name: ${JSON.stringify(preview.tokenEnv)}`
+  );
+  renderActionEnv(lines, env);
+}
+
+function renderPublishActionStep(
+  lines: string[],
+  publish: Extract<LifecyclePlanItem, { kind: "publish" }>,
+  env: Record<string, EnvValue>,
+  provenance: boolean
+): void {
+  const label = publish.mode === "github-release"
+    ? "Create or update GitHub Release"
+    : publish.mode === "github-packages"
+      ? "Publish GitHub Packages mirror"
+      : publish.mode === "doctor"
+        ? "Run release doctor"
+        : "Publish npm package";
+  lines.push(
+    "",
+    `      - name: ${label}`,
+    `        uses: ${ASYNC_PUBLISH_ACTION}`,
+    "        with:",
+    `          package-path: ${JSON.stringify(publish.packagePath)}`,
+    `          mode: ${publish.mode}`,
+    `          registry: ${JSON.stringify(publish.registry)}`,
+    `          dist-tag: ${JSON.stringify(publish.distTag)}`,
+    ...(publish.mode === "npm" ? [`          provenance: ${provenance ? "true" : "false"}`] : [])
+  );
+  renderActionEnv(lines, env);
+}
+
+function renderActionEnv(lines: string[], env: Record<string, EnvValue>): void {
+  lines.push(
     "        env:",
     "          CI: true"
   );
@@ -655,6 +838,61 @@ function renderRunActionStep(lines: string[], name: string, command: string, env
       lines.push(`          ${envName}: ${rendered}`);
     }
   }
+}
+
+function isPipelineCliToken(token: string): boolean {
+  return token === "async-pipeline" || token.includes("@async/pipeline/cli");
+}
+
+function flagValue(args: string[], name: string): string | undefined {
+  const index = args.indexOf(name);
+  if (index < 0) return undefined;
+  const value = args[index + 1];
+  return value && !value.startsWith("--") ? value : undefined;
+}
+
+function splitShellWords(command: string): string[] {
+  const words: string[] = [];
+  let current = "";
+  let quote: "'" | "\"" | undefined;
+  let escaped = false;
+  for (const character of command) {
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) {
+        quote = undefined;
+      } else {
+        current += character;
+      }
+      continue;
+    }
+    if (character === "'" || character === "\"") {
+      quote = character;
+      continue;
+    }
+    if (/\s/u.test(character)) {
+      if (current) {
+        words.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += character;
+  }
+  if (current) words.push(current);
+  return words;
+}
+
+function safeArtifactPart(value: string): string {
+  return value.replace(/[^A-Za-z0-9_.-]+/gu, "-");
 }
 
 function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof buildRenderModel>): void {
