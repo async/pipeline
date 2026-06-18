@@ -302,7 +302,17 @@
       "anchor": "GitHub Pages jobs build on pull requests and deploy from `main` or selected manual dispatch through generated build and deploy jobs.",
       "tests": [
         "renders github pages build and deploy jobs",
+        "renders generated github pages jobs from sync github pages",
         "github pages config rejects invalid settings"
+      ]
+    },
+    {
+      "id": "github.sync-pages-generated",
+      "source": "docs/github-actions.md",
+      "anchor": "`sync.github.pages: true` infers a target from `pages`, `docs.site`, `docs`, then `build-pages`, uploads `.async/pages` as a static artifact, builds on pull requests, and deploys from `main` or selected manual dispatch.",
+      "tests": [
+        "renders generated github pages jobs from sync github pages",
+        "generated github pages rejects missing targets and job conflicts"
       ]
     },
     {
@@ -863,11 +873,12 @@
     {
       "id": "api.generated-dependabot-package-previews",
       "source": "docs/api.md",
-      "anchor": "`dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, publishes a GitHub Packages PR preview through the lifecycle CLI, and comments install instructions on same-repo PRs.",
+      "anchor": "`dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, publishes a GitHub Packages PR preview through the lifecycle CLI, and comments install instructions on same-repo PRs. `pages: true` generates GitHub Pages build/deploy jobs from an existing docs task, defaulting to `.async/pages` and pull request, `main`, and manual triggers.",
       "tests": [
         "normalizes explicit sync task config and validates selected ids",
         "renders generated Dependabot auto-merge workflow job",
-        "renders generated package preview job from packagePreviews true"
+        "renders generated package preview job from packagePreviews true",
+        "renders generated github pages jobs from sync github pages"
       ]
     },
     {
@@ -1420,6 +1431,17 @@
         "renders mixed node and deno runtimes through pnpm and setup-deno providers",
         "requires.runtime fails before running a missing runtime command",
         "deno-only-pipeline: verify runs through Deno and sync artifacts are current"
+      ]
+    },
+    {
+      "id": "changelog.github-sync-pages",
+      "source": "CHANGELOG.md",
+      "anchor": "Add `sync.github.pages` so generated GitHub Pages build/deploy jobs can be declared at the GitHub sync level from an existing docs task, letting repos remove repetitive local Pages job declarations while keeping `job({ github: { pages } })` as the lower-level compatibility form.",
+      "tests": [
+        "normalizes explicit sync task config and validates selected ids",
+        "renders generated github pages jobs from sync github pages",
+        "generated github pages rejects missing targets and job conflicts",
+        "renders github pages build and deploy jobs"
       ]
     },
     {

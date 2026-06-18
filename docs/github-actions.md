@@ -44,7 +44,8 @@ sync: {
     cache: true,
     dependencyCache: true,
     dependabotAutoMerge: true,
-    packagePreviews: true
+    packagePreviews: true,
+    pages: { target: "docs.site" }
   }
 }
 ```
@@ -83,7 +84,22 @@ sync: {
 
 ## GitHub Pages
 
-Use `github.pages` on a job whose target verifies or builds docs/site content:
+Use `sync.github.pages` to generate GitHub Pages build and deploy jobs from an existing docs/site task without declaring a local Pages job:
+
+```ts
+sync: {
+  github: {
+    pages: {
+      target: "docs.site",
+      build: { kind: "static", path: ".async/pages" }
+    }
+  }
+}
+```
+
+`sync.github.pages: true` infers a target from `pages`, `docs.site`, `docs`, then `build-pages`, uploads `.async/pages` as a static artifact, builds on pull requests, and deploys from `main` or selected manual dispatch. Object form can set `target`, `job`, `build`, `artifactName`, `environment`, and trigger settings.
+
+Use lower-level `github.pages` on a job only when the generated sync-level Pages job is not enough:
 
 ```ts
 jobs: {
@@ -101,7 +117,7 @@ jobs: {
 
 GitHub Pages jobs build on pull requests and deploy from `main` or selected manual dispatch through generated build and deploy jobs.
 
-The generated build job still runs `async-pipeline run <job-id>` first, then configures Pages, builds or selects the static artifact, and uploads it. The paired `<job-id>-deploy` job is skipped on pull requests and deploys the uploaded artifact with the `github-pages` environment and Pages token permissions on non-PR events.
+The generated sync-level build job runs `async-pipeline run-task <target>` first; lower-level job Pages runs `async-pipeline run <job-id>`. Both forms configure Pages, build or select the static artifact, and upload it. The paired `<job-id>-deploy` job is skipped on pull requests and deploys the uploaded artifact with the `github-pages` environment and Pages token permissions on non-PR events.
 
 ## Runner Selection
 

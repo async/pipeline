@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.8 - 2026-06-18
+
+### Features
+
+- Add `sync.github.pages` so generated GitHub Pages build/deploy jobs can be declared at the GitHub sync level from an existing docs task, letting repos remove repetitive local Pages job declarations while keeping `job({ github: { pages } })` as the lower-level compatibility form.
+
 ## 0.8.7 - 2026-06-17
 
 ### Fixes

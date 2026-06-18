@@ -2,7 +2,7 @@
   "name": "async-pipeline-workspace",
   "private": true,
   "license": "MIT",
-  "version": "0.8.7",
+  "version": "0.8.8",
   "type": "module",
   "packageManager": "pnpm@11.1.0",
   "engines": {
@@ -21,7 +21,7 @@
     "pipeline:api-surface:generate": "async-pipeline run-task api-surface-generate",
     "pipeline:github:check": "async-pipeline github check",
     "pipeline:github:generate": "async-pipeline github generate",
-    "pipeline:pages": "async-pipeline run pages",
+    "pipeline:pages": "async-pipeline run-task docs.site",
     "pipeline:publish": "async-pipeline run publish",
     "pipeline:publish:github:main": "async-pipeline publish github main --package packages/pipeline",
     "pipeline:publish:github:pr": "async-pipeline publish github pr --package packages/pipeline",

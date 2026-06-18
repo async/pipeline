@@ -1,10 +1,10 @@
 {
-  "version": 10,
+  "version": 11,
   "generator": "@async/pipeline",
   "config": "pipeline.ts",
   "workflow": ".github/workflows/async-pipeline.yml",
-  "hash": "sha256:1b3cd5b11dc2bbf2ef5c709b759d09ace990bec928382ac3a22d7c5d8e0431ed",
-  "generatedAt": "2026-06-17T22:09:32.805Z",
+  "hash": "sha256:7a186b20e62af0e51c098717b776e25b09f5082de249ff9a3fe325cf306eecfb",
+  "generatedAt": "2026-06-18T03:58:56.483Z",
   "triggers": {
     "pull_request": {},
     "push": {
@@ -63,6 +63,21 @@
     "registry": "https://npm.pkg.github.com",
     "tokenEnv": "GITHUB_TOKEN",
     "comment": true
+  },
+  "pages": {
+    "enabled": false,
+    "job": "pages",
+    "build": {
+      "kind": "static",
+      "path": ".async/pages"
+    },
+    "triggers": {
+      "pullRequest": true,
+      "main": {
+        "branch": "main"
+      },
+      "manual": true
+    }
   },
   "manualDispatchJobs": [
     "verify",

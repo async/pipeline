@@ -545,6 +545,99 @@ test("renders github pages build and deploy jobs", async () => {
   }
 });
 
+test("renders generated github pages jobs from sync github pages", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-sync-pages-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    const pipeline = definePipeline({
+      name: "pages-sync-test",
+      sync: {
+        github: {
+          pages: {
+            target: "docs.site",
+            job: "docs-pages",
+            build: { kind: "static", path: ".async/pages" }
+          }
+        }
+      },
+      tasks: {
+        "docs.site": task({ run: sh`node scripts/build-pages.js` }),
+        test: task({ run: sh`node --test` })
+      },
+      jobs: {
+        verify: job({ target: "test" })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, /pull_request:/);
+    assert.match(rendered.workflow, /push:\n    branches:\n      - "main"/);
+    assert.match(rendered.workflow, /options:\n          - "docs-pages"/);
+    assert.match(rendered.workflow, /docs-pages:\n    name: docs-pages/);
+    assert.match(rendered.workflow, /if: github\.event_name == 'pull_request' \|\| \(github\.event_name == 'push' && \(github\.ref == 'refs\/heads\/main'\)\) \|\| \(github\.event_name == 'workflow_dispatch' && github\.event\.inputs\.job == 'docs-pages'\)/);
+    assert.match(rendered.workflow, /run: pnpm async-pipeline run-task docs\.site/);
+    assert.doesNotMatch(rendered.workflow, /run: pnpm async-pipeline run docs-pages/);
+    assert.match(rendered.workflow, /uses: actions\/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5/);
+    assert.match(rendered.workflow, /uses: actions\/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4\n        with:\n          path: "\.async\/pages"/);
+    assert.match(rendered.workflow, /docs-pages-deploy:\n    name: docs-pages-deploy\n    needs: "docs-pages"\n    if: github\.event_name != 'pull_request'/);
+    assert.deepEqual(rendered.lock.manualDispatchJobs, ["docs-pages"]);
+    assert.equal(rendered.lock.jobs.some((entry) => entry.id === "docs-pages"), false);
+    assert.deepEqual(rendered.lock.pages, {
+      enabled: true,
+      target: "docs.site",
+      job: "docs-pages",
+      build: { kind: "static", path: ".async/pages" },
+      triggers: {
+        pullRequest: true,
+        main: { branch: "main" },
+        manual: true
+      }
+    });
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("generated github pages rejects missing targets and job conflicts", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-sync-pages-invalid-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
+    const missingTarget = definePipeline({
+      name: "pages-missing",
+      sync: { github: { pages: { target: "missing" } } },
+      tasks: {
+        docs: task({ run: sh`echo docs` })
+      },
+      jobs: {
+        verify: job({ target: "docs" })
+      }
+    });
+    await assert.rejects(
+      () => renderGitHubWorkflow(missingTarget, { cwd: dir, configPath: join(dir, "pipeline.ts") }),
+      /ASYNC_PIPELINE_GITHUB_PAGES_UNKNOWN_TARGET|references missing task "missing"/
+    );
+
+    const jobConflict = definePipeline({
+      name: "pages-conflict",
+      sync: { github: { pages: true } },
+      tasks: {
+        pages: task({ run: sh`echo pages` })
+      },
+      jobs: {
+        pages: job({ target: "pages" })
+      }
+    });
+    await assert.rejects(
+      () => renderGitHubWorkflow(jobConflict, { cwd: dir, configPath: join(dir, "pipeline.ts") }),
+      /ASYNC_PIPELINE_GITHUB_PAGES_JOB_CONFLICT|conflicts with an existing pipeline job/
+    );
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
 test("renders github job packages, issues, and pull-requests permissions with a contents fallback", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-permissions-"));
   try {

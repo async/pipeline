@@ -2,12 +2,12 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, TriggerDefinition, TriggerId } from "@async/pipeline-core";
+import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubPagesSyncConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, TriggerDefinition, TriggerId } from "@async/pipeline-core";
 import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 10;
+const GENERATOR_VERSION = 11;
 const DEFAULT_NODE_VERSION = "24";
 const DEFAULT_DENO_VERSION = "2";
 const PNPM_SETUP_ACTION = "pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0";
@@ -55,6 +55,7 @@ export interface GitHubLock {
     tokenEnv: string;
     comment: boolean;
   };
+  pages: NormalizedGitHubPagesSyncConfig;
   manualDispatchJobs?: string[];
 }
 
@@ -119,6 +120,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     dependencyCachePath: renderModel.dependencyCachePath,
     dependabotAutoMerge: renderModel.dependabotAutoMerge,
     packagePreviews: renderModel.packagePreviews,
+    pages: renderModel.pages,
     manualDispatchJobs: renderModel.manualDispatchJobs
   });
   const lock: GitHubLock = {
@@ -142,6 +144,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     dependencyCachePath: renderModel.dependencyCachePath,
     dependabotAutoMerge: renderModel.dependabotAutoMerge,
     packagePreviews: renderModel.packagePreviews,
+    pages: renderModel.pages,
     manualDispatchJobs: renderModel.manualDispatchJobs
   };
   return {
@@ -243,10 +246,23 @@ function buildRenderModel(
   if (packagePreviews.enabled) {
     addPullRequestTrigger(triggers, "pull_request");
   }
+  const pages = resolveGitHubPages(pipeline);
+  if (pages.enabled) {
+    if (pages.triggers.pullRequest) {
+      addGitHubEventTrigger(triggers, "pull_request");
+    }
+    if (pages.triggers.main) {
+      addPushBranchTrigger(triggers, pages.triggers.main.branch);
+    }
+  }
   const manualDispatchJobs = Object.values(pipeline.jobs)
     .filter((job) => job.trigger.some((triggerId) => pipeline.triggers[triggerId]?.type === "manual"))
     .map((job) => job.id)
     .sort((left, right) => left.localeCompare(right));
+  if (pages.enabled && pages.triggers.manual) {
+    manualDispatchJobs.push(pages.job);
+    manualDispatchJobs.sort((left, right) => left.localeCompare(right));
+  }
   const setup = resolveGitHubSetup(pipeline.sync.github.setup);
   const nodeVersion = pipeline.sync.github.nodeVersion ?? DEFAULT_NODE_VERSION;
   const runtime = resolveRuntimeSpecs(pipeline.sync.github.runtime, options.projectKind, nodeVersion);
@@ -281,8 +297,41 @@ function buildRenderModel(
     dependencyCachePath: pipeline.sync.github.dependencyCache === false ? undefined : options.dependencyCachePath,
     dependabotAutoMerge: pipeline.sync.github.dependabotAutoMerge,
     packagePreviews,
+    pages,
     manualDispatchJobs
   };
+}
+
+function resolveGitHubPages(pipeline: NormalizedPipeline): NormalizedGitHubPagesSyncConfig {
+  const config = pipeline.sync.github.pages;
+  if (!config.enabled) return config;
+  const target = config.target ?? inferGitHubPagesTarget(pipeline);
+  if (!pipeline.tasks[target]) {
+    throw pipelineError(
+      "ASYNC_PIPELINE_GITHUB_PAGES_UNKNOWN_TARGET",
+      `sync.github.pages.target references missing task "${target}".`
+    );
+  }
+  if (pipeline.jobs[config.job]) {
+    throw pipelineError(
+      "ASYNC_PIPELINE_GITHUB_PAGES_JOB_CONFLICT",
+      `sync.github.pages.job "${config.job}" conflicts with an existing pipeline job. Remove the explicit job or set sync.github.pages.job to a different id.`
+    );
+  }
+  return {
+    ...config,
+    target
+  };
+}
+
+function inferGitHubPagesTarget(pipeline: NormalizedPipeline): string {
+  for (const taskId of ["pages", "docs.site", "docs", "build-pages"]) {
+    if (pipeline.tasks[taskId]) return taskId;
+  }
+  throw pipelineError(
+    "ASYNC_PIPELINE_GITHUB_PAGES_NO_TARGET",
+    "sync.github.pages: true needs a pages, docs.site, docs, or build-pages task. Set sync.github.pages.target explicitly."
+  );
 }
 
 function addPullRequestTrigger(triggers: Record<string, unknown>, event: "pull_request" | "pull_request_target"): void {
@@ -293,6 +342,23 @@ function addPullRequestTrigger(triggers: Record<string, unknown>, event: "pull_r
   triggers[event] = sortObject({
     ...existing,
     types: [...new Set([...existingTypes, "opened", "reopened", "synchronize", "ready_for_review"])].sort()
+  });
+}
+
+function addGitHubEventTrigger(triggers: Record<string, unknown>, event: string): void {
+  if (triggers[event] === undefined) {
+    triggers[event] = {};
+  }
+}
+
+function addPushBranchTrigger(triggers: Record<string, unknown>, branch: string): void {
+  const existing = triggers.push && typeof triggers.push === "object" && !Array.isArray(triggers.push)
+    ? triggers.push as Record<string, unknown>
+    : {};
+  const existingBranches = Array.isArray(existing.branches) ? existing.branches.filter((value): value is string => typeof value === "string") : [];
+  triggers.push = sortObject({
+    ...existing,
+    branches: [...new Set([...existingBranches, branch])].sort()
   });
 }
 
@@ -386,6 +452,19 @@ function renderWorkflow(model: ReturnType<typeof buildRenderModel>): string {
     if (job.github?.pages) {
       renderPagesDeployJob(lines, job);
     }
+  }
+  if (model.pages.enabled) {
+    renderGeneratedPagesJob(lines, model);
+    renderPagesDeployJob(lines, {
+      id: model.pages.job,
+      github: {
+        pages: {
+          build: model.pages.build,
+          artifactName: model.pages.artifactName,
+          environment: model.pages.environment
+        }
+      }
+    } as ReturnType<typeof buildRenderModel>["jobs"][number]);
   }
   if (model.dependabotAutoMerge.enabled) {
     renderDependabotAutoMergeJob(lines, model.dependabotAutoMerge.ecosystems);
@@ -500,6 +579,71 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
   lines.push("");
   renderRunEvidenceSteps(lines, model.command);
   lines.push("");
+}
+
+function renderGeneratedPagesJob(lines: string[], model: ReturnType<typeof buildRenderModel>): void {
+  const pages = model.pages;
+  if (!pages.target) return;
+  lines.push(
+    `  ${yamlKey(pages.job)}:`,
+    `    name: ${pages.job}`,
+    `    if: ${renderGeneratedPagesCondition(pages)}`,
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - name: Checkout",
+    "        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2",
+    "",
+    ...(model.taskCache
+      ? [
+          "      - name: Restore task cache",
+          "        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4",
+          "        with:",
+          "          path: .async/cache",
+          "          key: async-pipeline-${{ runner.os }}-${{ github.sha }}",
+          "          restore-keys: |",
+          "            async-pipeline-${{ runner.os }}-",
+          ""
+        ]
+      : []),
+    ...renderSetupSteps(model),
+    ...renderDependencyInstallSteps(model)
+  );
+  if (model.buildCommand) {
+    lines.push(
+      "",
+      "      - name: Build pipeline CLI",
+      `        run: ${model.buildCommand}`
+    );
+  }
+  lines.push(
+    "",
+    "      - name: Check generated workflow",
+    `        run: ${model.command} github check`,
+    "",
+    "      - name: Run Pages target",
+    `        run: ${model.command} run-task ${shellWord(pages.target)}`,
+    "        env:",
+    "          CI: true",
+    ""
+  );
+  renderPagesBuildSteps(lines, pages);
+  lines.push("");
+  renderRunEvidenceSteps(lines, model.command);
+  lines.push("");
+}
+
+function renderGeneratedPagesCondition(pages: NormalizedGitHubPagesSyncConfig): string {
+  const conditions: string[] = [];
+  if (pages.triggers.pullRequest) {
+    conditions.push("github.event_name == 'pull_request'");
+  }
+  if (pages.triggers.main) {
+    conditions.push(`(github.event_name == 'push' && (github.ref == 'refs/heads/${pages.triggers.main.branch}'))`);
+  }
+  if (pages.triggers.manual) {
+    conditions.push(`(github.event_name == 'workflow_dispatch' && github.event.inputs.job == '${pages.job}')`);
+  }
+  return conditions.length > 0 ? conditions.join(" || ") : "false";
 }
 
 function renderDependencyInstallSteps(model: ReturnType<typeof buildRenderModel>): string[] {

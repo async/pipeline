@@ -751,6 +751,16 @@ test("normalizes sync github and task defaults independently from triggers", () 
     tokenEnv: "GITHUB_TOKEN",
     comment: true
   });
+  assert.deepEqual(pipeline.sync.github.pages, {
+    enabled: false,
+    job: "pages",
+    build: { kind: "static", path: ".async/pages" },
+    triggers: {
+      pullRequest: true,
+      main: { branch: "main" },
+      manual: true
+    }
+  });
   assert.equal(pipeline.sync.tasks.enabled, true);
   assert.equal(pipeline.sync.tasks.prefix, "pipeline");
   assert.equal(pipeline.sync.tasks.runners, "all");
@@ -775,6 +785,18 @@ test("normalizes explicit sync task config and validates selected ids", () => {
           namespace: "preview",
           tokenEnv: "PACKAGES_TOKEN",
           comment: false
+        },
+        pages: {
+          target: "docs.site",
+          job: "docs-pages",
+          build: { kind: "static", path: ".async/site" },
+          artifactName: "docs-site",
+          environment: { name: "docs", url: "https://example.test" },
+          triggers: {
+            pullRequest: false,
+            main: { branch: "stable" },
+            manual: true
+          }
         }
       },
       tasks: {
@@ -811,6 +833,19 @@ test("normalizes explicit sync task config and validates selected ids", () => {
     namespace: "preview",
     tokenEnv: "PACKAGES_TOKEN",
     comment: false
+  });
+  assert.deepEqual(pipeline.sync.github.pages, {
+    enabled: true,
+    target: "docs.site",
+    job: "docs-pages",
+    build: { kind: "static", path: ".async/site" },
+    artifactName: "docs-site",
+    environment: { name: "docs", url: "https://example.test" },
+    triggers: {
+      pullRequest: false,
+      main: { branch: "stable" },
+      manual: true
+    }
   });
   assert.deepEqual(pipeline.sync.tasks.runners, ["package"]);
   assert.deepEqual(pipeline.sync.tasks.jobs, ["verify"]);
@@ -1018,6 +1053,16 @@ test("rejects unknown config fields with the field name", () => {
     ...base,
     sync: { github: { packagePreviews: { namespacee: "async" } } }
   }), /sync\.github\.packagePreviews has unknown field "namespacee"/);
+
+  assert.throws(() => definePipeline({
+    ...base,
+    sync: { github: { pages: { targt: "docs.site" } } }
+  }), /sync\.github\.pages has unknown field "targt"/);
+
+  assert.throws(() => definePipeline({
+    ...base,
+    sync: { github: { pages: { triggers: { manuel: true } } } }
+  }), /sync\.github\.pages\.triggers has unknown field "manuel"/);
 
   assert.throws(() => definePipeline({
     ...base,

@@ -292,6 +292,22 @@ export interface PackagePreviewsConfig {
 
 export type PackagePreviewsInput = boolean | PackagePreviewsConfig;
 
+export interface GitHubPagesSyncTriggersConfig {
+  pullRequest?: boolean;
+  main?: boolean | {
+    branch?: string;
+  };
+  manual?: boolean;
+}
+
+export interface GitHubPagesSyncConfig extends Partial<GitHubPagesConfig> {
+  target?: string;
+  job?: string;
+  triggers?: GitHubPagesSyncTriggersConfig;
+}
+
+export type GitHubPagesSyncInput = boolean | GitHubPagesSyncConfig;
+
 export interface GitHubSyncConfig {
   workflow?: string;
   lock?: string;
@@ -302,6 +318,7 @@ export interface GitHubSyncConfig {
   dependencyCache?: boolean;
   dependabotAutoMerge?: DependabotAutoMergeInput;
   packagePreviews?: PackagePreviewsInput;
+  pages?: GitHubPagesSyncInput;
 }
 
 export type GitHubSyncInput = boolean | GitHubSyncConfig;
@@ -334,6 +351,7 @@ export interface NormalizedGitHubSyncConfig {
   dependencyCache: boolean;
   dependabotAutoMerge: NormalizedDependabotAutoMergeConfig;
   packagePreviews: NormalizedPackagePreviewsConfig;
+  pages: NormalizedGitHubPagesSyncConfig;
 }
 
 export interface NormalizedDependabotAutoMergeConfig {
@@ -349,6 +367,21 @@ export interface NormalizedPackagePreviewsConfig {
   namespace?: string;
   tokenEnv: string;
   comment: boolean;
+}
+
+export interface NormalizedGitHubPagesSyncTriggersConfig {
+  pullRequest: boolean;
+  main: false | {
+    branch: string;
+  };
+  manual: boolean;
+}
+
+export interface NormalizedGitHubPagesSyncConfig extends GitHubPagesConfig {
+  enabled: boolean;
+  target?: string;
+  job: string;
+  triggers: NormalizedGitHubPagesSyncTriggersConfig;
 }
 
 export interface NormalizedTaskSyncConfig {
@@ -849,11 +882,14 @@ const GITHUB_PAGES_JEKYLL_BUILD_FIELDS = new Set(["destination", "kind", "source
 const GITHUB_PAGES_STATIC_BUILD_FIELDS = new Set(["kind", "path"]);
 const GITHUB_PERMISSION_FIELDS = new Set(["contents", "idToken", "issues", "packages", "pullRequests"]);
 const SYNC_FIELDS = new Set(["command", "github", "tasks"]);
-const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "dependabotAutoMerge", "packagePreviews"]);
+const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "dependabotAutoMerge", "packagePreviews", "pages"]);
 const GITHUB_SETUP_PROVIDERS = new Set<GitHubSetupProvider>(["auto", "pnpm", "node"]);
 const DEPENDABOT_AUTO_MERGE_FIELDS = new Set(["ecosystems"]);
 const DEPENDABOT_AUTO_MERGE_ECOSYSTEMS = new Set<DependabotAutoMergeEcosystem>(["github-actions", "npm", "deno"]);
 const PACKAGE_PREVIEWS_FIELDS = new Set(["package", "target", "registry", "namespace", "tokenEnv", "comment"]);
+const GITHUB_SYNC_PAGES_FIELDS = new Set(["artifactName", "build", "environment", "job", "target", "triggers"]);
+const GITHUB_SYNC_PAGES_TRIGGERS_FIELDS = new Set(["manual", "main", "pullRequest"]);
+const GITHUB_SYNC_PAGES_MAIN_TRIGGER_FIELDS = new Set(["branch"]);
 const CONTAINER_PROVIDERS = new Set(["auto", "docker", "apple-container", "lima"]);
 const SECTION_KINDS = {
   agents: "section.agents",
@@ -899,6 +935,16 @@ function validateDefinitionShape(definition: PipelineDefinition): void {
     }
     if (definition.sync.github.packagePreviews && typeof definition.sync.github.packagePreviews === "object") {
       rejectUnknownFields(PACKAGE_PREVIEWS_FIELDS, definition.sync.github.packagePreviews, "sync.github.packagePreviews");
+    }
+    if (definition.sync.github.pages && typeof definition.sync.github.pages === "object") {
+      rejectUnknownFields(GITHUB_SYNC_PAGES_FIELDS, definition.sync.github.pages, "sync.github.pages");
+      if (definition.sync.github.pages.triggers && typeof definition.sync.github.pages.triggers === "object") {
+        rejectUnknownFields(GITHUB_SYNC_PAGES_TRIGGERS_FIELDS, definition.sync.github.pages.triggers, "sync.github.pages.triggers");
+        const main = definition.sync.github.pages.triggers.main;
+        if (main && typeof main === "object") {
+          rejectUnknownFields(GITHUB_SYNC_PAGES_MAIN_TRIGGER_FIELDS, main, "sync.github.pages.triggers.main");
+        }
+      }
     }
   }
   for (const [id, profile] of Object.entries(definition.agents ?? {})) {
@@ -1710,7 +1756,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       cache: true,
       dependencyCache: true,
       dependabotAutoMerge: normalizeDependabotAutoMerge(undefined),
-      packagePreviews: normalizePackagePreviews(undefined)
+      packagePreviews: normalizePackagePreviews(undefined),
+      pages: normalizeGitHubPagesSync(undefined)
     };
   }
   if (github === true) {
@@ -1724,7 +1771,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       cache: true,
       dependencyCache: true,
       dependabotAutoMerge: normalizeDependabotAutoMerge(undefined),
-      packagePreviews: normalizePackagePreviews(undefined)
+      packagePreviews: normalizePackagePreviews(undefined),
+      pages: normalizeGitHubPagesSync(undefined)
     };
   }
   return {
@@ -1737,7 +1785,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
     cache: github.cache ?? true,
     dependencyCache: github.dependencyCache ?? true,
     dependabotAutoMerge: normalizeDependabotAutoMerge(github.dependabotAutoMerge),
-    packagePreviews: normalizePackagePreviews(github.packagePreviews)
+    packagePreviews: normalizePackagePreviews(github.packagePreviews),
+    pages: normalizeGitHubPagesSync(github.pages)
   };
 }
 
@@ -1836,14 +1885,77 @@ function normalizePackagePreviews(input: PackagePreviewsInput | undefined): Norm
   return output;
 }
 
-function normalizeOptionalNonEmptyString(input: unknown, field: string): string | undefined {
+function normalizeGitHubPagesSync(input: GitHubPagesSyncInput | undefined): NormalizedGitHubPagesSyncConfig {
+  const disabled: NormalizedGitHubPagesSyncConfig = {
+    enabled: false,
+    job: "pages",
+    build: { kind: "static", path: ".async/pages" },
+    triggers: normalizeGitHubPagesSyncTriggers(undefined)
+  };
+  if (!input) return disabled;
+  const output: NormalizedGitHubPagesSyncConfig = input === true
+    ? {
+        enabled: true,
+        job: "pages",
+        build: { kind: "static", path: ".async/pages" },
+        triggers: normalizeGitHubPagesSyncTriggers(undefined)
+      }
+    : {
+        enabled: true,
+        target: normalizeOptionalNonEmptyString(input.target, "sync.github.pages.target", "ASYNC_PIPELINE_GITHUB_PAGES_INVALID"),
+        job: normalizeOptionalNonEmptyString(input.job, "sync.github.pages.job", "ASYNC_PIPELINE_GITHUB_PAGES_INVALID") ?? "pages",
+        build: input.build ?? { kind: "static", path: ".async/pages" },
+        triggers: normalizeGitHubPagesSyncTriggers(input.triggers)
+      };
+  if (input !== true && input.artifactName !== undefined) {
+    output.artifactName = input.artifactName;
+  }
+  if (input !== true && input.environment !== undefined) {
+    output.environment = input.environment;
+  }
+  validateGitHubPagesConfig(output.job, {
+    build: output.build,
+    artifactName: output.artifactName,
+    environment: output.environment
+  });
+  return output;
+}
+
+function normalizeGitHubPagesSyncTriggers(input: GitHubPagesSyncTriggersConfig | undefined): NormalizedGitHubPagesSyncTriggersConfig {
+  if (input?.pullRequest !== undefined && typeof input.pullRequest !== "boolean") {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_PAGES_INVALID", "sync.github.pages.triggers.pullRequest must be a boolean.");
+  }
+  if (input?.manual !== undefined && typeof input.manual !== "boolean") {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_PAGES_INVALID", "sync.github.pages.triggers.manual must be a boolean.");
+  }
+  const main = input?.main ?? true;
+  let normalizedMain: NormalizedGitHubPagesSyncTriggersConfig["main"];
+  if (main === false) {
+    normalizedMain = false;
+  } else if (main === true) {
+    normalizedMain = { branch: "main" };
+  } else if (isObjectRecord(main)) {
+    normalizedMain = {
+      branch: normalizeOptionalNonEmptyString(main.branch, "sync.github.pages.triggers.main.branch", "ASYNC_PIPELINE_GITHUB_PAGES_INVALID") ?? "main"
+    };
+  } else {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_PAGES_INVALID", "sync.github.pages.triggers.main must be a boolean or an object with a branch.");
+  }
+  return {
+    pullRequest: input?.pullRequest ?? true,
+    main: normalizedMain,
+    manual: input?.manual ?? true
+  };
+}
+
+function normalizeOptionalNonEmptyString(input: unknown, field: string, code = "ASYNC_PIPELINE_PACKAGE_PREVIEWS_INVALID"): string | undefined {
   if (input === undefined) return undefined;
   if (typeof input !== "string") {
-    throw pipelineError("ASYNC_PIPELINE_PACKAGE_PREVIEWS_INVALID", `${field} must be a string.`);
+    throw pipelineError(code, `${field} must be a string.`);
   }
   const normalized = input.trim();
   if (!normalized) {
-    throw pipelineError("ASYNC_PIPELINE_PACKAGE_PREVIEWS_INVALID", `${field} cannot be empty.`);
+    throw pipelineError(code, `${field} cannot be empty.`);
   }
   return normalized;
 }

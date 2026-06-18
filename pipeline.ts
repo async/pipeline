@@ -28,19 +28,23 @@ export default definePipeline({
     github: {
       runtime: ["node@24", "deno@2"],
       dependabotAutoMerge: true,
-      packagePreviews: true
+      packagePreviews: true,
+      pages: {
+        target: "docs.site"
+      }
     },
     tasks: {
       prefix: "pipeline",
       runners: ["package"],
       targets: [{ package: "async-pipeline-workspace" }],
-      jobs: ["pages", "publish", "snapshot", "verify"],
+      jobs: ["publish", "snapshot", "verify"],
       tasks: ["docs.site"],
       scripts: {
         "api-surface": "run-task api-surface",
         "api-surface:generate": "run-task api-surface-generate",
         "github:check": "github check",
         "github:generate": "github generate",
+        "pages": "run-task docs.site",
         "publish:github:main": "publish github main --package packages/pipeline",
         "publish:github:pr": "publish github pr --package packages/pipeline",
         "publish:github:release": "publish github release --package packages/pipeline",
@@ -269,15 +273,6 @@ export default definePipeline({
         // Both GitHub-hosted. Self-hosted label sets (e.g. Tart VMs on Apple
         // Silicon) are supported too; see docs/github-actions.md.
         runsOnMatrix: ["ubuntu-latest", "macos-latest"]
-      }
-    }),
-    pages: job({
-      target: "docs.site",
-      trigger: ["pr", "main", "manual"],
-      github: {
-        pages: {
-          build: { kind: "static", path: ".async/pages" }
-        }
       }
     }),
     snapshot: job({
