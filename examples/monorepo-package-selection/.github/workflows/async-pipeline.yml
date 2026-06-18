@@ -49,7 +49,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run pipeline job
-        uses: async/actions/run@v0
+        uses: async/actions/run@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run verify"
           check-generated: false

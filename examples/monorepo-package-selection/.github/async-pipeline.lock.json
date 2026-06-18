@@ -1,10 +1,96 @@
 {
-  "version": 12,
+  "version": 13,
   "generator": "@async/pipeline",
   "config": "pipeline.ts",
   "workflow": ".github/workflows/async-pipeline.yml",
-  "hash": "sha256:504b2bdeb1c1f611177e34b1dc9d66a08a34e2ff47992aeaef9626bf3d0c324b",
-  "generatedAt": "2026-06-18T09:47:44.876Z",
+  "hash": "sha256:2e73177822f1f348be9f153e7d3c93c2c46c9de75308bd2cdceafd37fabe89f6",
+  "generatedAt": "2026-06-18T22:14:54.011Z",
+  "actions": [
+    {
+      "id": "actions.cache",
+      "uses": "actions/cache",
+      "sha": "0057852bfaa89a56745cba8c7296529d2fc39830",
+      "label": "v4",
+      "ref": "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4"
+    },
+    {
+      "id": "actions.checkout",
+      "uses": "actions/checkout",
+      "sha": "de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+      "label": "v6.0.2",
+      "ref": "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2"
+    },
+    {
+      "id": "actions.setup-node",
+      "uses": "actions/setup-node",
+      "sha": "48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+      "label": "v6",
+      "ref": "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6"
+    },
+    {
+      "id": "async.actions.dependabot-merge",
+      "uses": "async/actions/dependabot-merge",
+      "sha": "313494352cd10207bf0331c83e83364eb45c8e02",
+      "label": "v0.1.5",
+      "ref": "async/actions/dependabot-merge@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5"
+    },
+    {
+      "id": "async.actions.pages",
+      "uses": "async/actions/pages",
+      "sha": "313494352cd10207bf0331c83e83364eb45c8e02",
+      "label": "v0.1.5",
+      "ref": "async/actions/pages@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5"
+    },
+    {
+      "id": "async.actions.preview",
+      "uses": "async/actions/preview",
+      "sha": "313494352cd10207bf0331c83e83364eb45c8e02",
+      "label": "v0.1.5",
+      "ref": "async/actions/preview@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5"
+    },
+    {
+      "id": "async.actions.publish",
+      "uses": "async/actions/publish",
+      "sha": "313494352cd10207bf0331c83e83364eb45c8e02",
+      "label": "v0.1.5",
+      "ref": "async/actions/publish@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5"
+    },
+    {
+      "id": "async.actions.run",
+      "uses": "async/actions/run",
+      "sha": "313494352cd10207bf0331c83e83364eb45c8e02",
+      "label": "v0.1.5",
+      "ref": "async/actions/run@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5"
+    },
+    {
+      "id": "async.actions.setup",
+      "uses": "async/actions/setup",
+      "sha": "313494352cd10207bf0331c83e83364eb45c8e02",
+      "label": "v0.1.5",
+      "ref": "async/actions/setup@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5"
+    },
+    {
+      "id": "deno.setup",
+      "uses": "denoland/setup-deno",
+      "sha": "667a34cdef165d8d2b2e98dde39547c9daac7282",
+      "label": "v2.0.4",
+      "ref": "denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4"
+    },
+    {
+      "id": "dependabot.fetch-metadata",
+      "uses": "dependabot/fetch-metadata",
+      "sha": "25dd0e34f4fe68f24cc83900b1fe3fe149efef98",
+      "label": "v3.1.0",
+      "ref": "dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0"
+    },
+    {
+      "id": "pnpm.setup",
+      "uses": "pnpm/setup",
+      "sha": "cf03a9b516e09bc5a90f041fc26fc930c9dc631b",
+      "label": "v1.0.0",
+      "ref": "pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0"
+    }
+  ],
   "triggers": {
     "pull_request": {},
     "push": {

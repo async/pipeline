@@ -161,6 +161,39 @@
       ]
     },
     {
+      "id": "github-actions.pinned-action-manifest",
+      "source": "docs/github-actions.md",
+      "anchor": "All generated remote `uses:` references, including `async/actions/*`, are resolved from the central action manifest and emitted as full 40-character SHAs with a trailing human label.",
+      "tests": [
+        "renders github workflow triggers and bootloader steps",
+        "github generate writes a current workflow and lock"
+      ]
+    },
+    {
+      "id": "github-actions.lifecycle-equivalence-fallback",
+      "source": "docs/github-actions.md",
+      "anchor": "Lifecycle lowering only happens for exact, whole-command publish, preview, release, or doctor lifecycle steps with representable semantics.",
+      "tests": [
+        "keeps lifecycle publish commands in the pipeline runner when shell semantics are not equivalent"
+      ]
+    },
+    {
+      "id": "github-actions.lifecycle-secret-scope",
+      "source": "docs/github-actions.md",
+      "anchor": "Generated lifecycle publish and preview steps pass secret env only to the exact Async action step that needs it.",
+      "tests": [
+        "renders lifecycle publish tasks as async action steps"
+      ]
+    },
+    {
+      "id": "github-actions.mutable-ref-drift-check",
+      "source": "docs/github-actions.md",
+      "anchor": "The drift check also fails if a committed generated workflow contains any mutable remote action ref instead of a full SHA.",
+      "tests": [
+        "github check rejects mutable remote action refs in generated workflows"
+      ]
+    },
+    {
       "id": "github-actions.task-cache-step",
       "source": "docs/github-actions.md",
       "anchor": "The generated workflow persists `.async/cache` through the generated `actions/cache` step when `sync.github.cache` is true.",

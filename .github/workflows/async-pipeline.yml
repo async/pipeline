@@ -60,7 +60,7 @@ jobs:
             async-pipeline-${{ runner.os }}-
 
       - name: Setup Async runtimes
-        uses: async/actions/setup@v0
+        uses: async/actions/setup@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           node-version: 24
           pnpm-version: 11.1.0
@@ -83,18 +83,16 @@ jobs:
         run: pnpm build
 
       - name: Run pipeline task pack
-        uses: async/actions/run@v0
+        uses: async/actions/run@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"
           check-generated: false
           artifact-name: async-pipeline-${{ github.job }}-pack-runs
         env:
           CI: true
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create or update GitHub Release
-        uses: async/actions/publish@v0
+        uses: async/actions/publish@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           package-path: "packages/pipeline"
           mode: github-release
@@ -103,35 +101,34 @@ jobs:
         env:
           CI: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish GitHub Packages mirror
-        uses: async/actions/publish@v0
+        uses: async/actions/publish@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           package-path: "packages/pipeline"
           mode: github-packages
           registry: "https://npm.pkg.github.com"
           dist-tag: "latest"
+          token-env-name: GITHUB_TOKEN
         env:
           CI: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish npm package
-        uses: async/actions/publish@v0
+        uses: async/actions/publish@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           package-path: "packages/pipeline"
           mode: npm
           registry: "https://registry.npmjs.org"
           dist-tag: "latest"
+          token-env-name: NODE_AUTH_TOKEN
           provenance: true
         env:
           CI: true
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Run release doctor
-        uses: async/actions/publish@v0
+        uses: async/actions/publish@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           package-path: "packages/pipeline"
           mode: doctor
@@ -140,7 +137,6 @@ jobs:
         env:
           CI: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   snapshot:
     name: snapshot
@@ -162,7 +158,7 @@ jobs:
             async-pipeline-${{ runner.os }}-
 
       - name: Setup Async runtimes
-        uses: async/actions/setup@v0
+        uses: async/actions/setup@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           node-version: 24
           pnpm-version: 11.1.0
@@ -182,17 +178,16 @@ jobs:
         run: pnpm build
 
       - name: Run pipeline task pack
-        uses: async/actions/run@v0
+        uses: async/actions/run@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"
           check-generated: false
           artifact-name: async-pipeline-${{ github.job }}-pack-runs
         env:
           CI: true
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish main package preview
-        uses: async/actions/preview@v0
+        uses: async/actions/preview@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           package-path: "packages/pipeline"
           target-registry: "https://npm.pkg.github.com"
@@ -226,7 +221,7 @@ jobs:
             async-pipeline-${{ runner.os }}-
 
       - name: Setup Async runtimes
-        uses: async/actions/setup@v0
+        uses: async/actions/setup@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           node-version: 24
           pnpm-version: 11.1.0
@@ -246,7 +241,7 @@ jobs:
         run: pnpm build
 
       - name: Run pipeline job
-        uses: async/actions/run@v0
+        uses: async/actions/run@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run verify"
           check-generated: false
@@ -271,7 +266,7 @@ jobs:
             async-pipeline-${{ runner.os }}-
 
       - name: Setup Async runtimes
-        uses: async/actions/setup@v0
+        uses: async/actions/setup@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           node-version: 24
           pnpm-version: 11.1.0
@@ -291,7 +286,7 @@ jobs:
         run: pnpm build
 
       - name: Run Pages target
-        uses: async/actions/run@v0
+        uses: async/actions/run@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run-task docs.site"
           check-generated: false
@@ -300,7 +295,7 @@ jobs:
           CI: true
 
       - name: Upload Pages artifact
-        uses: async/actions/pages@v0
+        uses: async/actions/pages@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           mode: static
           path: ".async/pages"
@@ -319,7 +314,7 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: async/actions/pages@v0
+        uses: async/actions/pages@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           upload: false
           deploy: true
@@ -339,7 +334,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Merge validated Dependabot PR
-        uses: async/actions/dependabot-merge@v0
+        uses: async/actions/dependabot-merge@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           pull-request-number: ${{ github.event.pull_request.number }}
           actor: ${{ github.event.pull_request.user.login }}
@@ -375,7 +370,7 @@ jobs:
             async-pipeline-${{ runner.os }}-
 
       - name: Setup Async runtimes
-        uses: async/actions/setup@v0
+        uses: async/actions/setup@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           node-version: 24
           pnpm-version: 11.1.0
@@ -395,7 +390,7 @@ jobs:
         run: pnpm build
 
       - name: Run package preview target
-        uses: async/actions/run@v0
+        uses: async/actions/run@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"
           check-generated: false
@@ -404,7 +399,7 @@ jobs:
           CI: true
 
       - name: Publish package preview
-        uses: async/actions/preview@v0
+        uses: async/actions/preview@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5
         with:
           package-path: "packages/pipeline"
           target-registry: "https://npm.pkg.github.com"

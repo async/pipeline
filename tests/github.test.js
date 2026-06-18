@@ -8,11 +8,15 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { definePipeline, env, execution, job, sandbox, sh, task, trigger } from "../packages/pipeline-core/dist/index.js";
-import { jobsForGitHubEvent, renderGitHubWorkflow } from "../packages/pipeline-node/dist/index.js";
+import { checkGitHubWorkflow, jobsForGitHubEvent, renderGitHubWorkflow, writeGitHubWorkflow } from "../packages/pipeline-node/dist/index.js";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
 const cliPath = join(repoRoot, "packages/pipeline-node/dist/cli.js");
+const asyncActionsSha = "313494352cd10207bf0331c83e83364eb45c8e02";
+const asyncActionsLabel = "v0.1.5";
+const asyncActionsRefPattern = `${asyncActionsSha} # ${asyncActionsLabel.replaceAll(".", "\\.")}`;
+const asyncActionUses = (name) => new RegExp(`uses: async/actions/${name}@${asyncActionsRefPattern}`);
 
 test("renders github workflow triggers and bootloader steps", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-render-"));
@@ -43,6 +47,7 @@ test("renders github workflow triggers and bootloader steps", async () => {
     assert.match(rendered.workflow, /schedule:/);
     assert.match(rendered.workflow, /github\.event_name == 'release' && \(github\.event\.action == 'published'\)/);
     assert.match(rendered.workflow, /async-pipeline github check/);
+    assertAllRemoteActionRefsPinned(rendered.workflow);
     assert.match(rendered.workflow, /async-pipeline run verify/);
     assert.match(rendered.workflow, /actions\/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4/);
     assert.match(rendered.workflow, /name: Setup pnpm runtime/);
@@ -58,10 +63,11 @@ test("renders github workflow triggers and bootloader steps", async () => {
     assert.doesNotMatch(rendered.workflow, /async\/actions\/setup@v0/);
     assert.doesNotMatch(rendered.workflow, /actions\/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6/);
     assert.doesNotMatch(rendered.workflow, /corepack prepare/);
-    assert.match(rendered.workflow, /uses: async\/actions\/run@v0/);
+    assert.match(rendered.workflow, asyncActionUses("run"));
     assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run verify"/);
     assert.match(rendered.workflow, /artifact-name: async-pipeline-\$\{\{ github\.job \}\}-runs/);
     assert.equal(rendered.lock.workflow, ".github/workflows/async-pipeline.yml");
+    assert.equal(rendered.lock.actions.find((entry) => entry.id === "async.actions.run")?.sha, asyncActionsSha);
     assert.equal(rendered.lock.setup, "pnpm");
     assert.equal(rendered.lock.packageManagerVersion, "11.1.0");
     assert.equal(rendered.lock.dependencyCache, true);
@@ -96,7 +102,7 @@ test("renders explicit async setup provider", async () => {
     const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
 
     assert.match(rendered.workflow, /name: Setup Async runtimes/);
-    assert.match(rendered.workflow, /uses: async\/actions\/setup@v0/);
+    assert.match(rendered.workflow, asyncActionUses("setup"));
     assert.match(rendered.workflow, /pnpm-version: 11\.1\.0/);
     assert.match(rendered.workflow, /runtime: \|\n            node@24\n            deno@2/);
     assert.match(rendered.workflow, /^\s+install: true$/m);
@@ -361,7 +367,7 @@ test("renders generated Dependabot auto-merge workflow job", async () => {
     assert.match(rendered.workflow, /dependabot-auto-merge:\n    name: dependabot-auto-merge/);
     assert.match(rendered.workflow, /if: github\.event\.pull_request\.user\.login == 'dependabot\[bot\]' && github\.event\.pull_request\.draft == false/);
     assert.match(rendered.workflow, /uses: dependabot\/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3\.1\.0/);
-    assert.match(rendered.workflow, /uses: async\/actions\/dependabot-merge@v0/);
+    assert.match(rendered.workflow, asyncActionUses("dependabot-merge"));
     assert.match(rendered.workflow, /dependency-ecosystem: \$\{\{ steps\.dependabot-metadata\.outputs\.package-ecosystem \}\}/);
     assert.match(rendered.workflow, /allowed-ecosystems: \|\n            github-actions\n            npm\n            deno/);
     assert.deepEqual(rendered.lock.dependabotAutoMerge, {
@@ -402,9 +408,9 @@ test("renders generated package preview job from packagePreviews true", async ()
     assert.match(rendered.workflow, /if: github\.event_name == 'pull_request' && github\.event\.pull_request\.draft == false/);
     assert.match(rendered.workflow, /persist-credentials: false/);
     assert.match(rendered.workflow, /permissions:\n      contents: read\n      issues: write\n      packages: write\n      pull-requests: write/);
-    assert.match(rendered.workflow, /uses: async\/actions\/run@v0/);
+    assert.match(rendered.workflow, asyncActionUses("run"));
     assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"/);
-    assert.match(rendered.workflow, /uses: async\/actions\/preview@v0/);
+    assert.match(rendered.workflow, asyncActionUses("preview"));
     assert.match(rendered.workflow, /package-path: "packages\/pipeline"/);
     assert.match(rendered.workflow, /target-registry: "https:\/\/npm\.pkg\.github\.com"/);
     assert.match(rendered.workflow, /mode: pr/);
@@ -482,18 +488,82 @@ test("renders lifecycle publish tasks as async action steps", async () => {
     assert.match(rendered.workflow, /name: Run pipeline task pack/);
     assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"/);
     assert.match(rendered.workflow, /artifact-name: async-pipeline-\$\{\{ github\.job \}\}-pack-runs/);
-    assert.match(rendered.workflow, /uses: async\/actions\/preview@v0/);
+    assert.match(rendered.workflow, asyncActionUses("preview"));
     assert.match(rendered.workflow, /package-path: "\."/);
     assert.match(rendered.workflow, /target-registry: "https:\/\/npm\.pkg\.github\.com"/);
     assert.match(rendered.workflow, /mode: main/);
     assert.match(rendered.workflow, /comment: false/);
-    assert.match(rendered.workflow, /uses: async\/actions\/publish@v0/);
+    assert.match(rendered.workflow, asyncActionUses("publish"));
     assert.match(rendered.workflow, /mode: github-release/);
     assert.match(rendered.workflow, /mode: github-packages/);
     assert.match(rendered.workflow, /mode: npm/);
     assert.match(rendered.workflow, /provenance: true/);
     assert.match(rendered.workflow, /mode: doctor/);
     assert.match(rendered.workflow, /NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/);
+
+    const packBlock = stepBlock(rendered.workflow, "Run pipeline task pack");
+    assert.doesNotMatch(packBlock, /GITHUB_TOKEN/);
+    assert.doesNotMatch(packBlock, /NODE_AUTH_TOKEN/);
+
+    const previewBlock = stepBlock(rendered.workflow, "Publish main package preview");
+    assert.match(previewBlock, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
+    assert.doesNotMatch(previewBlock, /NODE_AUTH_TOKEN/);
+
+    const releaseBlock = stepBlock(rendered.workflow, "Create or update GitHub Release");
+    assert.match(releaseBlock, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
+    assert.doesNotMatch(releaseBlock, /NODE_AUTH_TOKEN/);
+
+    const githubPackagesBlock = stepBlock(rendered.workflow, "Publish GitHub Packages mirror");
+    assert.match(githubPackagesBlock, /token-env-name: GITHUB_TOKEN/);
+    assert.match(githubPackagesBlock, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
+    assert.doesNotMatch(githubPackagesBlock, /NODE_AUTH_TOKEN/);
+
+    const npmBlock = stepBlock(rendered.workflow, "Publish npm package");
+    assert.match(npmBlock, /token-env-name: NODE_AUTH_TOKEN/);
+    assert.match(npmBlock, /NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/);
+    assert.doesNotMatch(npmBlock, /GITHUB_TOKEN/);
+
+    const doctorBlock = stepBlock(rendered.workflow, "Run release doctor");
+    assert.match(doctorBlock, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
+    assert.doesNotMatch(doctorBlock, /NODE_AUTH_TOKEN/);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("keeps lifecycle publish commands in the pipeline runner when shell semantics are not equivalent", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-lifecycle-fallback-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@async/example", version: "1.2.3", packageManager: "pnpm@11.1.0" }), "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      tasks: {
+        publish: task({
+          run: sh`pnpm async-pipeline publish npm --package . && echo after-publish`
+        }),
+        retrying: task({
+          retry: 2,
+          run: sh`pnpm async-pipeline publish npm --package .`
+        }),
+        timed: task({
+          timeout: "2m",
+          run: sh`pnpm async-pipeline publish npm --package .`
+        })
+      },
+      jobs: {
+        publish: job({ target: "publish", env: { NODE_AUTH_TOKEN: env.secret("NPM_TOKEN") } }),
+        retrying: job({ target: "retrying", env: { NODE_AUTH_TOKEN: env.secret("NPM_TOKEN") } }),
+        timed: job({ target: "timed", env: { NODE_AUTH_TOKEN: env.secret("NPM_TOKEN") } })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run publish"/);
+    assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run retrying"/);
+    assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run timed"/);
+    assert.match(rendered.workflow, asyncActionUses("run"));
+    assert.doesNotMatch(rendered.workflow, asyncActionUses("publish"));
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
@@ -656,11 +726,11 @@ test("renders github pages build and deploy jobs", async () => {
     assert.match(rendered.workflow, /workflow_dispatch:\n    inputs:\n      job:\n        description: "Pipeline job to run"\n        required: true\n        type: choice\n        options:\n          - "pages"/);
     assert.match(rendered.workflow, /pages:\n    name: pages\n    if: \(github\.event_name == 'pull_request'\) \|\| \(github\.event_name == 'push' && \(github\.ref == 'refs\/heads\/main'\)\) \|\| \(github\.event_name == 'workflow_dispatch' && github\.event\.inputs\.job == 'pages'\)/);
     assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run pages"/);
-    assert.match(rendered.workflow, /uses: async\/actions\/pages@v0\n        with:\n          mode: jekyll\n          source: "\.\/docs"\n          destination: "\.\/_site"/);
+    assert.match(rendered.workflow, new RegExp(`uses: async/actions/pages@${asyncActionsRefPattern}\\n        with:\\n          mode: jekyll\\n          source: "\\./docs"\\n          destination: "\\./_site"`));
     assert.match(rendered.workflow, /pages-deploy:\n    name: pages-deploy\n    needs: "pages"\n    if: github\.event_name != 'pull_request'\n    runs-on: ubuntu-latest/);
     assert.match(rendered.workflow, /environment:\n      name: "github-pages"\n      url: "\$\{\{ steps\.deployment\.outputs\.page_url \}\}"/);
     assert.match(rendered.workflow, /permissions:\n      pages: write\n      id-token: write/);
-    assert.match(rendered.workflow, /uses: async\/actions\/pages@v0\n        with:\n          upload: false\n          deploy: true/);
+    assert.match(rendered.workflow, new RegExp(`uses: async/actions/pages@${asyncActionsRefPattern}\\n        with:\\n          upload: false\\n          deploy: true`));
     assert.deepEqual(rendered.lock.manualDispatchJobs, ["pages"]);
     assert.deepEqual(rendered.lock.jobs[0].github.pages, {
       build: { kind: "jekyll", source: "./docs", destination: "./_site" }
@@ -704,7 +774,7 @@ test("renders generated github pages jobs from sync github pages", async () => {
     assert.match(rendered.workflow, /if: github\.event_name == 'pull_request' \|\| \(github\.event_name == 'push' && \(github\.ref == 'refs\/heads\/main'\)\) \|\| \(github\.event_name == 'workflow_dispatch' && github\.event\.inputs\.job == 'docs-pages'\)/);
     assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run-task docs\.site"/);
     assert.doesNotMatch(rendered.workflow, /run: pnpm async-pipeline run docs-pages/);
-    assert.match(rendered.workflow, /uses: async\/actions\/pages@v0\n        with:\n          mode: static\n          path: "\.async\/pages"/);
+    assert.match(rendered.workflow, new RegExp(`uses: async/actions/pages@${asyncActionsRefPattern}\\n        with:\\n          mode: static\\n          path: "\\.async/pages"`));
     assert.match(rendered.workflow, /docs-pages-deploy:\n    name: docs-pages-deploy\n    needs: "docs-pages"\n    if: github\.event_name != 'pull_request'/);
     assert.deepEqual(rendered.lock.manualDispatchJobs, ["docs-pages"]);
     assert.equal(rendered.lock.jobs.some((entry) => entry.id === "docs-pages"), false);
@@ -787,7 +857,7 @@ test("renders prerender github pages build through async pages action", async ()
 
     const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
 
-    assert.match(rendered.workflow, /uses: async\/actions\/pages@v0\n        with:\n          mode: prerender\n          path: "\.async\/prerender"\n          validate-index: true\n          spa-fallback: true/);
+    assert.match(rendered.workflow, new RegExp(`uses: async/actions/pages@${asyncActionsRefPattern}\\n        with:\\n          mode: prerender\\n          path: "\\.async/prerender"\\n          validate-index: true\\n          spa-fallback: true`));
     assert.deepEqual(rendered.lock.pages.build, {
       kind: "prerender",
       path: ".async/prerender",
@@ -1063,6 +1133,38 @@ export default definePipeline({
 
     const lock = JSON.parse(readFileSync(join(dir, ".github/async-pipeline.lock.json"), "utf8"));
     assert.equal(lock.triggers.push.branches[0], "main");
+    assert.equal(lock.actions.find((entry) => entry.id === "async.actions.run")?.sha, asyncActionsSha);
+    assertAllRemoteActionRefsPinned(readFileSync(join(dir, ".github/workflows/async-pipeline.yml"), "utf8"));
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("github check rejects mutable remote action refs in generated workflows", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-mutable-ref-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      tasks: {
+        verify: task({ run: sh`echo verify` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+    await writeGitHubWorkflow(rendered, dir);
+
+    const workflowPath = join(dir, ".github/workflows/async-pipeline.yml");
+    writeFileSync(
+      workflowPath,
+      readFileSync(workflowPath, "utf8").replace(`async/actions/run@${asyncActionsSha} # ${asyncActionsLabel}`, "async/actions/run@v0"),
+      "utf8"
+    );
+
+    const issues = await checkGitHubWorkflow(rendered, dir);
+    assert.match(issues.join("\n"), /mutable action refs \(async\/actions\/run@v0\)/);
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
@@ -1112,6 +1214,31 @@ export default definePipeline({
     rmSync(dir, { force: true, recursive: true });
   }
 });
+
+function assertAllRemoteActionRefsPinned(workflow) {
+  for (const value of remoteActionRefs(workflow)) {
+    assert.match(value, /@[0-9a-f]{40}$/u, `${value} should be pinned to a full SHA`);
+  }
+}
+
+function remoteActionRefs(workflow) {
+  const refs = [];
+  for (const line of workflow.split("\n")) {
+    const match = /^\s*uses:\s*([^#\s]+)/u.exec(line);
+    if (!match) continue;
+    const value = match[1].replace(/^["']|["']$/gu, "");
+    if (value.startsWith("./") || value.startsWith("../") || value.startsWith("docker://")) continue;
+    refs.push(value);
+  }
+  return refs;
+}
+
+function stepBlock(workflow, name) {
+  const start = workflow.indexOf(`      - name: ${name}`);
+  assert.notEqual(start, -1, `missing step ${name}`);
+  const next = workflow.indexOf("\n      - name:", start + 1);
+  return workflow.slice(start, next < 0 ? undefined : next);
+}
 
 function mkdtempSyncCompat(prefix) {
   const dir = join(tmpdir(), `${prefix}${Math.random().toString(16).slice(2)}`);

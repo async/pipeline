@@ -52,6 +52,8 @@ sync: {
 
 `setup: "auto"` currently resolves to the default pinned `pnpm/setup` provider. Explicit `setup: "async"` selects `async/actions/setup`. Package projects default to `node@<nodeVersion>`; Deno-only projects with `deno.json` or `deno.jsonc` and no `package.json` default to `deno@2`; explicit `runtime` accepts a string or array such as `["node@24", "deno@2"]`. Use `setup: "node"` when you explicitly want the older `actions/setup-node` + Corepack bootloader for a single Node runtime. `cache` controls the task cache. `dependencyCache` controls dependency-store cache settings: with the default pnpm setup, the generated workflow passes the recognized lockfile to `pnpm/setup`; with `setup: "async"`, it passes the recognized lockfile to `async/actions/setup`. Set it to `false` when you need a fully cold dependency install.
 
+All generated remote `uses:` references, including `async/actions/*`, are resolved from the central action manifest and emitted as full 40-character SHAs with a trailing human label. Tags such as `v0` remain compatibility labels for readers and hand-written consumers, but generated privileged workflows execute the reviewed SHA recorded by `@async/pipeline`.
+
 ### Runtime Setup Notes For Agents
 
 `async/actions/setup` accepts a newline runtime list, so repos that opt into `setup: "async"` can use one shared Async setup step instead of splitting runtime setup across `pnpm/setup` and `denoland/setup-deno`.
@@ -59,6 +61,8 @@ sync: {
 The default `pnpm/setup` provider still has the historical single-runtime constraint: it installs one primary runtime through `pnpm/setup`, then renders separate setup for additional runtimes. This remains the default until the Async setup action is tested broadly enough to become the generated default.
 
 Each generated job calls `async/actions/run` to run the pipeline command, explain failures, and upload `.async/runs` as evidence. GitHub Actions stays a bootloader for the same task graph; the uploaded evidence is the local run record, graph snapshot, cache receipts, logs, and context packs from the normal runner.
+
+Lifecycle lowering only happens for exact, whole-command publish, preview, release, or doctor lifecycle steps with representable semantics. Compound shell syntax, unmodeled flags, retries, and timeouts stay in the normal `async/actions/run` path so the pipeline runtime keeps ownership of task semantics. Generated lifecycle publish and preview steps pass secret env only to the exact Async action step that needs it.
 
 ## Generated Package Previews And Dependabot Merge
 
@@ -218,7 +222,7 @@ The generated workflow is intentionally thin:
 - run `async-pipeline github check`
 - run one generated pipeline job with `async-pipeline run <job-id>`
 
-The lock file records the generator version, config path, workflow path, hash, rendered triggers, rendered jobs, package manager, and bootloader options.
+The lock file records the generator version, config path, workflow path, hash, resolved action refs and SHAs, rendered triggers, rendered jobs, package manager, and bootloader options.
 
 For tests or scratch generation, override both generated paths:
 
@@ -239,7 +243,7 @@ async-pipeline github check
 async-pipeline sync github check
 ```
 
-The command loads `pipeline.ts`, recomputes the GitHub-relevant metadata hash, renders the workflow again, and fails if either generated file is stale.
+The command loads `pipeline.ts`, recomputes the GitHub-relevant metadata hash, renders the workflow again, and fails if either generated file is stale. The drift check also fails if a committed generated workflow contains any mutable remote action ref instead of a full SHA.
 
 Task command changes do not force workflow regeneration unless they affect jobs, triggers, package-manager bootstrapping, or the generated workflow shape.
 

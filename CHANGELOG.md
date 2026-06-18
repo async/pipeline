@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.2 - 2026-06-18
+
+### Fixes
+
+- Pin every generated remote GitHub Action reference, including `async/actions/*`, to a reviewed full SHA, record the resolved action manifest in `.github/async-pipeline.lock.json`, and fail `github check` when committed generated workflows contain mutable remote action refs.
+- Scope generated lifecycle publish and preview secrets to the exact Async action step that needs them, and keep lifecycle commands in `async/actions/run` when shell syntax, flags, retries, or timeouts cannot be lowered with equivalent semantics.
+
 ## 0.9.1 - 2026-06-18
 
 ### Fixes

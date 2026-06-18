@@ -7,20 +7,71 @@ import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 12;
+const GENERATOR_VERSION = 13;
 const DEFAULT_NODE_VERSION = "24";
 const DEFAULT_DENO_VERSION = "2";
-const ASYNC_SETUP_ACTION = "async/actions/setup@v0";
-const ASYNC_RUN_ACTION = "async/actions/run@v0";
-const ASYNC_PAGES_ACTION = "async/actions/pages@v0";
-const ASYNC_PREVIEW_ACTION = "async/actions/preview@v0";
-const ASYNC_PUBLISH_ACTION = "async/actions/publish@v0";
-const ASYNC_DEPENDABOT_MERGE_ACTION = "async/actions/dependabot-merge@v0";
-const PNPM_SETUP_ACTION = "pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0";
-const DENO_SETUP_ACTION = "denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4";
-const SETUP_NODE_ACTION = "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6";
 const DEFAULT_PNPM_VERSION = "11.1.0";
 const DEFAULT_DENO_PIPELINE_COMMAND = "deno run -A npm:@async/pipeline/cli";
+
+interface GitHubActionRef {
+  id: string;
+  uses: string;
+  sha: string;
+  label: string;
+  ref: string;
+}
+
+function defineActionRef(id: string, uses: string, sha: string, label: string): GitHubActionRef {
+  return {
+    id,
+    uses,
+    sha,
+    label,
+    ref: `${uses}@${sha} # ${label}`
+  };
+}
+
+const ASYNC_ACTIONS_SHA = "313494352cd10207bf0331c83e83364eb45c8e02";
+const ASYNC_ACTIONS_LABEL = "v0.1.5";
+
+const GENERATED_ACTIONS = [
+  defineActionRef("async.actions.setup", "async/actions/setup", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("async.actions.run", "async/actions/run", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("async.actions.pages", "async/actions/pages", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("async.actions.preview", "async/actions/preview", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("async.actions.publish", "async/actions/publish", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("async.actions.dependabot-merge", "async/actions/dependabot-merge", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("actions.checkout", "actions/checkout", "de0fac2e4500dabe0009e67214ff5f5447ce83dd", "v6.0.2"),
+  defineActionRef("actions.cache", "actions/cache", "0057852bfaa89a56745cba8c7296529d2fc39830", "v4"),
+  defineActionRef("pnpm.setup", "pnpm/setup", "cf03a9b516e09bc5a90f041fc26fc930c9dc631b", "v1.0.0"),
+  defineActionRef("deno.setup", "denoland/setup-deno", "667a34cdef165d8d2b2e98dde39547c9daac7282", "v2.0.4"),
+  defineActionRef("actions.setup-node", "actions/setup-node", "48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e", "v6"),
+  defineActionRef("dependabot.fetch-metadata", "dependabot/fetch-metadata", "25dd0e34f4fe68f24cc83900b1fe3fe149efef98", "v3.1.0")
+] as const;
+
+const ACTION_LOCKS = GENERATED_ACTIONS.map(({ id, uses, sha, label, ref }) => ({ id, uses, sha, label, ref }))
+  .sort((left, right) => left.id.localeCompare(right.id));
+const ACTION_BY_ID: Record<string, GitHubActionRef> = Object.fromEntries(GENERATED_ACTIONS.map((action) => [action.id, action]));
+const ASYNC_SETUP_ACTION = actionRef("async.actions.setup");
+const ASYNC_RUN_ACTION = actionRef("async.actions.run");
+const ASYNC_PAGES_ACTION = actionRef("async.actions.pages");
+const ASYNC_PREVIEW_ACTION = actionRef("async.actions.preview");
+const ASYNC_PUBLISH_ACTION = actionRef("async.actions.publish");
+const ASYNC_DEPENDABOT_MERGE_ACTION = actionRef("async.actions.dependabot-merge");
+const CHECKOUT_ACTION = actionRef("actions.checkout");
+const CACHE_ACTION = actionRef("actions.cache");
+const PNPM_SETUP_ACTION = actionRef("pnpm.setup");
+const DENO_SETUP_ACTION = actionRef("deno.setup");
+const SETUP_NODE_ACTION = actionRef("actions.setup-node");
+const DEPENDABOT_FETCH_METADATA_ACTION = actionRef("dependabot.fetch-metadata");
+
+function actionRef(id: string): string {
+  const action = ACTION_BY_ID[id];
+  if (!action) {
+    throw new Error(`Missing generated GitHub action manifest entry ${id}.`);
+  }
+  return action.ref;
+}
 
 export interface GitHubRenderOptions {
   cwd: string;
@@ -36,6 +87,7 @@ export interface GitHubLock {
   workflow: string;
   hash: string;
   generatedAt: string;
+  actions: Array<{ id: string; uses: string; sha: string; label: string; ref: string }>;
   triggers: Record<string, unknown>;
   jobs: Array<{ id: string; target: string[]; trigger: string[]; env: Record<string, EnvValue>; environment?: JobEnvironment; requires?: JobRequirements; execution?: ExecutionProfileId; github?: GitHubJobConfig; if?: string }>;
   packageManager: string;
@@ -132,7 +184,8 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     dependabotAutoMerge: renderModel.dependabotAutoMerge,
     packagePreviews: renderModel.packagePreviews,
     pages: renderModel.pages,
-    manualDispatchJobs: renderModel.manualDispatchJobs
+    manualDispatchJobs: renderModel.manualDispatchJobs,
+    actions: ACTION_LOCKS
   });
   const lock: GitHubLock = {
     version: GENERATOR_VERSION,
@@ -141,6 +194,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     workflow: renderModel.workflowPath,
     hash,
     generatedAt: new Date().toISOString(),
+    actions: ACTION_LOCKS,
     triggers: renderModel.triggers,
     jobs: renderModel.jobs,
     packageManager: renderModel.packageManager,
@@ -179,11 +233,19 @@ export async function checkGitHubWorkflow(result: GitHubRenderResult, cwd: strin
   const issues: string[] = [];
   const workflowFile = resolve(cwd, result.workflowPath);
   const lockFile = resolve(cwd, result.lockPath);
+  const renderedMutableRefs = findMutableRemoteActionRefs(result.workflow);
+  if (renderedMutableRefs.length > 0) {
+    issues.push(`Generated workflow renderer produced mutable action refs: ${renderedMutableRefs.join(", ")}.`);
+  }
 
   if (!existsSync(workflowFile)) {
     issues.push(`Missing generated workflow ${result.workflowPath}. Run async-pipeline github generate.`);
   } else {
     const existingWorkflow = await readFile(workflowFile, "utf8");
+    const existingMutableRefs = findMutableRemoteActionRefs(existingWorkflow);
+    if (existingMutableRefs.length > 0) {
+      issues.push(`Generated workflow ${result.workflowPath} contains mutable action refs (${existingMutableRefs.join(", ")}). Run async-pipeline github generate.`);
+    }
     if (existingWorkflow !== result.workflow) {
       issues.push(`Generated workflow ${result.workflowPath} is stale. Run async-pipeline github generate.`);
     }
@@ -199,6 +261,21 @@ export async function checkGitHubWorkflow(result: GitHubRenderResult, cwd: strin
   }
 
   return issues;
+}
+
+function findMutableRemoteActionRefs(workflow: string): string[] {
+  const refs = new Set<string>();
+  for (const line of workflow.split("\n")) {
+    const match = /^\s*uses:\s*([^#\s]+)/u.exec(line);
+    if (!match) continue;
+    const value = (match[1] ?? "").replace(/^["']|["']$/gu, "");
+    if (value.startsWith("./") || value.startsWith("../") || value.startsWith("docker://")) continue;
+    const atIndex = value.lastIndexOf("@");
+    if (atIndex < 0 || !/^[0-9a-f]{40}$/iu.test(value.slice(atIndex + 1))) {
+      refs.add(value);
+    }
+  }
+  return [...refs].sort((left, right) => left.localeCompare(right));
 }
 
 export async function readGitHubEventContext(env: NodeJS.ProcessEnv): Promise<GitHubEventContext> {
@@ -537,12 +614,12 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
   lines.push(
     "    steps:",
     "      - name: Checkout",
-    "        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2",
+    `        uses: ${CHECKOUT_ACTION}`,
     "",
     ...(model.taskCache
       ? [
           "      - name: Restore task cache",
-          "        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4",
+          `        uses: ${CACHE_ACTION}`,
           "        with:",
           "          path: .async/cache",
           "          key: async-pipeline-${{ runner.os }}-${{ github.sha }}",
@@ -591,12 +668,12 @@ function renderGeneratedPagesJob(lines: string[], model: ReturnType<typeof build
     "    runs-on: ubuntu-latest",
     "    steps:",
     "      - name: Checkout",
-    "        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2",
+    `        uses: ${CHECKOUT_ACTION}`,
     "",
     ...(model.taskCache
       ? [
           "      - name: Restore task cache",
-          "        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4",
+          `        uses: ${CACHE_ACTION}`,
           "        with:",
           "          path: .async/cache",
           "          key: async-pipeline-${{ runner.os }}-${{ github.sha }}",
@@ -682,6 +759,9 @@ function appendLifecycleTaskPlan(
   visited.add(taskId);
   const task = tasks[taskId];
   if (!task) return false;
+  if (task.retry.attempts !== 1 || task.retry.delayMs || task.timeoutMs !== undefined) {
+    return false;
+  }
 
   const lifecycleSteps = task.steps.map((step) => {
     if (typeof step === "object" && step && "kind" in step && step.kind === "shell") {
@@ -704,23 +784,27 @@ function appendLifecycleTaskPlan(
 }
 
 function parseLifecycleCommand(command: string): LifecyclePlanItem | undefined {
+  if (containsUnsupportedShellSyntax(command)) return undefined;
   const argv = splitShellWords(command);
   const cliIndex = argv.findIndex(isPipelineCliToken);
   if (cliIndex < 0) return undefined;
+  if (!isAllowedCliPrefix(argv.slice(0, cliIndex))) return undefined;
   const args = argv.slice(cliIndex + 1);
   const packagePath = flagValue(args, "--package") ?? ".";
   if (args[0] === "publish" && args[1] === "github" && (args[2] === "main" || args[2] === "pr")) {
+    if (!hasOnlyAllowedOptions(args, 3, new Set(["--package", "--registry", "--namespace", "--token-env-name"]), new Set(["--no-comment"]))) return undefined;
     return {
       kind: "preview",
       mode: args[2],
       packagePath,
       registry: flagValue(args, "--registry") ?? "https://npm.pkg.github.com",
       namespace: flagValue(args, "--namespace"),
-      comment: args[2] === "pr",
+      comment: args[2] === "pr" && !args.includes("--no-comment"),
       tokenEnv: flagValue(args, "--token-env-name") ?? "GITHUB_TOKEN"
     };
   }
   if (args[0] === "publish" && args[1] === "github" && args[2] === "release") {
+    if (!hasOnlyAllowedOptions(args, 3, new Set(["--package", "--registry", "--tag", "--dist-tag"]), new Set())) return undefined;
     return {
       kind: "publish",
       mode: "github-packages",
@@ -730,6 +814,7 @@ function parseLifecycleCommand(command: string): LifecyclePlanItem | undefined {
     };
   }
   if (args[0] === "publish" && args[1] === "npm") {
+    if (!hasOnlyAllowedOptions(args, 2, new Set(["--package", "--registry", "--tag", "--dist-tag"]), new Set())) return undefined;
     return {
       kind: "publish",
       mode: "npm",
@@ -739,6 +824,7 @@ function parseLifecycleCommand(command: string): LifecyclePlanItem | undefined {
     };
   }
   if (args[0] === "release" && args[1] === "ensure") {
+    if (!hasOnlyAllowedOptions(args, 2, new Set(["--package"]), new Set())) return undefined;
     return {
       kind: "publish",
       mode: "github-release",
@@ -748,6 +834,7 @@ function parseLifecycleCommand(command: string): LifecyclePlanItem | undefined {
     };
   }
   if (args[0] === "release" && args[1] === "doctor") {
+    if (!hasOnlyAllowedOptions(args, 2, new Set(["--package"]), new Set())) return undefined;
     return {
       kind: "publish",
       mode: "doctor",
@@ -771,7 +858,7 @@ function renderLifecycleJobPlan(
         lines,
         `Run pipeline task ${item.taskId}`,
         `${model.command} github check && ${model.command} run-task ${shellWord(item.taskId)}`,
-        job.env,
+        scopeTaskRunEnv(job.env, model.tasks[item.taskId]),
         { artifactName: `async-pipeline-\${{ github.job }}-${safeArtifactPart(item.taskId)}-runs` }
       );
       continue;
@@ -797,7 +884,7 @@ function renderPreviewActionStep(lines: string[], preview: Extract<LifecyclePlan
     `          comment: ${preview.comment ? "true" : "false"}`,
     `          token-env-name: ${JSON.stringify(preview.tokenEnv)}`
   );
-  renderActionEnv(lines, env);
+  renderActionEnv(lines, scopeActionEnv(env, new Set([preview.tokenEnv])));
 }
 
 function renderPublishActionStep(
@@ -822,9 +909,33 @@ function renderPublishActionStep(
     `          mode: ${publish.mode}`,
     `          registry: ${JSON.stringify(publish.registry)}`,
     `          dist-tag: ${JSON.stringify(publish.distTag)}`,
+    ...(publish.mode === "npm" ? ["          token-env-name: NODE_AUTH_TOKEN"] : []),
+    ...(publish.mode === "github-packages" ? ["          token-env-name: GITHUB_TOKEN"] : []),
     ...(publish.mode === "npm" ? [`          provenance: ${provenance ? "true" : "false"}`] : [])
   );
-  renderActionEnv(lines, env);
+  renderActionEnv(lines, scopeActionEnv(env, publish.mode === "npm" ? new Set(["NODE_AUTH_TOKEN"]) : new Set(["GITHUB_TOKEN"])));
+}
+
+function scopeActionEnv(env: Record<string, EnvValue>, allowedSecretNames: Set<string>): Record<string, EnvValue> {
+  return Object.fromEntries(
+    Object.entries(env).filter(([name, value]) => !isSecretEnvValue(value) || isAllowedSecretEnv(name, value, allowedSecretNames))
+  );
+}
+
+function isSecretEnvValue(value: EnvValue): boolean {
+  return typeof value === "object" && value !== null && "kind" in value && value.kind === "async-pipeline.env.secret";
+}
+
+function isAllowedSecretEnv(name: string, value: EnvValue, allowedSecretNames: Set<string>): boolean {
+  if (allowedSecretNames.has(name)) return true;
+  if (typeof value === "object" && value !== null && "name" in value && typeof value.name === "string") {
+    return allowedSecretNames.has(value.name);
+  }
+  return false;
+}
+
+function scopeTaskRunEnv(env: Record<string, EnvValue>, task: NormalizedTask | undefined): Record<string, EnvValue> {
+  return scopeActionEnv(env, new Set(task?.requires?.secrets ?? []));
 }
 
 function renderActionEnv(lines: string[], env: Record<string, EnvValue>): void {
@@ -842,6 +953,36 @@ function renderActionEnv(lines: string[], env: Record<string, EnvValue>): void {
 
 function isPipelineCliToken(token: string): boolean {
   return token === "async-pipeline" || token.includes("@async/pipeline/cli");
+}
+
+function containsUnsupportedShellSyntax(command: string): boolean {
+  return /(?:^|\s)(?:&&|\|\||;|\||&|>|<)(?:\s|$)|[`]|\$\(/u.test(command);
+}
+
+function isAllowedCliPrefix(prefix: string[]): boolean {
+  const rendered = prefix.join(" ");
+  return [
+    "",
+    "pnpm",
+    "pnpm exec",
+    "npx",
+    "npm exec",
+    "npm exec --",
+    "deno run -A"
+  ].includes(rendered);
+}
+
+function hasOnlyAllowedOptions(args: string[], startIndex: number, valueFlags: Set<string>, booleanFlags: Set<string>): boolean {
+  for (let index = startIndex; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg) return false;
+    if (booleanFlags.has(arg)) continue;
+    if (!valueFlags.has(arg)) return false;
+    const value = args[index + 1];
+    if (!value || value.startsWith("--")) return false;
+    index += 1;
+  }
+  return true;
 }
 
 function flagValue(args: string[], name: string): string | undefined {
@@ -910,14 +1051,14 @@ function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof build
     "      pull-requests: write",
     "    steps:",
     "      - name: Checkout",
-    "        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2",
+    `        uses: ${CHECKOUT_ACTION}`,
     "        with:",
     "          persist-credentials: false",
     "",
     ...(model.taskCache
       ? [
           "      - name: Restore task cache",
-          "        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4",
+          `        uses: ${CACHE_ACTION}`,
           "        with:",
           "          path: .async/cache",
           "          key: async-pipeline-${{ runner.os }}-${{ github.sha }}",
@@ -968,7 +1109,7 @@ function renderDependabotAutoMergeJob(lines: string[], ecosystems: string[]): vo
     "    steps:",
     "      - name: Fetch Dependabot metadata",
     "        id: dependabot-metadata",
-    "        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0",
+    `        uses: ${DEPENDABOT_FETCH_METADATA_ACTION}`,
     "        with:",
     "          github-token: ${{ secrets.GITHUB_TOKEN }}",
     "",
