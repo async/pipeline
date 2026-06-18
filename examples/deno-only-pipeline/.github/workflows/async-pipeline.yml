@@ -45,22 +45,11 @@ jobs:
       - name: Install dependencies
         run: deno install --frozen=false
 
-      - name: Check generated workflow
-        run: deno run -A ../../packages/pipeline/dist/cli.js github check
-
       - name: Run pipeline job
-        run: deno run -A ../../packages/pipeline/dist/cli.js run verify
+        uses: async/actions/run@v0
+        with:
+          command: "deno run -A ../../packages/pipeline/dist/cli.js github check && deno run -A ../../packages/pipeline/dist/cli.js run verify"
+          check-generated: false
+          artifact-name: async-pipeline-${{ github.job }}-runs
         env:
           CI: true
-
-      - name: Explain async-pipeline run
-        if: failure()
-        run: deno run -A ../../packages/pipeline/dist/cli.js explain --run latest || true
-
-      - name: Upload async-pipeline run evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: async-pipeline-${{ github.job }}-runs
-          path: .async/runs
-          if-no-files-found: ignore

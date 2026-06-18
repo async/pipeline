@@ -271,7 +271,7 @@ export type SyncRunner = "package" | "deno";
 export type SyncSelection = "all" | string[];
 export type SyncTargetSelector = { package: string; allowMultiple?: boolean } | { path: string; allowMultiple?: boolean };
 export type SyncTargets = "root" | SyncTargetSelector[];
-export type GitHubSetupProvider = "auto" | "pnpm" | "node";
+export type GitHubSetupProvider = "auto" | "async" | "pnpm" | "node";
 export type GitHubRuntimeName = "node" | "deno" | "bun";
 export type DependabotAutoMergeEcosystem = "github-actions" | "npm" | "deno";
 
@@ -501,6 +501,12 @@ export type GitHubPagesBuild =
   | {
     kind: "static";
     path: string;
+  }
+  | {
+    kind: "prerender";
+    path: string;
+    validateIndex?: boolean;
+    spaFallback?: boolean;
   };
 
 export interface GitHubPagesConfig {
@@ -880,10 +886,11 @@ const GITHUB_JOB_FIELDS = new Set(["environment", "pages", "permissions", "runsO
 const GITHUB_PAGES_FIELDS = new Set(["artifactName", "build", "environment"]);
 const GITHUB_PAGES_JEKYLL_BUILD_FIELDS = new Set(["destination", "kind", "source"]);
 const GITHUB_PAGES_STATIC_BUILD_FIELDS = new Set(["kind", "path"]);
+const GITHUB_PAGES_PRERENDER_BUILD_FIELDS = new Set(["kind", "path", "spaFallback", "validateIndex"]);
 const GITHUB_PERMISSION_FIELDS = new Set(["contents", "idToken", "issues", "packages", "pullRequests"]);
 const SYNC_FIELDS = new Set(["command", "github", "tasks"]);
 const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "dependabotAutoMerge", "packagePreviews", "pages"]);
-const GITHUB_SETUP_PROVIDERS = new Set<GitHubSetupProvider>(["auto", "pnpm", "node"]);
+const GITHUB_SETUP_PROVIDERS = new Set<GitHubSetupProvider>(["auto", "async", "pnpm", "node"]);
 const DEPENDABOT_AUTO_MERGE_FIELDS = new Set(["ecosystems"]);
 const DEPENDABOT_AUTO_MERGE_ECOSYSTEMS = new Set<DependabotAutoMergeEcosystem>(["github-actions", "npm", "deno"]);
 const PACKAGE_PREVIEWS_FIELDS = new Set(["package", "target", "registry", "namespace", "tokenEnv", "comment"]);
@@ -1344,10 +1351,25 @@ function validateGitHubPagesConfig(jobId: JobId, pages: GitHubPagesConfig): void
   } else if (pages.build.kind === "static") {
     rejectUnknownFields(GITHUB_PAGES_STATIC_BUILD_FIELDS, pages.build, `Job "${jobId}" github.pages.build`);
     validateNonEmptyString(jobId, "github.pages.build.path", pages.build.path);
+  } else if (pages.build.kind === "prerender") {
+    rejectUnknownFields(GITHUB_PAGES_PRERENDER_BUILD_FIELDS, pages.build, `Job "${jobId}" github.pages.build`);
+    validateNonEmptyString(jobId, "github.pages.build.path", pages.build.path);
+    if (pages.build.validateIndex !== undefined && typeof pages.build.validateIndex !== "boolean") {
+      throw pipelineError(
+        "ASYNC_PIPELINE_GITHUB_PAGES_INVALID",
+        `Job "${jobId}" github.pages.build.validateIndex must be a boolean.`
+      );
+    }
+    if (pages.build.spaFallback !== undefined && typeof pages.build.spaFallback !== "boolean") {
+      throw pipelineError(
+        "ASYNC_PIPELINE_GITHUB_PAGES_INVALID",
+        `Job "${jobId}" github.pages.build.spaFallback must be a boolean.`
+      );
+    }
   } else {
     throw pipelineError(
       "ASYNC_PIPELINE_GITHUB_PAGES_INVALID",
-      `Job "${jobId}" github.pages.build.kind must be "jekyll" or "static".`
+      `Job "${jobId}" github.pages.build.kind must be "jekyll", "static", or "prerender".`
     );
   }
   if (pages.artifactName !== undefined) {
@@ -1813,7 +1835,7 @@ function normalizeGitHubRuntime(runtime: string | string[] | undefined): string[
 function normalizeGitHubSetup(setup: GitHubSetupProvider | undefined): Exclude<GitHubSetupProvider, "auto"> {
   if (setup === undefined || setup === "auto") return "pnpm";
   if (GITHUB_SETUP_PROVIDERS.has(setup)) return setup;
-  throw pipelineError("ASYNC_PIPELINE_SYNC_INVALID_GITHUB_SETUP", `Invalid GitHub sync setup "${setup}". Use "auto", "pnpm", or "node".`);
+  throw pipelineError("ASYNC_PIPELINE_SYNC_INVALID_GITHUB_SETUP", `Invalid GitHub sync setup "${setup}". Use "auto", "async", "pnpm", or "node".`);
 }
 
 function normalizeGitHubNodeVersion(nodeVersion: number | string | undefined): string {

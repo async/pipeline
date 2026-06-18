@@ -59,50 +59,39 @@ jobs:
           restore-keys: |
             async-pipeline-${{ runner.os }}-
 
-      - name: Setup pnpm runtime
-        uses: pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0
+      - name: Setup Async runtimes
+        uses: async/actions/setup@v0
         with:
-          version: 11.1.0
-          runtime: node@24
-          install: false
+          node-version: 24
+          pnpm-version: 11.1.0
+          npm-version: 11.16.0
+          runtime: |
+            node@24
+            deno@2
+          package-manager: pnpm
+          install: true
+          frozen-lockfile: true
           cache: true
-          cache-dependency-path: "pnpm-lock.yaml"
-
-      - name: Setup Deno
-        uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
-        with:
-          deno-version: 2
+          dependency-cache-path: "pnpm-lock.yaml"
+          registry-url: https://registry.npmjs.org/
 
       - name: Use current npm
         run: npm install -g npm@11.16.0
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
 
       - name: Build pipeline CLI
         run: pnpm build
 
-      - name: Check generated workflow
-        run: pnpm async-pipeline github check
-
       - name: Run pipeline job
-        run: pnpm async-pipeline run publish
+        uses: async/actions/run@v0
+        with:
+          command: "pnpm async-pipeline github check && pnpm async-pipeline run publish"
+          check-generated: false
+          artifact-name: async-pipeline-${{ github.job }}-runs
         env:
           CI: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Explain async-pipeline run
-        if: failure()
-        run: pnpm async-pipeline explain --run latest || true
-
-      - name: Upload async-pipeline run evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: async-pipeline-${{ github.job }}-runs
-          path: .async/runs
-          if-no-files-found: ignore
 
   snapshot:
     name: snapshot
@@ -123,46 +112,35 @@ jobs:
           restore-keys: |
             async-pipeline-${{ runner.os }}-
 
-      - name: Setup pnpm runtime
-        uses: pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0
+      - name: Setup Async runtimes
+        uses: async/actions/setup@v0
         with:
-          version: 11.1.0
-          runtime: node@24
-          install: false
+          node-version: 24
+          pnpm-version: 11.1.0
+          npm-version: 11.16.0
+          runtime: |
+            node@24
+            deno@2
+          package-manager: pnpm
+          install: true
+          frozen-lockfile: true
           cache: true
-          cache-dependency-path: "pnpm-lock.yaml"
+          dependency-cache-path: "pnpm-lock.yaml"
+          registry-url: https://registry.npmjs.org/
 
-      - name: Setup Deno
-        uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
-        with:
-          deno-version: 2
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
 
       - name: Build pipeline CLI
         run: pnpm build
 
-      - name: Check generated workflow
-        run: pnpm async-pipeline github check
-
       - name: Run pipeline job
-        run: pnpm async-pipeline run snapshot
+        uses: async/actions/run@v0
+        with:
+          command: "pnpm async-pipeline github check && pnpm async-pipeline run snapshot"
+          check-generated: false
+          artifact-name: async-pipeline-${{ github.job }}-runs
         env:
           CI: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Explain async-pipeline run
-        if: failure()
-        run: pnpm async-pipeline explain --run latest || true
-
-      - name: Upload async-pipeline run evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: async-pipeline-${{ github.job }}-runs
-          path: .async/runs
-          if-no-files-found: ignore
 
   verify:
     name: verify (${{ join(matrix.runner, ' ') }})
@@ -186,45 +164,34 @@ jobs:
           restore-keys: |
             async-pipeline-${{ runner.os }}-
 
-      - name: Setup pnpm runtime
-        uses: pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0
+      - name: Setup Async runtimes
+        uses: async/actions/setup@v0
         with:
-          version: 11.1.0
-          runtime: node@24
-          install: false
+          node-version: 24
+          pnpm-version: 11.1.0
+          npm-version: 11.16.0
+          runtime: |
+            node@24
+            deno@2
+          package-manager: pnpm
+          install: true
+          frozen-lockfile: true
           cache: true
-          cache-dependency-path: "pnpm-lock.yaml"
+          dependency-cache-path: "pnpm-lock.yaml"
+          registry-url: https://registry.npmjs.org/
 
-      - name: Setup Deno
-        uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
-        with:
-          deno-version: 2
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
 
       - name: Build pipeline CLI
         run: pnpm build
 
-      - name: Check generated workflow
-        run: pnpm async-pipeline github check
-
       - name: Run pipeline job
-        run: pnpm async-pipeline run verify
+        uses: async/actions/run@v0
+        with:
+          command: "pnpm async-pipeline github check && pnpm async-pipeline run verify"
+          check-generated: false
+          artifact-name: async-pipeline-${{ github.job }}-runs
         env:
           CI: true
-
-      - name: Explain async-pipeline run
-        if: failure()
-        run: pnpm async-pipeline explain --run latest || true
-
-      - name: Upload async-pipeline run evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: async-pipeline-${{ github.job }}-runs
-          path: .async/runs
-          if-no-files-found: ignore
 
   pages:
     name: pages
@@ -242,53 +209,40 @@ jobs:
           restore-keys: |
             async-pipeline-${{ runner.os }}-
 
-      - name: Setup pnpm runtime
-        uses: pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0
+      - name: Setup Async runtimes
+        uses: async/actions/setup@v0
         with:
-          version: 11.1.0
-          runtime: node@24
-          install: false
+          node-version: 24
+          pnpm-version: 11.1.0
+          npm-version: 11.16.0
+          runtime: |
+            node@24
+            deno@2
+          package-manager: pnpm
+          install: true
+          frozen-lockfile: true
           cache: true
-          cache-dependency-path: "pnpm-lock.yaml"
+          dependency-cache-path: "pnpm-lock.yaml"
+          registry-url: https://registry.npmjs.org/
 
-      - name: Setup Deno
-        uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
-        with:
-          deno-version: 2
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
 
       - name: Build pipeline CLI
         run: pnpm build
 
-      - name: Check generated workflow
-        run: pnpm async-pipeline github check
-
       - name: Run Pages target
-        run: pnpm async-pipeline run-task docs.site
+        uses: async/actions/run@v0
+        with:
+          command: "pnpm async-pipeline github check && pnpm async-pipeline run-task docs.site"
+          check-generated: false
+          artifact-name: async-pipeline-${{ github.job }}-runs
         env:
           CI: true
 
-      - name: Configure Pages
-        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
-
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        uses: async/actions/pages@v0
         with:
+          mode: static
           path: ".async/pages"
-
-      - name: Explain async-pipeline run
-        if: failure()
-        run: pnpm async-pipeline explain --run latest || true
-
-      - name: Upload async-pipeline run evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: async-pipeline-${{ github.job }}-runs
-          path: .async/runs
-          if-no-files-found: ignore
 
   pages-deploy:
     name: pages-deploy
@@ -304,7 +258,10 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+        uses: async/actions/pages@v0
+        with:
+          upload: false
+          deploy: true
 
   dependabot-auto-merge:
     name: dependabot-auto-merge
@@ -320,97 +277,18 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Verify dependency update scope
-        env:
-          PACKAGE_ECOSYSTEM: ${{ steps.dependabot-metadata.outputs.package-ecosystem }}
-          DEPENDENCY_NAMES: ${{ steps.dependabot-metadata.outputs.dependency-names }}
-          UPDATED_DEPENDENCIES_JSON: ${{ steps.dependabot-metadata.outputs.updated-dependencies-json }}
-        run: |
-          set -euo pipefail
-
-          case "$PACKAGE_ECOSYSTEM" in
-            github-actions|npm|deno) ;;
-            *)
-              echo "::error::Unsupported Dependabot ecosystem: $PACKAGE_ECOSYSTEM"
-              exit 1
-              ;;
-          esac
-
-          if [ -z "$DEPENDENCY_NAMES" ]; then
-            echo "::error::Dependabot metadata did not include dependency names."
-            exit 1
-          fi
-
-          dependency_count="$(jq 'length' <<<"$UPDATED_DEPENDENCIES_JSON")"
-          if [ "$dependency_count" -eq 0 ]; then
-            echo "::error::Dependabot metadata did not include updated dependencies."
-            exit 1
-          fi
-
-      - name: Approve Dependabot PR
+      - name: Merge validated Dependabot PR
+        uses: async/actions/dependabot-merge@v0
+        with:
+          pull-request-number: ${{ github.event.pull_request.number }}
+          actor: ${{ github.event.pull_request.user.login }}
+          dependency-ecosystem: ${{ steps.dependabot-metadata.outputs.package-ecosystem }}
+          allowed-ecosystems: |
+            github-actions
+            npm
+            deno
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: |
-          set -euo pipefail
-
-          review_decision="$(gh pr view "$PR_URL" --json reviewDecision -q .reviewDecision)"
-          if [ "$review_decision" = "APPROVED" ]; then
-            echo "PR is already approved."
-          else
-            gh pr review --approve "$PR_URL"
-          fi
-
-      - name: Wait for checks
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: |
-          set -euo pipefail
-
-          deadline=$((SECONDS + 1800))
-          empty_since=""
-
-          while [ "$SECONDS" -lt "$deadline" ]; do
-            checks_json="$(gh pr checks "$PR_URL" --json name,bucket,workflow 2>/dev/null || true)"
-            relevant_checks="$(jq '[.[] | select(.name != "dependabot-auto-merge" and .bucket != "skipping")]' <<<"${checks_json:-[]}")"
-            check_count="$(jq 'length' <<<"$relevant_checks")"
-            failing_count="$(jq '[.[] | select(.bucket == "fail" or .bucket == "cancel")] | length' <<<"$relevant_checks")"
-            pending_count="$(jq '[.[] | select(.bucket == "pending")] | length' <<<"$relevant_checks")"
-
-            if [ "$failing_count" -gt 0 ]; then
-              echo "$relevant_checks"
-              echo "::error::At least one check failed or was cancelled."
-              exit 1
-            fi
-
-            if [ "$check_count" -eq 0 ]; then
-              if [ -z "$empty_since" ]; then
-                empty_since="$SECONDS"
-              fi
-
-              if [ $((SECONDS - empty_since)) -ge 90 ]; then
-                echo "No non-auto-merge checks were reported after 90 seconds."
-                exit 0
-              fi
-            elif [ "$pending_count" -eq 0 ]; then
-              echo "All reported non-auto-merge checks passed or were skipped."
-              exit 0
-            else
-              empty_since=""
-            fi
-
-            sleep 15
-          done
-
-          echo "::error::Timed out waiting for checks to finish."
-          exit 1
-
-      - name: Merge Dependabot PR
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: gh pr merge --squash --delete-branch "$PR_URL"
 
   package-preview:
     name: package-preview
@@ -435,48 +313,43 @@ jobs:
           restore-keys: |
             async-pipeline-${{ runner.os }}-
 
-      - name: Setup pnpm runtime
-        uses: pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0
+      - name: Setup Async runtimes
+        uses: async/actions/setup@v0
         with:
-          version: 11.1.0
-          runtime: node@24
-          install: false
+          node-version: 24
+          pnpm-version: 11.1.0
+          npm-version: 11.16.0
+          runtime: |
+            node@24
+            deno@2
+          package-manager: pnpm
+          install: true
+          frozen-lockfile: true
           cache: true
-          cache-dependency-path: "pnpm-lock.yaml"
+          dependency-cache-path: "pnpm-lock.yaml"
+          registry-url: https://registry.npmjs.org/
 
-      - name: Setup Deno
-        uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
-        with:
-          deno-version: 2
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
 
       - name: Build pipeline CLI
         run: pnpm build
 
-      - name: Check generated workflow
-        run: pnpm async-pipeline github check
-
       - name: Run package preview target
-        run: pnpm async-pipeline run-task pack
+        uses: async/actions/run@v0
+        with:
+          command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"
+          check-generated: false
+          artifact-name: async-pipeline-${{ github.job }}-runs
         env:
           CI: true
 
       - name: Publish package preview
-        run: pnpm async-pipeline publish github pr --package packages/pipeline --registry https://npm.pkg.github.com
+        uses: async/actions/preview@v0
+        with:
+          package-path: "packages/pipeline"
+          target-registry: "https://npm.pkg.github.com"
+          mode: pr
+          comment: true
+          token-env-name: "GITHUB_TOKEN"
         env:
           CI: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Explain async-pipeline run
-        if: failure()
-        run: pnpm async-pipeline explain --run latest || true
-
-      - name: Upload async-pipeline run evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: async-pipeline-${{ github.job }}-runs
-          path: .async/runs
-          if-no-files-found: ignore

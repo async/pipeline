@@ -41,9 +41,24 @@ for (const [name, target] of Object.entries(manifest.bin ?? {})) {
 if (!manifest.license) failures.push("package.json has no license field.");
 if (!(manifest.files ?? []).includes("dist")) failures.push('package.json files must include "dist".');
 await expectFile("LICENSE", "LICENSE");
+await expectNoLifecycleNetworkCode();
 
 if (failures.length > 0) {
   for (const message of failures) console.error(`EXPORTS ${message}`);
   process.exit(1);
 }
 console.log(`Exports checks passed: ${exportEntries.length} subpath(s), bin, license, and files are consistent with dist.`);
+
+async function expectNoLifecycleNetworkCode() {
+  const lifecyclePath = join(packageDir, "dist", "internal", "node", "package-lifecycle.js");
+  let text;
+  try {
+    text = await readFile(lifecyclePath, "utf8");
+  } catch {
+    failures.push("published package lifecycle stub is missing from dist/internal/node/package-lifecycle.js.");
+    return;
+  }
+  if (/globalThis\s*\[\s*["']fetch["']\s*\]|(?<![A-Za-z0-9_$])fetch\s*\(/.test(text)) {
+    failures.push("published package lifecycle stub must not contain GitHub API fetch code; use async/actions for release networking.");
+  }
+}

@@ -394,6 +394,12 @@ test("PROMISE: package API surface artifacts are published with @async/pipeline"
   assert.ok(packageJson.files.includes("API_SURFACE.md"), "API_SURFACE.md must be included in npm package files");
 });
 
+test("PROMISE: published package does not ship release lifecycle GitHub API fetch code", async () => {
+  const lifecycle = await readFile(new URL("../packages/pipeline/dist/internal/node/package-lifecycle.js", import.meta.url), "utf8");
+  assert.doesNotMatch(lifecycle, /globalThis\s*\[\s*["']fetch["']\s*\]|(?<![A-Za-z0-9_$])fetch\s*\(/);
+  assert.match(lifecycle, /Package lifecycle commands moved out of the @async\/pipeline npm tarball/);
+});
+
 test("PROMISE: package exports the CLI subpath for Deno npm entrypoints", async () => {
   const packageJson = JSON.parse(await readFile(new URL("../packages/pipeline/package.json", import.meta.url), "utf8"));
 

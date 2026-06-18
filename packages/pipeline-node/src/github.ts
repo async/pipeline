@@ -7,9 +7,14 @@ import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 11;
+const GENERATOR_VERSION = 12;
 const DEFAULT_NODE_VERSION = "24";
 const DEFAULT_DENO_VERSION = "2";
+const ASYNC_SETUP_ACTION = "async/actions/setup@v0";
+const ASYNC_RUN_ACTION = "async/actions/run@v0";
+const ASYNC_PAGES_ACTION = "async/actions/pages@v0";
+const ASYNC_PREVIEW_ACTION = "async/actions/preview@v0";
+const ASYNC_DEPENDABOT_MERGE_ACTION = "async/actions/dependabot-merge@v0";
 const PNPM_SETUP_ACTION = "pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0";
 const DENO_SETUP_ACTION = "denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4";
 const SETUP_NODE_ACTION = "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6";
@@ -472,7 +477,7 @@ function renderWorkflow(model: ReturnType<typeof buildRenderModel>): string {
   if (model.packagePreviews.enabled) {
     renderPackagePreviewJob(lines, model);
   }
-  return `${lines.join("\n")}`;
+  return `${lines.join("\n").replace(/\n+$/u, "")}\n`;
 }
 
 function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, job: ReturnType<typeof buildRenderModel>["jobs"][number]): void {
@@ -556,28 +561,11 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
       `        run: ${model.buildCommand}`
     );
   }
-  lines.push(
-    "",
-    "      - name: Check generated workflow",
-    `        run: ${model.command} github check`,
-    "",
-    "      - name: Run pipeline job",
-    `        run: ${model.command} run ${shellWord(job.id)}${job.execution ? ` --execution ${shellWord(job.execution)}` : ""}`,
-    "        env:",
-    "          CI: true"
-  );
-  for (const [name, value] of Object.entries(job.env).sort(([left], [right]) => left.localeCompare(right))) {
-    const rendered = renderGitHubEnvValue(value);
-    if (rendered !== undefined) {
-      lines.push(`          ${name}: ${rendered}`);
-    }
-  }
+  renderRunActionStep(lines, "Run pipeline job", `${model.command} github check && ${model.command} run ${shellWord(job.id)}${job.execution ? ` --execution ${shellWord(job.execution)}` : ""}`, job.env);
   if (job.github?.pages) {
     lines.push("");
     renderPagesBuildSteps(lines, job.github.pages);
   }
-  lines.push("");
-  renderRunEvidenceSteps(lines, model.command);
   lines.push("");
 }
 
@@ -615,20 +603,9 @@ function renderGeneratedPagesJob(lines: string[], model: ReturnType<typeof build
       `        run: ${model.buildCommand}`
     );
   }
-  lines.push(
-    "",
-    "      - name: Check generated workflow",
-    `        run: ${model.command} github check`,
-    "",
-    "      - name: Run Pages target",
-    `        run: ${model.command} run-task ${shellWord(pages.target)}`,
-    "        env:",
-    "          CI: true",
-    ""
-  );
-  renderPagesBuildSteps(lines, pages);
+  renderRunActionStep(lines, "Run Pages target", `${model.command} github check && ${model.command} run-task ${shellWord(pages.target)}`, {});
   lines.push("");
-  renderRunEvidenceSteps(lines, model.command);
+  renderPagesBuildSteps(lines, pages);
   lines.push("");
 }
 
@@ -647,6 +624,7 @@ function renderGeneratedPagesCondition(pages: NormalizedGitHubPagesSyncConfig): 
 }
 
 function renderDependencyInstallSteps(model: ReturnType<typeof buildRenderModel>): string[] {
+  if (model.setup === "async") return [];
   if (model.projectKind === "deno") {
     return [
       "      - name: Install dependencies",
@@ -659,32 +637,29 @@ function renderDependencyInstallSteps(model: ReturnType<typeof buildRenderModel>
   ];
 }
 
-function renderRunEvidenceSteps(lines: string[], command: string): void {
+function renderRunActionStep(lines: string[], name: string, command: string, env: Record<string, EnvValue>): void {
   lines.push(
-    "      - name: Explain async-pipeline run",
-    "        if: failure()",
-    `        run: ${command} explain --run latest || true`,
     "",
-    "      - name: Upload async-pipeline run evidence",
-    "        if: always()",
-    "        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4",
+    `      - name: ${name}`,
+    `        uses: ${ASYNC_RUN_ACTION}`,
     "        with:",
-    "          name: async-pipeline-${{ github.job }}-runs",
-    "          path: .async/runs",
-    "          if-no-files-found: ignore"
+    `          command: ${JSON.stringify(command)}`,
+    "          check-generated: false",
+    "          artifact-name: async-pipeline-${{ github.job }}-runs",
+    "        env:",
+    "          CI: true"
   );
+  for (const [envName, value] of Object.entries(env).sort(([left], [right]) => left.localeCompare(right))) {
+    const rendered = renderGitHubEnvValue(value);
+    if (rendered !== undefined) {
+      lines.push(`          ${envName}: ${rendered}`);
+    }
+  }
 }
 
 function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof buildRenderModel>): void {
   const preview = model.packagePreviews;
   if (!preview.package || !preview.target) return;
-  const publishCommand = [
-    `${model.command} publish github pr`,
-    `--package ${shellWord(preview.package)}`,
-    `--registry ${shellWord(preview.registry)}`,
-    ...(preview.namespace ? [`--namespace ${shellWord(preview.namespace)}`] : []),
-    ...(preview.comment ? [] : ["--no-comment"])
-  ].join(" ");
   lines.push(
     "  package-preview:",
     "    name: package-preview",
@@ -723,24 +698,23 @@ function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof build
       `        run: ${model.buildCommand}`
     );
   }
+  renderRunActionStep(lines, "Run package preview target", `${model.command} github check && ${model.command} run-task ${shellWord(preview.target)}`, {});
   lines.push(
     "",
-    "      - name: Check generated workflow",
-    `        run: ${model.command} github check`,
-    "",
-    "      - name: Run package preview target",
-    `        run: ${model.command} run-task ${shellWord(preview.target)}`,
-    "        env:",
-    "          CI: true",
-    "",
     "      - name: Publish package preview",
-    `        run: ${publishCommand}`,
+    `        uses: ${ASYNC_PREVIEW_ACTION}`,
+    "        with:",
+    `          package-path: ${JSON.stringify(preview.package)}`,
+    `          target-registry: ${JSON.stringify(preview.registry)}`,
+    ...(preview.namespace ? [`          namespace: ${JSON.stringify(preview.namespace)}`] : []),
+    "          mode: pr",
+    `          comment: ${preview.comment ? "true" : "false"}`,
+    `          token-env-name: ${JSON.stringify(preview.tokenEnv)}`,
     "        env:",
     "          CI: true",
-    `          GITHUB_TOKEN: \${{ secrets.${preview.tokenEnv} }}`,
+    `          ${preview.tokenEnv}: \${{ secrets.${preview.tokenEnv} }}`,
     ""
   );
-  renderRunEvidenceSteps(lines, model.command);
   lines.push("");
 }
 
@@ -760,103 +734,45 @@ function renderDependabotAutoMergeJob(lines: string[], ecosystems: string[]): vo
     "        with:",
     "          github-token: ${{ secrets.GITHUB_TOKEN }}",
     "",
-    "      - name: Verify dependency update scope",
-    "        env:",
-    "          PACKAGE_ECOSYSTEM: ${{ steps.dependabot-metadata.outputs.package-ecosystem }}",
-    "          DEPENDENCY_NAMES: ${{ steps.dependabot-metadata.outputs.dependency-names }}",
-    "          UPDATED_DEPENDENCIES_JSON: ${{ steps.dependabot-metadata.outputs.updated-dependencies-json }}",
-    "        run: |",
-    "          set -euo pipefail",
-    "",
-    "          case \"$PACKAGE_ECOSYSTEM\" in",
-    `            ${ecosystems.map((ecosystem) => shellCasePattern(ecosystem)).join("|")}) ;;`,
-    "            *)",
-    "              echo \"::error::Unsupported Dependabot ecosystem: $PACKAGE_ECOSYSTEM\"",
-    "              exit 1",
-    "              ;;",
-    "          esac",
-    "",
-    "          if [ -z \"$DEPENDENCY_NAMES\" ]; then",
-    "            echo \"::error::Dependabot metadata did not include dependency names.\"",
-    "            exit 1",
-    "          fi",
-    "",
-    "          dependency_count=\"$(jq 'length' <<<\"$UPDATED_DEPENDENCIES_JSON\")\"",
-    "          if [ \"$dependency_count\" -eq 0 ]; then",
-    "            echo \"::error::Dependabot metadata did not include updated dependencies.\"",
-    "            exit 1",
-    "          fi",
-    "",
-    "      - name: Approve Dependabot PR",
+    "      - name: Merge validated Dependabot PR",
+    `        uses: ${ASYNC_DEPENDABOT_MERGE_ACTION}`,
+    "        with:",
+    "          pull-request-number: ${{ github.event.pull_request.number }}",
+    "          actor: ${{ github.event.pull_request.user.login }}",
+    "          dependency-ecosystem: ${{ steps.dependabot-metadata.outputs.package-ecosystem }}",
+    "          allowed-ecosystems: |",
+    ...ecosystems.map((ecosystem) => `            ${ecosystem}`),
     "        env:",
     "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
-    "          PR_URL: ${{ github.event.pull_request.html_url }}",
-    "        run: |",
-    "          set -euo pipefail",
-    "",
-    "          review_decision=\"$(gh pr view \"$PR_URL\" --json reviewDecision -q .reviewDecision)\"",
-    "          if [ \"$review_decision\" = \"APPROVED\" ]; then",
-    "            echo \"PR is already approved.\"",
-    "          else",
-    "            gh pr review --approve \"$PR_URL\"",
-    "          fi",
-    "",
-    "      - name: Wait for checks",
-    "        env:",
-    "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
-    "          PR_URL: ${{ github.event.pull_request.html_url }}",
-    "        run: |",
-    "          set -euo pipefail",
-    "",
-    "          deadline=$((SECONDS + 1800))",
-    "          empty_since=\"\"",
-    "",
-    "          while [ \"$SECONDS\" -lt \"$deadline\" ]; do",
-    "            checks_json=\"$(gh pr checks \"$PR_URL\" --json name,bucket,workflow 2>/dev/null || true)\"",
-    "            relevant_checks=\"$(jq '[.[] | select(.name != \"dependabot-auto-merge\" and .bucket != \"skipping\")]' <<<\"${checks_json:-[]}\")\"",
-    "            check_count=\"$(jq 'length' <<<\"$relevant_checks\")\"",
-    "            failing_count=\"$(jq '[.[] | select(.bucket == \"fail\" or .bucket == \"cancel\")] | length' <<<\"$relevant_checks\")\"",
-    "            pending_count=\"$(jq '[.[] | select(.bucket == \"pending\")] | length' <<<\"$relevant_checks\")\"",
-    "",
-    "            if [ \"$failing_count\" -gt 0 ]; then",
-    "              echo \"$relevant_checks\"",
-    "              echo \"::error::At least one check failed or was cancelled.\"",
-    "              exit 1",
-    "            fi",
-    "",
-    "            if [ \"$check_count\" -eq 0 ]; then",
-    "              if [ -z \"$empty_since\" ]; then",
-    "                empty_since=\"$SECONDS\"",
-    "              fi",
-    "",
-    "              if [ $((SECONDS - empty_since)) -ge 90 ]; then",
-    "                echo \"No non-auto-merge checks were reported after 90 seconds.\"",
-    "                exit 0",
-    "              fi",
-    "            elif [ \"$pending_count\" -eq 0 ]; then",
-    "              echo \"All reported non-auto-merge checks passed or were skipped.\"",
-    "              exit 0",
-    "            else",
-    "              empty_since=\"\"",
-    "            fi",
-    "",
-    "            sleep 15",
-    "          done",
-    "",
-    "          echo \"::error::Timed out waiting for checks to finish.\"",
-    "          exit 1",
-    "",
-    "      - name: Merge Dependabot PR",
-    "        env:",
-    "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
-    "          PR_URL: ${{ github.event.pull_request.html_url }}",
-    "        run: gh pr merge --squash --delete-branch \"$PR_URL\"",
     ""
   );
 }
 
 function renderSetupSteps(model: ReturnType<typeof buildRenderModel>): string[] {
   const pnpmVersion = pnpmSetupVersion(model.packageManager, model.packageManagerVersion);
+  if (model.setup === "async") {
+    return [
+      "      - name: Setup Async runtimes",
+      `        uses: ${ASYNC_SETUP_ACTION}`,
+      "        with:",
+      `          node-version: ${model.nodeVersion}`,
+      `          pnpm-version: ${pnpmVersion}`,
+      "          npm-version: 11.16.0",
+      "          runtime: |",
+      ...model.runtime.map((runtime) => `            ${runtime.spec}`),
+      `          package-manager: ${model.packageManager}`,
+      "          install: true",
+      "          frozen-lockfile: true",
+      `          cache: ${model.dependencyCache && model.dependencyCachePath ? "true" : "false"}`,
+      ...(model.dependencyCache && model.dependencyCachePath
+        ? [
+            `          dependency-cache-path: ${JSON.stringify(model.dependencyCachePath)}`
+          ]
+        : []),
+      "          registry-url: https://registry.npmjs.org/",
+      ""
+    ];
+  }
   if (model.setup === "pnpm") {
     if (model.projectKind === "deno") {
       return renderDenoOnlySetupSteps(model);
@@ -1051,30 +967,26 @@ function resolvePipelineCommand(command: string, projectKind: PackageInfo["proje
 
 function renderPagesBuildSteps(lines: string[], pages: GitHubPagesConfig): void {
   lines.push(
-    "      - name: Configure Pages",
-    "        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5",
-    ""
+    "      - name: Upload Pages artifact",
+    `        uses: ${ASYNC_PAGES_ACTION}`,
+    "        with:",
+    `          mode: ${pages.build.kind}`
   );
   if (pages.build.kind === "jekyll") {
     lines.push(
-      "      - name: Build with Jekyll",
-      "        uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1",
-      "        with:",
       `          source: ${JSON.stringify(pages.build.source)}`,
-      `          destination: ${JSON.stringify(pages.build.destination ?? "./_site")}`,
-      ""
+      `          destination: ${JSON.stringify(pages.build.destination ?? "./_site")}`
+    );
+  } else {
+    lines.push(`          path: ${JSON.stringify(pages.build.path)}`);
+  }
+  if (pages.build.kind === "prerender") {
+    lines.push(
+      `          validate-index: ${pages.build.validateIndex ?? true}`,
+      `          spa-fallback: ${pages.build.spaFallback ?? false}`
     );
   }
-  const artifactPath = pages.build.kind === "jekyll" ? pages.build.destination ?? "./_site" : pages.build.path;
-  lines.push(
-    "      - name: Upload Pages artifact",
-    "        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4",
-    "        with:",
-    `          path: ${JSON.stringify(artifactPath)}`
-  );
-  if (pages.artifactName) {
-    lines.push(`          name: ${JSON.stringify(pages.artifactName)}`);
-  }
+  if (pages.artifactName) lines.push(`          artifact-name: ${JSON.stringify(pages.artifactName)}`);
 }
 
 function renderPagesDeployJob(lines: string[], job: ReturnType<typeof buildRenderModel>["jobs"][number]): void {
@@ -1100,13 +1012,13 @@ function renderPagesDeployJob(lines: string[], job: ReturnType<typeof buildRende
     "    steps:",
     "      - name: Deploy to GitHub Pages",
     "        id: deployment",
-    "        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4"
+    `        uses: ${ASYNC_PAGES_ACTION}`,
+    "        with:",
+    "          upload: false",
+    "          deploy: true"
   );
   if (pages.artifactName) {
-    lines.push(
-      "        with:",
-      `          artifact_name: ${JSON.stringify(pages.artifactName)}`
-    );
+    lines.push(`          artifact-name: ${JSON.stringify(pages.artifactName)}`);
   }
   lines.push("");
 }
@@ -1356,10 +1268,6 @@ function yamlKey(value: string): string {
 
 function shellWord(value: string): string {
   return /^[A-Za-z0-9_./:-]+$/.test(value) ? value : JSON.stringify(value);
-}
-
-function shellCasePattern(value: string): string {
-  return /^[A-Za-z0-9_-]+$/.test(value) ? value : shellWord(value);
 }
 
 function escapeExpressionString(value: string): string {

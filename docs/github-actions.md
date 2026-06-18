@@ -33,7 +33,7 @@ export default definePipeline({
 
 ## Workflow Options
 
-The generated workflow uses `pnpm/setup` by default to install pnpm plus the requested runtime for the current pipeline CLI, restores the local task cache (`.async/cache`) through a pinned `actions/cache` step keyed by commit with an OS-prefixed fallback, and caches the package-manager dependency store when a recognized lockfile is present. These knobs live in `sync.github`:
+The generated workflow uses the pinned `pnpm/setup` provider by default to install pnpm plus the requested runtime for the current pipeline CLI. Repos can opt into the shared Async setup action with `setup: "async"` when they want one generated setup step for Node, pnpm, npm, optional Deno/Bun runtimes, registry auth, dependency cache, and dependency install. The workflow restores the local task cache (`.async/cache`) through a pinned `actions/cache` step keyed by commit with an OS-prefixed fallback. These knobs live in `sync.github`:
 
 ```ts
 sync: {
@@ -50,19 +50,19 @@ sync: {
 }
 ```
 
-`setup: "auto"` resolves to the official `pnpm/setup` runtime bootloader when the selected pnpm version supports `pnpm runtime`; pinned pnpm versions without that command render the `actions/setup-node` + Corepack bootloader instead. Package projects default to `node@<nodeVersion>`; Deno-only projects with `deno.json` or `deno.jsonc` and no `package.json` default to `deno@2`; explicit `runtime` accepts a string or array such as `["node@24", "deno@2"]`. Use `setup: "node"` only when you explicitly want the older `actions/setup-node` + Corepack bootloader for a single Node runtime. `cache` controls the task cache. `dependencyCache` controls dependency-store cache settings: with the pnpm runtime setup, the action caches the pnpm store when a package lockfile exists; Deno-only workflows cache Deno dependencies through the generated `denoland/setup-deno` step when `deno.lock` exists; with the Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup. Set it to `false` when you need a fully cold install.
+`setup: "auto"` currently resolves to the default pinned `pnpm/setup` provider. Explicit `setup: "async"` selects `async/actions/setup`. Package projects default to `node@<nodeVersion>`; Deno-only projects with `deno.json` or `deno.jsonc` and no `package.json` default to `deno@2`; explicit `runtime` accepts a string or array such as `["node@24", "deno@2"]`. Use `setup: "node"` when you explicitly want the older `actions/setup-node` + Corepack bootloader for a single Node runtime. `cache` controls the task cache. `dependencyCache` controls dependency-store cache settings: with the default pnpm setup, the generated workflow passes the recognized lockfile to `pnpm/setup`; with `setup: "async"`, it passes the recognized lockfile to `async/actions/setup`. Set it to `false` when you need a fully cold dependency install.
 
 ### Runtime Setup Notes For Agents
 
-`pnpm/setup` installs pnpm plus one requested JavaScript runtime. Its action `runtime` input is a single `<name>@<version>` value, and its implementation runs one `pnpm runtime set <name> <version> -g` command. Do not generate a `pnpm/setup` `runtime:` value like `["node@24", "deno@2"]`, comma-separated runtime values, or a separate `pnpm runtime set deno ...` shell step for Deno.
+`async/actions/setup` accepts a newline runtime list, so repos that opt into `setup: "async"` can use one shared Async setup step instead of splitting runtime setup across `pnpm/setup` and `denoland/setup-deno`.
 
-Generated mixed Node+Deno workflows on pnpm versions with runtime support use the pinned `pnpm/setup` action for Node and the pinned `denoland/setup-deno` action for Deno. Generated Deno-only workflows use `denoland/setup-deno` without `pnpm/setup`. If `pnpm/setup` later adds true multi-runtime support, update this note, `packages/pipeline-node/src/github.ts`, and the GitHub renderer tests together.
+The default `pnpm/setup` provider still has the historical single-runtime constraint: it installs one primary runtime through `pnpm/setup`, then renders separate setup for additional runtimes. This remains the default until the Async setup action is tested broadly enough to become the generated default.
 
-Each generated job also runs `async-pipeline explain --run latest` on failure and uploads `.async/runs` with a pinned `actions/upload-artifact` step. GitHub Actions stays a bootloader for the same task graph; the uploaded evidence is the local run record, graph snapshot, cache receipts, logs, and context packs from the normal runner.
+Each generated job calls `async/actions/run` to run the pipeline command, explain failures, and upload `.async/runs` as evidence. GitHub Actions stays a bootloader for the same task graph; the uploaded evidence is the local run record, graph snapshot, cache receipts, logs, and context packs from the normal runner.
 
 ## Generated Package Previews And Dependabot Merge
 
-`sync.github.packagePreviews: true` generates a `package-preview` job on pull requests. The generator finds the public root package, or the single public `packages/*` workspace package when the root package is private. It runs the `pack` task when present, falls back to `build`, then calls `async-pipeline publish github pr --package <path> --registry https://npm.pkg.github.com`. Same-repo PRs publish immutable `0.0.0-pr.<n>.sha.<sha>` previews and update one install comment; fork PRs skip inside the lifecycle CLI.
+`sync.github.packagePreviews: true` generates a `package-preview` job on pull requests. The generator finds the public root package, or the single public `packages/*` workspace package when the root package is private. It runs the `pack` task when present, falls back to `build`, then calls `async/actions/preview` with the selected package path and GitHub Packages registry. Same-repo PRs publish immutable `0.0.0-pr.<n>.sha.<sha>` previews and update one install comment; fork PRs skip inside the preview action.
 
 Use object form when inference is ambiguous or a repo publishes previews somewhere else:
 
@@ -80,7 +80,7 @@ sync: {
 }
 ```
 
-`sync.github.dependabotAutoMerge: true` generates a separate `dependabot-auto-merge` job on `pull_request_target`. It only runs for `dependabot[bot]`, checks Dependabot metadata, allows npm, Deno, and GitHub Actions dependency ecosystems by default, approves the PR, waits for non-auto-merge checks, then squash-merges with branch deletion.
+`sync.github.dependabotAutoMerge: true` generates a separate `dependabot-auto-merge` job on `pull_request_target`. It only runs for `dependabot[bot]`, fetches Dependabot metadata, then calls `async/actions/dependabot-merge` with the allowed ecosystems. The action approves, waits for non-self checks, then schedules a squash merge with branch deletion.
 
 ## GitHub Pages
 
@@ -97,7 +97,7 @@ sync: {
 }
 ```
 
-`sync.github.pages: true` infers a target from `pages`, `docs.site`, `docs`, then `build-pages`, uploads `.async/pages` as a static artifact, builds on pull requests, and deploys from `main` or selected manual dispatch. Object form can set `target`, `job`, `build`, `artifactName`, `environment`, and trigger settings.
+`sync.github.pages: true` infers a target from `pages`, `docs.site`, `docs`, then `build-pages`, uploads `.async/pages` as a static artifact, builds on pull requests, and deploys from `main` or selected manual dispatch. Object form can set `target`, `job`, `build`, `artifactName`, `environment`, and trigger settings. `build.kind` supports `static`, `jekyll`, and `prerender`; prerender means the pipeline task produced static files for GitHub Pages, not a long-running SSR server.
 
 Use lower-level `github.pages` on a job only when the generated sync-level Pages job is not enough:
 
@@ -117,7 +117,7 @@ jobs: {
 
 GitHub Pages jobs build on pull requests and deploy from `main` or selected manual dispatch through generated build and deploy jobs.
 
-The generated sync-level build job runs `async-pipeline run-task <target>` first; lower-level job Pages runs `async-pipeline run <job-id>`. Both forms configure Pages, build or select the static artifact, and upload it. The paired `<job-id>-deploy` job is skipped on pull requests and deploys the uploaded artifact with the `github-pages` environment and Pages token permissions on non-PR events.
+The generated sync-level build job runs `async-pipeline run-task <target>` first; lower-level job Pages runs `async-pipeline run <job-id>`. Both forms call `async/actions/pages` to configure Pages, build or select the static/prerender artifact, validate it, and upload it. The paired `<job-id>-deploy` job is skipped on pull requests and deploys the uploaded artifact through `async/actions/pages` with the `github-pages` environment and Pages token permissions on non-PR events.
 
 ## Runner Selection
 
@@ -330,7 +330,7 @@ It renders runtime env on the pipeline step:
 
 `env.secret("NPM_TOKEN")` means "source this value from the platform secret named `NPM_TOKEN`." The runtime destination is the env key you assign it to, such as `NODE_AUTH_TOKEN`.
 
-For npm releases, pair `requires.provenance: true` with either npm trusted publishing on the package or an `NPM_TOKEN` secret. The lifecycle `publish npm` command creates a temporary npmjs auth config only when a token is present; tokenless runs are left clean so npm can use trusted publishing/OIDC.
+For npm releases, pair `requires.provenance: true` with either npm trusted publishing on the package or an `NPM_TOKEN` secret. Generated release workflows should call `async/actions/publish`, which creates temporary npm auth only when a token is present; tokenless runs stay clean so npm can use trusted publishing/OIDC.
 
 `env.var("NAME")` maps to `${{ vars.NAME }}` in generated GitHub Actions. `env.var("NODE_ENV", { prod, dev }, { default: "dev" })` is resolved by `async-pipeline run` before the task command runs.
 

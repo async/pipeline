@@ -49,16 +49,18 @@ test("renders github workflow triggers and bootloader steps", async () => {
     assert.match(rendered.workflow, /uses: pnpm\/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1\.0\.0/);
     assert.match(rendered.workflow, /version: 11\.1\.0/);
     assert.match(rendered.workflow, /runtime: node@24/);
-    assert.match(rendered.workflow, /^\s+install: false$/m);
+    assert.match(rendered.workflow, /install: false/);
     assert.match(rendered.workflow, /cache: true/);
     assert.match(rendered.workflow, /cache-dependency-path: "pnpm-lock\.yaml"/);
+    assert.match(rendered.workflow, /pnpm install --frozen-lockfile/);
     assert.doesNotMatch(rendered.workflow, /run_install: false/);
     assert.doesNotMatch(rendered.workflow, /package-manager-cache: false/);
+    assert.doesNotMatch(rendered.workflow, /async\/actions\/setup@v0/);
     assert.doesNotMatch(rendered.workflow, /actions\/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6/);
     assert.doesNotMatch(rendered.workflow, /corepack prepare/);
-    assert.match(rendered.workflow, /async-pipeline explain --run latest \|\| true/);
-    assert.match(rendered.workflow, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4/);
-    assert.match(rendered.workflow, /path: \.async\/runs/);
+    assert.match(rendered.workflow, /uses: async\/actions\/run@v0/);
+    assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run verify"/);
+    assert.match(rendered.workflow, /artifact-name: async-pipeline-\$\{\{ github\.job \}\}-runs/);
     assert.equal(rendered.lock.workflow, ".github/workflows/async-pipeline.yml");
     assert.equal(rendered.lock.setup, "pnpm");
     assert.equal(rendered.lock.packageManagerVersion, "11.1.0");
@@ -70,13 +72,58 @@ test("renders github workflow triggers and bootloader steps", async () => {
   }
 });
 
-test("renders github workflow with setup-node when the consumer pnpm version does not support runtime", async () => {
+test("renders explicit async setup provider", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-async-setup-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          setup: "async",
+          runtime: ["node@24", "deno@2"]
+        }
+      },
+      tasks: {
+        verify: task({ run: sh`echo verify` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, /name: Setup Async runtimes/);
+    assert.match(rendered.workflow, /uses: async\/actions\/setup@v0/);
+    assert.match(rendered.workflow, /pnpm-version: 11\.1\.0/);
+    assert.match(rendered.workflow, /runtime: \|\n            node@24\n            deno@2/);
+    assert.match(rendered.workflow, /^\s+install: true$/m);
+    assert.match(rendered.workflow, /cache: true/);
+    assert.match(rendered.workflow, /dependency-cache-path: "pnpm-lock\.yaml"/);
+    assert.doesNotMatch(rendered.workflow, /pnpm\/setup@/);
+    assert.doesNotMatch(rendered.workflow, /denoland\/setup-deno@/);
+    assert.doesNotMatch(rendered.workflow, /pnpm install --frozen-lockfile/);
+    assert.equal(rendered.lock.setup, "async");
+    assert.deepEqual(rendered.lock.runtime, ["node@24", "deno@2"]);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("renders legacy pnpm setup with setup-node when the consumer pnpm version does not support runtime", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-pnpm-version-"));
   try {
     writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@10.20.0" }), "utf8");
     writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
     const pipeline = definePipeline({
       name: "test",
+      sync: {
+        github: {
+          setup: "pnpm"
+        }
+      },
       tasks: {
         verify: task({ run: sh`echo verify` })
       },
@@ -125,10 +172,12 @@ test("renders github workflow with dependency cache disabled", async () => {
     const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
 
     assert.match(rendered.workflow, /name: Setup pnpm runtime/);
-    assert.match(rendered.workflow, /^\s+install: false$/m);
+    assert.match(rendered.workflow, /uses: pnpm\/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1\.0\.0/);
+    assert.match(rendered.workflow, /install: false/);
+    assert.match(rendered.workflow, /pnpm install --frozen-lockfile/);
     assert.match(rendered.workflow, /cache: false/);
+    assert.doesNotMatch(rendered.workflow, /async\/actions\/setup@v0/);
     assert.doesNotMatch(rendered.workflow, /actions\/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6/);
-    assert.doesNotMatch(rendered.workflow, /cache: "pnpm"/);
     assert.doesNotMatch(rendered.workflow, /cache-dependency-path/);
     assert.doesNotMatch(rendered.workflow, /package-manager-cache: false/);
     assert.doesNotMatch(rendered.workflow, /corepack prepare/);
@@ -233,11 +282,10 @@ test("renders deno-only github workflow without package-manager install", async 
     assert.match(rendered.workflow, /deno-version: 2/);
     assert.match(rendered.workflow, /cache: true/);
     assert.match(rendered.workflow, /cache-hash: \$\{\{ hashFiles\('deno\.lock'\) \}\}/);
-    assert.match(rendered.workflow, /run: deno install --frozen=true/);
-    assert.match(rendered.workflow, /run: deno run -A npm:@async\/pipeline\/cli github check/);
-    assert.match(rendered.workflow, /run: deno run -A npm:@async\/pipeline\/cli run verify/);
-    assert.match(rendered.workflow, /run: deno run -A npm:@async\/pipeline\/cli explain --run latest \|\| true/);
+    assert.match(rendered.workflow, /deno install --frozen=true/);
+    assert.match(rendered.workflow, /command: "deno run -A npm:@async\/pipeline\/cli github check && deno run -A npm:@async\/pipeline\/cli run verify"/);
     assert.doesNotMatch(rendered.workflow, /pnpm\/setup@/);
+    assert.doesNotMatch(rendered.workflow, /async\/actions\/setup@v0/);
     assert.doesNotMatch(rendered.workflow, /pnpm runtime set deno/);
     assert.doesNotMatch(rendered.workflow, /pnpm install --frozen-lockfile/);
     assert.equal(rendered.lock.packageManager, "deno");
@@ -271,12 +319,13 @@ test("renders mixed node and deno runtimes through pnpm and setup-deno providers
 
     const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
 
+    assert.match(rendered.workflow, /uses: pnpm\/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1\.0\.0/);
     assert.match(rendered.workflow, /runtime: node@24/);
-    assert.match(rendered.workflow, /name: Setup Deno/);
     assert.match(rendered.workflow, /uses: denoland\/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2\.0\.4/);
     assert.match(rendered.workflow, /deno-version: 2/);
+    assert.doesNotMatch(rendered.workflow, /async\/actions\/setup@v0/);
     assert.doesNotMatch(rendered.workflow, /pnpm runtime set deno/);
-    assert.match(rendered.workflow, /run: pnpm async-pipeline run verify/);
+    assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run verify"/);
     assert.deepEqual(rendered.lock.runtime, ["node@24", "deno@2"]);
     assert.equal(rendered.lock.command, "pnpm async-pipeline");
   } finally {
@@ -312,9 +361,9 @@ test("renders generated Dependabot auto-merge workflow job", async () => {
     assert.match(rendered.workflow, /dependabot-auto-merge:\n    name: dependabot-auto-merge/);
     assert.match(rendered.workflow, /if: github\.event\.pull_request\.user\.login == 'dependabot\[bot\]' && github\.event\.pull_request\.draft == false/);
     assert.match(rendered.workflow, /uses: dependabot\/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3\.1\.0/);
-    assert.match(rendered.workflow, /github-actions\|npm\|deno\) ;;/);
-    assert.match(rendered.workflow, /gh pr review --approve "\$PR_URL"/);
-    assert.match(rendered.workflow, /gh pr merge --squash --delete-branch "\$PR_URL"/);
+    assert.match(rendered.workflow, /uses: async\/actions\/dependabot-merge@v0/);
+    assert.match(rendered.workflow, /dependency-ecosystem: \$\{\{ steps\.dependabot-metadata\.outputs\.package-ecosystem \}\}/);
+    assert.match(rendered.workflow, /allowed-ecosystems: \|\n            github-actions\n            npm\n            deno/);
     assert.deepEqual(rendered.lock.dependabotAutoMerge, {
       enabled: true,
       ecosystems: ["github-actions", "npm", "deno"]
@@ -353,8 +402,12 @@ test("renders generated package preview job from packagePreviews true", async ()
     assert.match(rendered.workflow, /if: github\.event_name == 'pull_request' && github\.event\.pull_request\.draft == false/);
     assert.match(rendered.workflow, /persist-credentials: false/);
     assert.match(rendered.workflow, /permissions:\n      contents: read\n      issues: write\n      packages: write\n      pull-requests: write/);
-    assert.match(rendered.workflow, /pnpm async-pipeline run-task pack/);
-    assert.match(rendered.workflow, /pnpm async-pipeline publish github pr --package packages\/pipeline --registry https:\/\/npm\.pkg\.github\.com/);
+    assert.match(rendered.workflow, /uses: async\/actions\/run@v0/);
+    assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"/);
+    assert.match(rendered.workflow, /uses: async\/actions\/preview@v0/);
+    assert.match(rendered.workflow, /package-path: "packages\/pipeline"/);
+    assert.match(rendered.workflow, /target-registry: "https:\/\/npm\.pkg\.github\.com"/);
+    assert.match(rendered.workflow, /mode: pr/);
     assert.match(rendered.workflow, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
     assert.deepEqual(rendered.lock.packagePreviews, {
       enabled: true,
@@ -525,14 +578,12 @@ test("renders github pages build and deploy jobs", async () => {
 
     assert.match(rendered.workflow, /workflow_dispatch:\n    inputs:\n      job:\n        description: "Pipeline job to run"\n        required: true\n        type: choice\n        options:\n          - "pages"/);
     assert.match(rendered.workflow, /pages:\n    name: pages\n    if: \(github\.event_name == 'pull_request'\) \|\| \(github\.event_name == 'push' && \(github\.ref == 'refs\/heads\/main'\)\) \|\| \(github\.event_name == 'workflow_dispatch' && github\.event\.inputs\.job == 'pages'\)/);
-    assert.match(rendered.workflow, /run: pnpm async-pipeline run pages/);
-    assert.match(rendered.workflow, /uses: actions\/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5/);
-    assert.match(rendered.workflow, /uses: actions\/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1\n        with:\n          source: "\.\/docs"\n          destination: "\.\/_site"/);
-    assert.match(rendered.workflow, /uses: actions\/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4\n        with:\n          path: "\.\/_site"/);
+    assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run pages"/);
+    assert.match(rendered.workflow, /uses: async\/actions\/pages@v0\n        with:\n          mode: jekyll\n          source: "\.\/docs"\n          destination: "\.\/_site"/);
     assert.match(rendered.workflow, /pages-deploy:\n    name: pages-deploy\n    needs: "pages"\n    if: github\.event_name != 'pull_request'\n    runs-on: ubuntu-latest/);
     assert.match(rendered.workflow, /environment:\n      name: "github-pages"\n      url: "\$\{\{ steps\.deployment\.outputs\.page_url \}\}"/);
     assert.match(rendered.workflow, /permissions:\n      pages: write\n      id-token: write/);
-    assert.match(rendered.workflow, /uses: actions\/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4/);
+    assert.match(rendered.workflow, /uses: async\/actions\/pages@v0\n        with:\n          upload: false\n          deploy: true/);
     assert.deepEqual(rendered.lock.manualDispatchJobs, ["pages"]);
     assert.deepEqual(rendered.lock.jobs[0].github.pages, {
       build: { kind: "jekyll", source: "./docs", destination: "./_site" }
@@ -574,10 +625,9 @@ test("renders generated github pages jobs from sync github pages", async () => {
     assert.match(rendered.workflow, /options:\n          - "docs-pages"/);
     assert.match(rendered.workflow, /docs-pages:\n    name: docs-pages/);
     assert.match(rendered.workflow, /if: github\.event_name == 'pull_request' \|\| \(github\.event_name == 'push' && \(github\.ref == 'refs\/heads\/main'\)\) \|\| \(github\.event_name == 'workflow_dispatch' && github\.event\.inputs\.job == 'docs-pages'\)/);
-    assert.match(rendered.workflow, /run: pnpm async-pipeline run-task docs\.site/);
+    assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run-task docs\.site"/);
     assert.doesNotMatch(rendered.workflow, /run: pnpm async-pipeline run docs-pages/);
-    assert.match(rendered.workflow, /uses: actions\/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5/);
-    assert.match(rendered.workflow, /uses: actions\/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4\n        with:\n          path: "\.async\/pages"/);
+    assert.match(rendered.workflow, /uses: async\/actions\/pages@v0\n        with:\n          mode: static\n          path: "\.async\/pages"/);
     assert.match(rendered.workflow, /docs-pages-deploy:\n    name: docs-pages-deploy\n    needs: "docs-pages"\n    if: github\.event_name != 'pull_request'/);
     assert.deepEqual(rendered.lock.manualDispatchJobs, ["docs-pages"]);
     assert.equal(rendered.lock.jobs.some((entry) => entry.id === "docs-pages"), false);
@@ -630,6 +680,43 @@ test("generated github pages rejects missing targets and job conflicts", async (
       () => renderGitHubWorkflow(jobConflict, { cwd: dir, configPath: join(dir, "pipeline.ts") }),
       /ASYNC_PIPELINE_GITHUB_PAGES_JOB_CONFLICT|conflicts with an existing pipeline job/
     );
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("renders prerender github pages build through async pages action", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-prerender-pages-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    const pipeline = definePipeline({
+      name: "pages-prerender-test",
+      sync: {
+        github: {
+          pages: {
+            target: "docs.site",
+            build: { kind: "prerender", path: ".async/prerender", validateIndex: true, spaFallback: true }
+          }
+        }
+      },
+      tasks: {
+        "docs.site": task({ run: sh`node scripts/prerender.js` })
+      },
+      jobs: {
+        verify: job({ target: "docs.site" })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, /uses: async\/actions\/pages@v0\n        with:\n          mode: prerender\n          path: "\.async\/prerender"\n          validate-index: true\n          spa-fallback: true/);
+    assert.deepEqual(rendered.lock.pages.build, {
+      kind: "prerender",
+      path: ".async/prerender",
+      validateIndex: true,
+      spaFallback: true
+    });
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
@@ -809,9 +896,9 @@ test("renders github execution profiles as runner defaults and CLI execution arg
     const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
 
     assert.match(rendered.workflow, /linux:\n    name: linux\n    if: github\.event_name == 'workflow_dispatch' && github\.event\.inputs\.job == 'linux'\n    runs-on: ubuntu-latest/);
-    assert.match(rendered.workflow, /run: pnpm async-pipeline run linux --execution linuxCi/);
+    assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run linux --execution linuxCi"/);
     assert.match(rendered.workflow, /apple:\n    name: apple\n    if: github\.event_name == 'workflow_dispatch' && github\.event\.inputs\.job == 'apple'\n    runs-on: \["self-hosted","macos","arm64","apple-container"\]/);
-    assert.match(rendered.workflow, /run: pnpm async-pipeline run apple --execution appleCi/);
+    assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run apple --execution appleCi"/);
     assert.match(rendered.workflow, /override:\n    name: override\n    if: github\.event_name == 'workflow_dispatch' && github\.event\.inputs\.job == 'override'\n    runs-on: ubuntu-24\.04/);
     assert.equal(rendered.lock.jobs.find((entry) => entry.id === "linux")?.execution, "linuxCi");
     assert.equal(rendered.lock.jobs.find((entry) => entry.id === "apple")?.github?.runsOn?.[3], "apple-container");

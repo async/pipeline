@@ -421,10 +421,10 @@ Node projects default generated GitHub workflows to `node@24`; Deno-only project
 
 ## Releases, Snapshots, And The npm Fallback
 
-Publishing runs through the same `pipeline.ts` that verifies the repo. PR preview publishing is generated from `sync.github.packagePreviews`, while main snapshots and stable releases use explicit lifecycle tasks. The model is PatrickJS's [GitHub-native npm preview packages Gist](https://gist.github.com/PatrickJS/3fa2925713fcdf75a27a505ce2cd0d80), dogfooded (the standalone generated-preview example lives in [examples/generated-package-previews](examples/generated-package-previews)):
+Publishing runs through generated GitHub Actions from the same `pipeline.ts` that verifies the repo. `@async/pipeline` owns triggers, job graph, matrices, permissions, and generated workflow locks; `async/actions` owns networked publish, preview, release, and Pages step behavior. The model is PatrickJS's [GitHub-native npm preview packages Gist](https://gist.github.com/PatrickJS/3fa2925713fcdf75a27a505ce2cd0d80), dogfooded (the standalone generated-preview example lives in [examples/generated-package-previews](examples/generated-package-previews)):
 
 - Stable releases publish to GitHub Packages as `@async/pipeline` before npm, so a stable version exists on the fallback registry even when npm publishing has an issue.
-- Stable release jobs create or verify the matching `v<version>` Git tag and GitHub Release before package publishing, and refuse to move an existing tag.
+- Stable release jobs create or verify the matching `v<version>` Git tag and GitHub Release through `async/actions/publish` before package publishing, and refuse to move an existing tag.
 - Pushes to `main` that pass the verify chain publish an immutable `0.0.0-main.sha.<sha>` snapshot to GitHub Packages and move the `main` dist-tag.
 - Same-repo pull requests publish an immutable `0.0.0-pr.<n>.sha.<sha>` preview and move the `pr-<number>` dist-tag; fork pull requests never publish previews. Previews build the PR merge commit and are stamped with the PR head SHA.
 - Republishing an existing version skips cleanly instead of failing, so re-dispatched publish jobs stay green.

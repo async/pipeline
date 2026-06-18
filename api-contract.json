@@ -190,27 +190,33 @@
           "title": "GitHub Packages preview, snapshot, and release publishing",
           "releaseTag": "beta",
           "stability": "preview",
-          "lifecycle": "active",
+          "lifecycle": "deprecated",
+          "deprecatedSince": "0.9.0",
+          "replacedBy": "async/actions/publish",
           "group": "lifecycle",
-          "docsUrl": "https://github.com/async/pipeline/blob/main/docs/api.md#package-lifecycle-cli"
+          "docsUrl": "https://github.com/async/pipeline/blob/main/docs/api.md#package-lifecycle-actions"
         },
         {
           "id": "cli.publish.npm",
           "title": "npm publish with provenance and idempotent existing-version skip",
           "releaseTag": "beta",
           "stability": "preview",
-          "lifecycle": "active",
+          "lifecycle": "deprecated",
+          "deprecatedSince": "0.9.0",
+          "replacedBy": "async/actions/publish",
           "group": "lifecycle",
-          "docsUrl": "https://github.com/async/pipeline/blob/main/docs/api.md#package-lifecycle-cli"
+          "docsUrl": "https://github.com/async/pipeline/blob/main/docs/api.md#package-lifecycle-actions"
         },
         {
           "id": "cli.release.doctor",
           "title": "Release doctor verification for npm, GitHub Packages, and GitHub Releases",
           "releaseTag": "beta",
           "stability": "preview",
-          "lifecycle": "active",
+          "lifecycle": "deprecated",
+          "deprecatedSince": "0.9.0",
+          "replacedBy": "async/actions/publish",
           "group": "lifecycle",
-          "docsUrl": "https://github.com/async/pipeline/blob/main/docs/api.md#package-lifecycle-cli"
+          "docsUrl": "https://github.com/async/pipeline/blob/main/docs/api.md#package-lifecycle-actions"
         },
         {
           "id": "cli.run",

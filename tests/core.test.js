@@ -776,7 +776,7 @@ test("normalizes explicit sync task config and validates selected ids", () => {
       github: {
         workflow: ".tmp/workflow.yml",
         lock: ".tmp/lock.json",
-        setup: "node",
+        setup: "async",
         dependabotAutoMerge: { ecosystems: ["github-actions"] },
         packagePreviews: {
           package: "packages/example",
@@ -789,7 +789,7 @@ test("normalizes explicit sync task config and validates selected ids", () => {
         pages: {
           target: "docs.site",
           job: "docs-pages",
-          build: { kind: "static", path: ".async/site" },
+          build: { kind: "prerender", path: ".async/site", validateIndex: true, spaFallback: true },
           artifactName: "docs-site",
           environment: { name: "docs", url: "https://example.test" },
           triggers: {
@@ -819,7 +819,7 @@ test("normalizes explicit sync task config and validates selected ids", () => {
   });
 
   assert.equal(pipeline.sync.github.workflow, ".tmp/workflow.yml");
-  assert.equal(pipeline.sync.github.setup, "node");
+  assert.equal(pipeline.sync.github.setup, "async");
   assert.equal(pipeline.sync.github.dependencyCache, true);
   assert.deepEqual(pipeline.sync.github.dependabotAutoMerge, {
     enabled: true,
@@ -838,7 +838,7 @@ test("normalizes explicit sync task config and validates selected ids", () => {
     enabled: true,
     target: "docs.site",
     job: "docs-pages",
-    build: { kind: "static", path: ".async/site" },
+    build: { kind: "prerender", path: ".async/site", validateIndex: true, spaFallback: true },
     artifactName: "docs-site",
     environment: { name: "docs", url: "https://example.test" },
     triggers: {

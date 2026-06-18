@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.0 - 2026-06-18
+
+### Breaking
+
+- Move generated GitHub workflow run evidence, Pages, preview publishing, and Dependabot merge step logic to `async/actions`; `@async/pipeline` now emits reusable `async/actions/*` steps for those phases and the published npm tarball no longer ships release lifecycle GitHub API networking.
+
+### Features
+
+- Add `sync.github.setup: "async"` as an explicit opt-in setup provider backed by `async/actions/setup`, while keeping the generated default on the existing pinned `pnpm/setup` provider until the Async setup action is tested more broadly.
+- Add `github.pages.build.kind: "prerender"` for static GitHub Pages deployments that build or prerender SSR output to files before upload.
+
 ## 0.8.9 - 2026-06-18
 
 ### Fixes

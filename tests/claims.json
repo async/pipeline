@@ -155,7 +155,7 @@
     {
       "id": "github-actions.run-evidence-artifact",
       "source": "docs/github-actions.md",
-      "anchor": "Each generated job also runs `async-pipeline explain --run latest` on failure and uploads `.async/runs` with a pinned `actions/upload-artifact` step.",
+      "anchor": "Each generated job calls `async/actions/run` to run the pipeline command, explain failures, and upload `.async/runs` as evidence.",
       "tests": [
         "renders github workflow triggers and bootloader steps"
       ]
@@ -171,10 +171,9 @@
     {
       "id": "github-actions.dependency-cache-step",
       "source": "docs/github-actions.md",
-      "anchor": "`dependencyCache` controls dependency-store cache settings: with the pnpm runtime setup, the action caches the pnpm store when a package lockfile exists; Deno-only workflows cache Deno dependencies through the generated `denoland/setup-deno` step when `deno.lock` exists; with the Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup.",
+      "anchor": "`dependencyCache` controls dependency-store cache settings",
       "tests": [
         "renders github workflow triggers and bootloader steps",
-        "renders github workflow with setup-node when the consumer pnpm version does not support runtime",
         "renders github workflow with dependency cache disabled",
         "renders deno-only github workflow without package-manager install"
       ]
@@ -182,33 +181,34 @@
     {
       "id": "github-actions.pnpm-runtime-setup",
       "source": "docs/github-actions.md",
-      "anchor": "`setup: \"auto\"` resolves to the official `pnpm/setup` runtime bootloader when the selected pnpm version supports `pnpm runtime`; pinned pnpm versions without that command render the `actions/setup-node` + Corepack bootloader instead.",
+      "anchor": "`setup: \"auto\"` currently resolves to the default pinned `pnpm/setup` provider. Explicit `setup: \"async\"` selects `async/actions/setup`.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
-        "renders github workflow with setup-node when the consumer pnpm version does not support runtime",
+        "renders explicit async setup provider",
+        "renders mixed node and deno runtimes through pnpm and setup-deno providers",
         "renders github workflow with node setup provider"
       ]
     },
     {
       "id": "github-actions.pnpm-setup-single-runtime-note",
       "source": "docs/github-actions.md",
-      "anchor": "`pnpm/setup` installs pnpm plus one requested JavaScript runtime.",
+      "anchor": "The default `pnpm/setup` provider still has the historical single-runtime constraint",
       "tests": [
-        "renders mixed node and deno runtimes through pnpm and setup-deno providers"
+        "renders legacy pnpm setup with setup-node when the consumer pnpm version does not support runtime"
       ]
     },
     {
       "id": "github-actions.deno-runtime-provider-split",
       "source": "docs/github-actions.md",
-      "anchor": "Generated mixed Node+Deno workflows on pnpm versions with runtime support use the pinned `pnpm/setup` action for Node and the pinned `denoland/setup-deno` action for Deno.",
+      "anchor": "`async/actions/setup` accepts a newline runtime list, so repos that opt into `setup: \"async\"` can use one shared Async setup step instead of splitting runtime setup across `pnpm/setup` and `denoland/setup-deno`.",
       "tests": [
-        "renders mixed node and deno runtimes through pnpm and setup-deno providers"
+        "renders explicit async setup provider"
       ]
     },
     {
       "id": "github-actions.deno-only-setup-deno",
       "source": "docs/github-actions.md",
-      "anchor": "Generated Deno-only workflows use `denoland/setup-deno` without `pnpm/setup`.",
+      "anchor": "Deno-only projects with `deno.json` or `deno.jsonc` and no `package.json` default to `deno@2`",
       "tests": [
         "renders deno-only github workflow without package-manager install"
       ]
@@ -216,10 +216,9 @@
     {
       "id": "api.github-dependency-cache",
       "source": "docs/api.md",
-      "anchor": "`dependencyCache: true` (the default) enables dependency-store cache settings when the setup path can safely initialize the package manager before the cache step and the project has a recognized lockfile: with the pnpm runtime setup, the action caches the pnpm store; Deno-only workflows cache Deno dependencies through `denoland/setup-deno` when `deno.lock` exists; with Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup.",
+      "anchor": "`dependencyCache: true` (the default) passes the recognized lockfile to the selected setup provider for dependency-store caching.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
-        "renders github workflow with setup-node when the consumer pnpm version does not support runtime",
         "renders github workflow with dependency cache disabled",
         "renders deno-only github workflow without package-manager install"
       ]
@@ -227,17 +226,17 @@
     {
       "id": "api.github-pnpm-runtime-setup",
       "source": "docs/api.md",
-      "anchor": "`setup: \"auto\"` resolves to the official `pnpm/setup` runtime bootloader when the selected pnpm version supports `pnpm runtime`; pinned pnpm versions without that command render the `actions/setup-node` + Corepack bootloader instead.",
+      "anchor": "`setup: \"auto\"` currently resolves to the default pinned `pnpm/setup` provider; explicit `setup: \"async\"` selects `async/actions/setup`.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
-        "renders github workflow with setup-node when the consumer pnpm version does not support runtime",
+        "renders explicit async setup provider",
         "renders github workflow with node setup provider"
       ]
     },
     {
       "id": "api.github-deno-runtime-provider-split",
       "source": "docs/api.md",
-      "anchor": "Generated mixed Node+Deno workflows on pnpm versions with runtime support use `pnpm/setup` for Node and `denoland/setup-deno` for Deno, because `pnpm/setup` accepts one runtime input and internally runs one `pnpm runtime set` command.",
+      "anchor": "explicit `runtime` accepts a string or array such as `[\"node@24\", \"deno@2\"]`.",
       "tests": [
         "renders mixed node and deno runtimes through pnpm and setup-deno providers"
       ]
@@ -810,7 +809,7 @@
       "source": "CHANGELOG.md",
       "anchor": "Restore the setup-node/Corepack fallback for generated workflows when the consuming repo pins a pnpm version without `pnpm runtime`, so pnpm 10 projects do not fail during the setup step before pipeline tasks run.",
       "tests": [
-        "renders github workflow with setup-node when the consumer pnpm version does not support runtime"
+        "renders legacy pnpm setup with setup-node when the consumer pnpm version does not support runtime"
       ]
     },
     {
@@ -880,12 +879,13 @@
     {
       "id": "api.generated-dependabot-package-previews",
       "source": "docs/api.md",
-      "anchor": "`dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, publishes a GitHub Packages PR preview through the lifecycle CLI, and comments install instructions on same-repo PRs. `pages: true` generates GitHub Pages build/deploy jobs from an existing docs task, defaulting to `.async/pages` and pull request, `main`, and manual triggers.",
+      "anchor": "`dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates through `async/actions/dependabot-merge`. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, publishes a GitHub Packages PR preview through `async/actions/preview`, and comments install instructions on same-repo PRs. `pages: true` generates GitHub Pages build/deploy jobs from an existing docs task, defaulting to `.async/pages` and pull request, `main`, and manual triggers; `build.kind: \"prerender\"` validates static prerender output for GitHub Pages.",
       "tests": [
         "normalizes explicit sync task config and validates selected ids",
         "renders generated Dependabot auto-merge workflow job",
         "renders generated package preview job from packagePreviews true",
-        "renders generated github pages jobs from sync github pages"
+        "renders generated github pages jobs from sync github pages",
+        "renders prerender github pages build through async pages action"
       ]
     },
     {
@@ -944,63 +944,19 @@
     {
       "id": "api.package-lifecycle-cli",
       "source": "docs/api.md",
-      "anchor": "Package lifecycle commands are available as `async-pipeline publish github <pr|main|release> --package <path> [--registry <url>] [--namespace <scope>] [--no-comment]`, `async-pipeline publish npm --package <path>`, `async-pipeline release ensure --package <path>`, and `async-pipeline release doctor --package <path>`.",
+      "anchor": "Package lifecycle networking is executed by generated GitHub Actions through `async/actions/publish` and `async/actions/preview`, not by the `@async/pipeline` npm tarball.",
       "tests": [
-        "lifecycle CLI publishes GitHub Packages snapshots from a package path",
-        "lifecycle CLI accepts custom GitHub package registry and namespace",
-        "lifecycle CLI skips npm publish for an already published package and keeps public access",
-        "lifecycle CLI release ensure creates a missing tag and GitHub Release",
-        "lifecycle CLI release doctor verifies npm, GitHub Packages, GitHub Release, and release notes"
-      ]
-    },
-    {
-      "id": "api.npm-publish-auth-modes",
-      "source": "docs/api.md",
-      "anchor": "`publish npm` supports both npm trusted publishing and token-backed publishing. When `NODE_AUTH_TOKEN` or `NPM_TOKEN` is present, it writes a temporary npmjs auth config for publish/access commands; without a token, it leaves authentication to npm trusted publishing/OIDC and skips the post-publish access command because npm OIDC only authenticates `npm publish`.",
-      "tests": [
-        "lifecycle CLI token-backed npm publish uses a temporary npmjs auth config",
-        "lifecycle CLI tokenless npm publish leaves auth to trusted publishing and skips access"
-      ]
-    },
-    {
-      "id": "github-actions.npm-publish-auth-modes",
-      "source": "docs/github-actions.md",
-      "anchor": "The lifecycle `publish npm` command creates a temporary npmjs auth config only when a token is present; tokenless runs are left clean so npm can use trusted publishing/OIDC.",
-      "tests": [
-        "lifecycle CLI token-backed npm publish uses a temporary npmjs auth config",
-        "lifecycle CLI tokenless npm publish leaves auth to trusted publishing and skips access"
+        "renders generated package preview job from packagePreviews true",
+        "PROMISE: published package does not ship release lifecycle GitHub API fetch code"
       ]
     },
     {
       "id": "readme.release-ensure-before-publish",
       "source": "README.md",
-      "anchor": "Stable release jobs create or verify the matching `v<version>` Git tag and GitHub Release before package publishing, and refuse to move an existing tag.",
+      "anchor": "Stable release jobs create or verify the matching `v<version>` Git tag and GitHub Release through `async/actions/publish` before package publishing, and refuse to move an existing tag.",
       "tests": [
         "lifecycle CLI release ensure creates a missing tag and GitHub Release",
         "lifecycle CLI release ensure refuses to move an existing release tag",
-        "PROMISE: the release chain publishes GitHub Packages before npm, and package previews/snapshots are wired to their triggers"
-      ]
-    },
-    {
-      "id": "api.release-ensure-lifecycle",
-      "source": "docs/api.md",
-      "anchor": "`release ensure` creates the matching `v<version>` Git tag and GitHub Release when missing, accepts existing matching release state, refuses to move an existing tag, and syncs all existing semver GitHub Release descriptions from `CHANGELOG.md`.",
-      "tests": [
-        "lifecycle CLI release ensure creates a missing tag and GitHub Release",
-        "lifecycle CLI release ensure updates stale GitHub Release notes from CHANGELOG",
-        "lifecycle CLI release ensure syncs multiple semver GitHub Release notes",
-        "lifecycle CLI release ensure fails when a semver GitHub Release has no CHANGELOG section",
-        "lifecycle CLI release ensure refuses to move an existing release tag",
-        "PROMISE: the release chain publishes GitHub Packages before npm, and package previews/snapshots are wired to their triggers"
-      ]
-    },
-    {
-      "id": "api.release-doctor-lifecycle",
-      "source": "docs/api.md",
-      "anchor": "`release doctor` verifies npm, GitHub Packages, the current GitHub Release, and all semver GitHub Release descriptions against `CHANGELOG.md` after the release publish chain.",
-      "tests": [
-        "lifecycle CLI release doctor verifies npm, GitHub Packages, GitHub Release, and release notes",
-        "lifecycle CLI release doctor fails when GitHub Release notes drift from CHANGELOG",
         "PROMISE: the release chain publishes GitHub Packages before npm, and package previews/snapshots are wired to their triggers"
       ]
     },

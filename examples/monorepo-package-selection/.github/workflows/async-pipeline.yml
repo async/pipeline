@@ -48,22 +48,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Check generated workflow
-        run: pnpm async-pipeline github check
-
       - name: Run pipeline job
-        run: pnpm async-pipeline run verify
+        uses: async/actions/run@v0
+        with:
+          command: "pnpm async-pipeline github check && pnpm async-pipeline run verify"
+          check-generated: false
+          artifact-name: async-pipeline-${{ github.job }}-runs
         env:
           CI: true
-
-      - name: Explain async-pipeline run
-        if: failure()
-        run: pnpm async-pipeline explain --run latest || true
-
-      - name: Upload async-pipeline run evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: async-pipeline-${{ github.job }}-runs
-          path: .async/runs
-          if-no-files-found: ignore

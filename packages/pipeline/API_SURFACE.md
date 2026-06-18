@@ -52,9 +52,9 @@ Contract: `@async/pipeline.cli`
 
 | Feature | Title | Release | Stability | Lifecycle | Replacement | Docs |
 | --- | --- | --- | --- | --- | --- | --- |
-| `cli.publish.github` | GitHub Packages preview, snapshot, and release publishing | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#package-lifecycle-cli) |
-| `cli.publish.npm` | npm publish with provenance and idempotent existing-version skip | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#package-lifecycle-cli) |
-| `cli.release.doctor` | Release doctor verification for npm, GitHub Packages, and GitHub Releases | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#package-lifecycle-cli) |
+| `cli.publish.github` | GitHub Packages preview, snapshot, and release publishing | beta | preview | deprecated | `async/actions/publish` | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#package-lifecycle-actions) |
+| `cli.publish.npm` | npm publish with provenance and idempotent existing-version skip | beta | preview | deprecated | `async/actions/publish` | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#package-lifecycle-actions) |
+| `cli.release.doctor` | Release doctor verification for npm, GitHub Packages, and GitHub Releases | beta | preview | deprecated | `async/actions/publish` | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#package-lifecycle-actions) |
 
 ### Mcp
 
@@ -122,3 +122,11 @@ Contract: `@async/pipeline.runtime`
 | --- | --- | --- |
 | `@async/pipeline.cli` | `sha256:16a9b6bef958d2482e45d16f86c7097d159f3ab29a8ce1da915678b3ed27b9ce` | `cli.github.check`, `cli.github.generate`, `cli.run`, `cli.sync.check` |
 | `@async/pipeline.declaration` | `sha256:ff6973d05adc084697e2972341ebb5443645e02c39938a7b2d33707e3f69a72e` | `config.definePipeline`, `config.job`, `config.task`, `config.trigger.github`, `step.shell` |
+
+## Deprecated And Removed Features
+
+| Feature | Lifecycle | Since | Replacement |
+| --- | --- | --- | --- |
+| `cli.publish.github` | deprecated | 0.9.0 | `async/actions/publish` |
+| `cli.publish.npm` | deprecated | 0.9.0 | `async/actions/publish` |
+| `cli.release.doctor` | deprecated | 0.9.0 | `async/actions/publish` |

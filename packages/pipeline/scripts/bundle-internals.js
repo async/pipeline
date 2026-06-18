@@ -57,6 +57,8 @@ for (const rewrite of rewrites) {
   await rewriteTextFiles(rewrite.dir, rewrite.replacements);
 }
 
+await writeLifecycleStub(join(internalDir, "node"));
+
 async function rewriteTextFiles(dir, replacements) {
   const entries = await listTextFiles(dir);
   for (const entry of entries) {
@@ -90,4 +92,30 @@ async function listTextFiles(root) {
 
 function isTextBuildFile(fileName) {
   return fileName.endsWith(".js") || fileName.endsWith(".d.ts") || fileName.endsWith(".map");
+}
+
+async function writeLifecycleStub(nodeInternalDir) {
+  const message = "Package lifecycle commands moved out of the @async/pipeline npm tarball. Use generated workflows with async/actions publish, preview, and pages steps.";
+  await writeFile(join(nodeInternalDir, "package-lifecycle.js"), [
+    "const message = \"Package lifecycle commands moved out of the @async/pipeline npm tarball. Use generated workflows with async/actions publish, preview, and pages steps.\";",
+    "export function publishGitHubPackage() { throw new Error(message); }",
+    "export function publishNpmPackage() { throw new Error(message); }",
+    "export function ensureGitHubRelease() { throw new Error(message); }",
+    "export function runReleaseDoctor() { throw new Error(message); }",
+    "export async function runLifecycleCli(_action, io) { io?.stderr?.(`${message}\\n`); return 1; }",
+    ""
+  ].join("\n"), "utf8");
+  await writeFile(join(nodeInternalDir, "package-lifecycle.d.ts"), [
+    "export type GitHubPackagePublishMode = \"pr\" | \"main\" | \"release\";",
+    "export interface PackageLifecycleIO { stdout(text: string): void; stderr(text: string): void; }",
+    "export interface PackageLifecycleOptions { cwd: string; packagePath: string; registry?: string; namespace?: string; comment?: boolean; env: NodeJS.ProcessEnv; io: PackageLifecycleIO; }",
+    "export declare function publishGitHubPackage(): never;",
+    "export declare function publishNpmPackage(): never;",
+    "export declare function ensureGitHubRelease(): never;",
+    "export declare function runReleaseDoctor(): never;",
+    "export declare function runLifecycleCli(_action: () => Promise<void>, io: PackageLifecycleIO): Promise<number>;",
+    ""
+  ].join("\n"), "utf8");
+  await rm(join(nodeInternalDir, "package-lifecycle.js.map"), { force: true });
+  await rm(join(nodeInternalDir, "package-lifecycle.d.ts.map"), { force: true });
 }
