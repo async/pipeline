@@ -263,9 +263,9 @@ function buildRenderModel(
     manualDispatchJobs.push(pages.job);
     manualDispatchJobs.sort((left, right) => left.localeCompare(right));
   }
-  const setup = resolveGitHubSetup(pipeline.sync.github.setup);
   const nodeVersion = pipeline.sync.github.nodeVersion ?? DEFAULT_NODE_VERSION;
   const runtime = resolveRuntimeSpecs(pipeline.sync.github.runtime, options.projectKind, nodeVersion);
+  const setup = resolveGitHubSetup(pipeline.sync.github.setup, options.packageManager, options.packageManagerVersion);
   return {
     name: "Async Pipeline",
     configPath: options.configPath,
@@ -1009,12 +1009,19 @@ function renderSetupNodeCacheLines(model: ReturnType<typeof buildRenderModel>, o
   return [];
 }
 
-function resolveGitHubSetup(setup: string): string {
-  return setup;
+function resolveGitHubSetup(setup: string, packageManager: string, packageManagerVersion: string | undefined): string {
+  if (setup !== "pnpm") return setup;
+  if (pnpmSupportsRuntime(pnpmSetupVersion(packageManager, packageManagerVersion))) return "pnpm";
+  return "node";
 }
 
 function pnpmSetupVersion(packageManager: string, packageManagerVersion: string | undefined): string {
   return packageManager === "pnpm" && packageManagerVersion ? packageManagerVersion : DEFAULT_PNPM_VERSION;
+}
+
+function pnpmSupportsRuntime(version: string): boolean {
+  const major = /^(\d+)/.exec(version)?.[1];
+  return major !== undefined && Number(major) >= 11;
 }
 
 function resolveRuntimeSpecs(configured: string[], projectKind: PackageInfo["projectKind"], nodeVersion: string): RuntimeSpec[] {

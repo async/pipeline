@@ -171,10 +171,10 @@
     {
       "id": "github-actions.dependency-cache-step",
       "source": "docs/github-actions.md",
-      "anchor": "`dependencyCache` controls dependency-store cache settings: with the default pnpm setup, the action caches the pnpm store when a package lockfile exists; Deno-only workflows cache Deno dependencies through the generated `denoland/setup-deno` step when `deno.lock` exists; with the forced Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup.",
+      "anchor": "`dependencyCache` controls dependency-store cache settings: with the pnpm runtime setup, the action caches the pnpm store when a package lockfile exists; Deno-only workflows cache Deno dependencies through the generated `denoland/setup-deno` step when `deno.lock` exists; with the Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
-        "renders github workflow with pnpm runtime setup using the consumer packageManager version",
+        "renders github workflow with setup-node when the consumer pnpm version does not support runtime",
         "renders github workflow with dependency cache disabled",
         "renders deno-only github workflow without package-manager install"
       ]
@@ -182,10 +182,10 @@
     {
       "id": "github-actions.pnpm-runtime-setup",
       "source": "docs/github-actions.md",
-      "anchor": "`setup: \"auto\"` resolves to the official `pnpm/setup` runtime bootloader for package projects.",
+      "anchor": "`setup: \"auto\"` resolves to the official `pnpm/setup` runtime bootloader when the selected pnpm version supports `pnpm runtime`; pinned pnpm versions without that command render the `actions/setup-node` + Corepack bootloader instead.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
-        "renders github workflow with pnpm runtime setup using the consumer packageManager version",
+        "renders github workflow with setup-node when the consumer pnpm version does not support runtime",
         "renders github workflow with node setup provider"
       ]
     },
@@ -200,7 +200,7 @@
     {
       "id": "github-actions.deno-runtime-provider-split",
       "source": "docs/github-actions.md",
-      "anchor": "Generated mixed Node+Deno workflows use the pinned `pnpm/setup` action for Node and the pinned `denoland/setup-deno` action for Deno.",
+      "anchor": "Generated mixed Node+Deno workflows on pnpm versions with runtime support use the pinned `pnpm/setup` action for Node and the pinned `denoland/setup-deno` action for Deno.",
       "tests": [
         "renders mixed node and deno runtimes through pnpm and setup-deno providers"
       ]
@@ -216,10 +216,10 @@
     {
       "id": "api.github-dependency-cache",
       "source": "docs/api.md",
-      "anchor": "`dependencyCache: true` (the default) enables dependency-store cache settings when the setup path can safely initialize the package manager before the cache step and the project has a recognized lockfile: with the default pnpm setup, the action caches the pnpm store; Deno-only workflows cache Deno dependencies through `denoland/setup-deno` when `deno.lock` exists; with forced Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup.",
+      "anchor": "`dependencyCache: true` (the default) enables dependency-store cache settings when the setup path can safely initialize the package manager before the cache step and the project has a recognized lockfile: with the pnpm runtime setup, the action caches the pnpm store; Deno-only workflows cache Deno dependencies through `denoland/setup-deno` when `deno.lock` exists; with Corepack setup, setup-node's pnpm cache stays off because pnpm is enabled after Node setup.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
-        "renders github workflow with pnpm runtime setup using the consumer packageManager version",
+        "renders github workflow with setup-node when the consumer pnpm version does not support runtime",
         "renders github workflow with dependency cache disabled",
         "renders deno-only github workflow without package-manager install"
       ]
@@ -227,17 +227,17 @@
     {
       "id": "api.github-pnpm-runtime-setup",
       "source": "docs/api.md",
-      "anchor": "`setup: \"auto\"` resolves to the official `pnpm/setup` runtime bootloader for package projects.",
+      "anchor": "`setup: \"auto\"` resolves to the official `pnpm/setup` runtime bootloader when the selected pnpm version supports `pnpm runtime`; pinned pnpm versions without that command render the `actions/setup-node` + Corepack bootloader instead.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
-        "renders github workflow with pnpm runtime setup using the consumer packageManager version",
+        "renders github workflow with setup-node when the consumer pnpm version does not support runtime",
         "renders github workflow with node setup provider"
       ]
     },
     {
       "id": "api.github-deno-runtime-provider-split",
       "source": "docs/api.md",
-      "anchor": "Generated mixed Node+Deno workflows use `pnpm/setup` for Node and `denoland/setup-deno` for Deno, because `pnpm/setup` accepts one runtime input and internally runs one `pnpm runtime set` command.",
+      "anchor": "Generated mixed Node+Deno workflows on pnpm versions with runtime support use `pnpm/setup` for Node and `denoland/setup-deno` for Deno, because `pnpm/setup` accepts one runtime input and internally runs one `pnpm runtime set` command.",
       "tests": [
         "renders mixed node and deno runtimes through pnpm and setup-deno providers"
       ]
@@ -806,12 +806,19 @@
       ]
     },
     {
+      "id": "changelog.github-pnpm-runtime-fallback",
+      "source": "CHANGELOG.md",
+      "anchor": "Restore the setup-node/Corepack fallback for generated workflows when the consuming repo pins a pnpm version without `pnpm runtime`, so pnpm 10 projects do not fail during the setup step before pipeline tasks run.",
+      "tests": [
+        "renders github workflow with setup-node when the consumer pnpm version does not support runtime"
+      ]
+    },
+    {
       "id": "changelog.github-pnpm-setup-one-step-runtime",
       "source": "CHANGELOG.md",
       "anchor": "Use the official `pnpm/setup` runtime bootloader in generated pnpm workflows so pnpm and the Node runtime are installed in one step without depending on `actions/setup-node` or a later Corepack step.",
       "tests": [
         "renders github workflow triggers and bootloader steps",
-        "renders github workflow with pnpm runtime setup using the consumer packageManager version",
         "renders github workflow with node setup provider"
       ]
     },

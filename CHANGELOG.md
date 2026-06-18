@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.9 - 2026-06-18
+
+### Fixes
+
+- Restore the setup-node/Corepack fallback for generated workflows when the consuming repo pins a pnpm version without `pnpm runtime`, so pnpm 10 projects do not fail during the setup step before pipeline tasks run.
+
 ## 0.8.8 - 2026-06-18
 
 ### Features
