@@ -34,7 +34,7 @@ function defineActionRef(id: string, uses: string, sha: string, label: string): 
 
 const ASYNC_ACTIONS_SHA = "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4";
 const ASYNC_ACTIONS_LABEL = "v0.1.16";
-const ASYNC_RELEASE_COMMAND = "npx --yes github:async/release#b21372abc92a921cf659e54dc479dfe1028f8acf";
+const ASYNC_RELEASE_COMMAND = "npx --yes github:async/release#e8c938ae44f11558fbbac1c805e0ce81ad765080";
 
 const GENERATED_ACTIONS = [
   defineActionRef("async.actions.setup", "async/actions/setup", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),

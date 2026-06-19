@@ -1242,7 +1242,7 @@ test("renders lifecycle publish tasks as async action steps", async () => {
     assert.match(rendered.workflow, /mode: npm/);
     assert.match(rendered.workflow, /provenance: true/);
     assert.match(rendered.workflow, asyncActionUses("doctor"));
-    assert.match(rendered.workflow, /name: Plan release package[\s\S]+mode: plan[\s\S]+release-command: "npx --yes github:async\/release#b21372abc92a921cf659e54dc479dfe1028f8acf"/);
+    assert.match(rendered.workflow, /name: Plan release package[\s\S]+mode: plan[\s\S]+release-command: "npx --yes github:async\/release#e8c938ae44f11558fbbac1c805e0ce81ad765080"/);
     assert.match(rendered.workflow, /name: Inspect release package[\s\S]+mode: inspect/);
     assert.match(rendered.workflow, /name: Check release changelog[\s\S]+mode: changelog/);
     assert.match(rendered.workflow, /name: Render release notes[\s\S]+mode: notes/);

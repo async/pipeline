@@ -399,7 +399,7 @@ test("PROMISE: published package does not ship release lifecycle GitHub API fetc
   assert.doesNotMatch(lifecycle, /globalThis\s*\[\s*["']fetch["']\s*\]|(?<![A-Za-z0-9_$])fetch\s*\(/);
   assert.match(lifecycle, /Package lifecycle commands moved out of the @async\/pipeline npm tarball/);
   assert.match(lifecycle, /pnpm dlx/);
-  assert.match(lifecycle, /github:async\/release#b21372abc92a921cf659e54dc479dfe1028f8acf/);
+  assert.match(lifecycle, /github:async\/release#e8c938ae44f11558fbbac1c805e0ce81ad765080/);
   assert.match(lifecycle, /release", "sync-descriptions"/);
   assert.match(lifecycle, /publishGitHubPackage\(\) \{ throw new Error\(message\); \}/);
 });

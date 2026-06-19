@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.22 - 2026-06-19
+
+### Fixes
+
+- Pin release-description sync to `@async/release` `v0.1.2` so framework
+  consumers use the REST-backed GitHub Release description updater.
+
 ## 0.9.21 - 2026-06-19
 
 ### Fixes

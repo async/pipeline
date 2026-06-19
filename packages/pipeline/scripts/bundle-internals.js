@@ -96,7 +96,7 @@ function isTextBuildFile(fileName) {
 
 async function writeLifecycleStub(nodeInternalDir) {
   const message = "Package lifecycle commands moved out of the @async/pipeline npm tarball. Use generated workflows with async/actions publish, preview, and pages steps.";
-  const releaseCommand = "pnpm dlx github:async/release#b21372abc92a921cf659e54dc479dfe1028f8acf";
+  const releaseCommand = "pnpm dlx github:async/release#e8c938ae44f11558fbbac1c805e0ce81ad765080";
   await writeFile(join(nodeInternalDir, "package-lifecycle.js"), [
     "import { spawnSync } from \"node:child_process\";",
     "const message = \"Package lifecycle commands moved out of the @async/pipeline npm tarball. Use generated workflows with async/actions publish, preview, and pages steps.\";",
