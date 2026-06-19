@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.21 - 2026-06-19
+
+### Fixes
+
+- Make the published `release sync-descriptions` delegate use `pnpm dlx` to
+  run the pinned `@async/release` package binary so pnpm projects are not
+  blocked by older global `npx` installations or local registry defaults.
+
 ## 0.9.20 - 2026-06-19
 
 ### Fixes
