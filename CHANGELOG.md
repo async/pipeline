@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.24 - 2026-06-19
+
+### Fixes
+
+- Generate release helper workflow steps with `pnpm dlx` instead of `npx` so
+  Node 24/npm 11 runners can install the pinned `@async/release` GitHub source
+  package during release planning.
+
 ## 0.9.23 - 2026-06-19
 
 ### Fixes
