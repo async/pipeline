@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.9 - 2026-06-19
+
+### Features
+
+- Route generated package preview install comments through `async/actions/comment` with explicit token inputs, stable markers, bounded bodies, and same-repo pull request guards.
+
 ## 0.9.8 - 2026-06-19
 
 ### Features

@@ -8,7 +8,7 @@ import { sourceImpactPlanForJob, type SourceImpactPlan } from "./sources.js";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 19;
+const GENERATOR_VERSION = 20;
 const DEFAULT_NODE_VERSION = "24";
 const DEFAULT_DENO_VERSION = "2";
 const DEFAULT_PNPM_VERSION = "11.1.0";
@@ -32,8 +32,8 @@ function defineActionRef(id: string, uses: string, sha: string, label: string): 
   };
 }
 
-const ASYNC_ACTIONS_SHA = "31d990ff5d1f74ed93c5ac7ea5cfe3f6b3709862";
-const ASYNC_ACTIONS_LABEL = "v0.1.10";
+const ASYNC_ACTIONS_SHA = "cda9d1eeb37086a26187ff6c27f7f7c9a3650e34";
+const ASYNC_ACTIONS_LABEL = "v0.1.11";
 const ASYNC_RELEASE_COMMAND = "npx --yes github:async/release#3892d94a4890600d26b812052aa58dec98b05bfb";
 
 const GENERATED_ACTIONS = [
@@ -43,6 +43,7 @@ const GENERATED_ACTIONS = [
   defineActionRef("async.actions.preview", "async/actions/preview", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.publish", "async/actions/publish", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.doctor", "async/actions/doctor", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("async.actions.comment", "async/actions/comment", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.dependabot-merge", "async/actions/dependabot-merge", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.evidence", "async/actions/evidence", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.source-impact", "async/actions/source-impact", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
@@ -64,6 +65,7 @@ const ASYNC_PAGES_ACTION = actionRef("async.actions.pages");
 const ASYNC_PREVIEW_ACTION = actionRef("async.actions.preview");
 const ASYNC_PUBLISH_ACTION = actionRef("async.actions.publish");
 const ASYNC_DOCTOR_ACTION = actionRef("async.actions.doctor");
+const ASYNC_COMMENT_ACTION = actionRef("async.actions.comment");
 const ASYNC_DEPENDABOT_MERGE_ACTION = actionRef("async.actions.dependabot-merge");
 const ASYNC_EVIDENCE_ACTION = actionRef("async.actions.evidence");
 const ASYNC_SOURCE_IMPACT_ACTION = actionRef("async.actions.source-impact");
@@ -1263,9 +1265,11 @@ function renderReleaseEvidenceSteps(lines: string[], packagePath: string, env: R
 }
 
 function renderPreviewActionStep(lines: string[], preview: Extract<LifecyclePlanItem, { kind: "preview" }>, env: Record<string, EnvValue>): void {
+  const stepId = safeGeneratedJobId(`async-${preview.mode}-package-preview-${preview.packagePath}`);
   lines.push(
     "",
     `      - name: Publish ${preview.mode === "main" ? "main" : "PR"} package preview`,
+    `        id: ${stepId}`,
     `        uses: ${ASYNC_PREVIEW_ACTION}`,
     "        with:",
     `          package-path: ${JSON.stringify(preview.packagePath)}`,
@@ -1276,6 +1280,25 @@ function renderPreviewActionStep(lines: string[], preview: Extract<LifecyclePlan
     `          token-env-name: ${JSON.stringify(preview.tokenEnv)}`
   );
   renderActionEnv(lines, scopeActionEnv(env, new Set([preview.tokenEnv])));
+  if (preview.mode === "pr" && preview.comment) {
+    renderPreviewCommentStep(lines, stepId);
+  }
+}
+
+function renderPreviewCommentStep(lines: string[], previewStepId: string): void {
+  lines.push(
+    "",
+    "      - name: Comment package preview",
+    `        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && steps.${previewStepId}.outputs.comment-body != ''`,
+    `        uses: ${ASYNC_COMMENT_ACTION}`,
+    "        with:",
+    "          mode: pr-comment",
+    "          repository: ${{ github.repository }}",
+    "          number: ${{ github.event.pull_request.number }}",
+    `          marker: \${{ steps.${previewStepId}.outputs.comment-marker }}`,
+    `          body: \${{ steps.${previewStepId}.outputs.comment-body }}`,
+    "          token: ${{ secrets.GITHUB_TOKEN }}"
+  );
 }
 
 function renderPublishActionStep(
@@ -1562,6 +1585,7 @@ function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof build
   lines.push(
     "",
     "      - name: Publish package preview",
+    "        id: async-package-preview",
     `        uses: ${ASYNC_PREVIEW_ACTION}`,
     "        with:",
     `          package-path: ${JSON.stringify(preview.package)}`,
@@ -1574,6 +1598,9 @@ function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof build
     "          CI: true",
     `          ${preview.tokenEnv}: \${{ secrets.${preview.tokenEnv} }}`
   );
+  if (preview.comment) {
+    renderPreviewCommentStep(lines, "async-package-preview");
+  }
   renderEvidenceCollectStep(lines, model);
   lines.push("");
 }

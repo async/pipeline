@@ -427,6 +427,7 @@ Publishing runs through generated GitHub Actions from the same `pipeline.ts` tha
 - Stable release jobs create or verify the matching `v<version>` Git tag and GitHub Release through `async/actions/publish` before package publishing, and refuse to move an existing tag.
 - Pushes to `main` that pass the verify chain publish an immutable `0.0.0-main.sha.<sha>` snapshot to GitHub Packages and move the `main` dist-tag.
 - Same-repo pull requests publish an immutable `0.0.0-pr.<n>.sha.<sha>` preview and move the `pr-<number>` dist-tag; fork pull requests never publish previews. Previews build the PR merge commit and are stamped with the PR head SHA.
+- Generated preview install comments use `async/actions/comment` with an explicit `GITHUB_TOKEN`, a stable marker, and a same-repo pull request guard.
 - Republishing an existing version skips cleanly instead of failing, so re-dispatched publish jobs stay green.
 
 GitHub Packages requires the package scope to match the repo owner, so the mirror is `@async/pipeline` on `npm.pkg.github.com` while npm publishes the same package name on `registry.npmjs.org`:

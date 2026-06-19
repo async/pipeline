@@ -13,8 +13,8 @@ import { checkGitHubWorkflow, jobsForGitHubEvent, renderGitHubWorkflow, writeGit
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
 const cliPath = join(repoRoot, "packages/pipeline-node/dist/cli.js");
-const asyncActionsSha = "31d990ff5d1f74ed93c5ac7ea5cfe3f6b3709862";
-const asyncActionsLabel = "v0.1.10";
+const asyncActionsSha = "cda9d1eeb37086a26187ff6c27f7f7c9a3650e34";
+const asyncActionsLabel = "v0.1.11";
 const asyncActionsRefPattern = `${asyncActionsSha} # ${asyncActionsLabel.replaceAll(".", "\\.")}`;
 const asyncActionUses = (name) => new RegExp(`uses: async/actions/${name}@${asyncActionsRefPattern}`);
 
@@ -474,6 +474,13 @@ test("renders generated package preview job from packagePreviews true", async ()
     assert.match(rendered.workflow, /target-registry: "https:\/\/npm\.pkg\.github\.com"/);
     assert.match(rendered.workflow, /mode: pr/);
     assert.match(rendered.workflow, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
+    assert.match(rendered.workflow, /name: Publish package preview\n        id: async-package-preview/);
+    assert.match(rendered.workflow, asyncActionUses("comment"));
+    assert.match(rendered.workflow, /name: Comment package preview[\s\S]+if: github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name == github\.repository && steps\.async-package-preview\.outputs\.comment-body != ''/);
+    assert.match(rendered.workflow, /mode: pr-comment/);
+    assert.match(rendered.workflow, /marker: \$\{\{ steps\.async-package-preview\.outputs\.comment-marker \}\}/);
+    assert.match(rendered.workflow, /body: \$\{\{ steps\.async-package-preview\.outputs\.comment-body \}\}/);
+    assert.match(rendered.workflow, /token: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
     assert.match(rendered.workflow, asyncActionUses("evidence"));
     assert.match(rendered.workflow, /name: Collect evidence manifest[\s\S]+mode: collect[\s\S]+artifact-name: async-evidence-\$\{\{ github\.job \}\}/);
     assert.match(rendered.workflow, /evidence:\n    name: evidence\n    needs: \["package-preview","verify"\]\n    if: always\(\)/);
@@ -486,6 +493,7 @@ test("renders generated package preview job from packagePreviews true", async ()
       tokenEnv: "GITHUB_TOKEN",
       comment: true
     });
+    assert.equal(rendered.lock.actions.find((entry) => entry.id === "async.actions.comment")?.sha, asyncActionsSha);
     assert.deepEqual(rendered.lock.evidence, {
       enabled: true,
       job: "evidence",

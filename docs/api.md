@@ -183,9 +183,9 @@ Triggers describe when jobs should run. Sync describes which generated files sho
 
 ## Package Lifecycle Actions
 
-Package lifecycle networking is executed by generated GitHub Actions through `async/actions/publish` and `async/actions/preview`, not by the `@async/pipeline` npm tarball.
+Package lifecycle networking is executed by generated GitHub Actions through `async/actions/publish`, `async/actions/preview`, and `async/actions/comment`, not by the `@async/pipeline` npm tarball.
 
-Generated preview jobs call `async/actions/preview` for same-repo PR and main preview packages on GitHub Packages. Generated release lifecycle jobs call `async/actions/doctor` for `@async/release` package planning, inspection, changelog checks, release-note rendering, and final doctor evidence under `.async/release`. Generated publish jobs call `async/actions/publish` for npm publish, GitHub Packages mirrors, GitHub Releases, dist-tags, and unauthenticated `npm view` verification.
+Generated preview jobs call `async/actions/preview` for same-repo PR and main preview packages on GitHub Packages and route same-repo PR install comments through `async/actions/comment`. Generated release lifecycle jobs call `async/actions/doctor` for `@async/release` package planning, inspection, changelog checks, release-note rendering, and final doctor evidence under `.async/release`. Generated publish jobs call `async/actions/publish` for npm publish, GitHub Packages mirrors, GitHub Releases, dist-tags, and unauthenticated `npm view` verification.
 
 The published `@async/pipeline` package keeps workflow generation local and does not ship release lifecycle GitHub API networking code. This keeps normal installs free of lifecycle `fetch` code; release jobs make networking explicit in GitHub Actions steps.
 

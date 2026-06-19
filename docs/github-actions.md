@@ -79,11 +79,13 @@ Each generated job calls `async/actions/run` to run the pipeline command, explai
 
 Generated release lifecycle jobs add `async/actions/doctor` steps for `@async/release` package planning, package inspection, changelog checks, release-note rendering, and final doctor evidence under `.async/release`. The GitHub Release publish step uses `.async/release/release-notes.md`, and registry or GitHub writes still run through `async/actions/publish`. Pipeline owns the release job graph, package path, action command, and secret routing; `@async/release` owns deterministic package evidence and doctor checks.
 
+Generated comment and annotation steps call `async/actions/comment`. Pipeline owns whether a job may comment, the target issue or pull request number, the marker id, fork pull request policy, and the explicit token expression. The comment action owns marker upserts, markdown body loading, summary appends, annotation rendering, bounded bodies, and comment id/url outputs.
+
 Lifecycle lowering only happens for exact, whole-command publish, preview, release, or doctor lifecycle steps with representable semantics. Compound shell syntax, unmodeled flags, retries, and timeouts stay in the normal `async/actions/run` path so the pipeline runtime keeps ownership of task semantics. Generated lifecycle publish, preview, and release doctor steps pass secret env only to the exact Async action step that needs it.
 
 ## Generated Package Previews And Dependabot Merge
 
-`sync.github.packagePreviews: true` generates a `package-preview` job on pull requests. The generator finds the public root package, or the single public `packages/*` workspace package when the root package is private. It runs the `pack` task when present, falls back to `build`, then calls `async/actions/preview` with the selected package path and GitHub Packages registry. Same-repo PRs publish immutable `0.0.0-pr.<n>.sha.<sha>` previews and update one install comment; fork PRs skip inside the preview action.
+`sync.github.packagePreviews: true` generates a `package-preview` job on pull requests. The generator finds the public root package, or the single public `packages/*` workspace package when the root package is private. It runs the `pack` task when present, falls back to `build`, then calls `async/actions/preview` with the selected package path and GitHub Packages registry. Same-repo PRs publish immutable `0.0.0-pr.<n>.sha.<sha>` previews and update one install comment through `async/actions/comment`; fork PRs skip publish inside the preview action and skip the generated comment step through an explicit same-repo guard.
 
 Use object form when inference is ambiguous or a repo publishes previews somewhere else:
 

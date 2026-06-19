@@ -944,6 +944,14 @@
       ]
     },
     {
+      "id": "github-actions.generated-comment-policy",
+      "source": "docs/github-actions.md",
+      "anchor": "Pipeline owns whether a job may comment, the target issue or pull request number, the marker id, fork pull request policy, and the explicit token expression.",
+      "tests": [
+        "renders generated package preview job from packagePreviews true"
+      ]
+    },
+    {
       "id": "changelog.generated-release-doctor-evidence",
       "source": "CHANGELOG.md",
       "anchor": "Add generated release planning, package inspection, changelog, release-note, and doctor evidence steps through `async/actions/doctor` and `@async/release`, while keeping registry and GitHub Release writes in `async/actions/publish`.",
@@ -1026,6 +1034,14 @@
       ]
     },
     {
+      "id": "github-actions.generated-preview-comments",
+      "source": "docs/github-actions.md",
+      "anchor": "Same-repo PRs publish immutable `0.0.0-pr.<n>.sha.<sha>` previews and update one install comment through `async/actions/comment`; fork PRs skip publish inside the preview action and skip the generated comment step through an explicit same-repo guard.",
+      "tests": [
+        "renders generated package preview job from packagePreviews true"
+      ]
+    },
+    {
       "id": "github-actions.generated-evidence-fan-in",
       "source": "docs/github-actions.md",
       "anchor": "`sync.github.evidence: true` adds a `Collect evidence manifest` step to generated jobs and an `evidence` fan-in job that downloads `async-evidence-*` artifacts, merges their manifests through `async/actions/evidence`, and uploads a bounded index artifact.",
@@ -1088,10 +1104,26 @@
     {
       "id": "api.package-lifecycle-cli",
       "source": "docs/api.md",
-      "anchor": "Package lifecycle networking is executed by generated GitHub Actions through `async/actions/publish` and `async/actions/preview`, not by the `@async/pipeline` npm tarball.",
+      "anchor": "Package lifecycle networking is executed by generated GitHub Actions through `async/actions/publish`, `async/actions/preview`, and `async/actions/comment`, not by the `@async/pipeline` npm tarball.",
       "tests": [
         "renders generated package preview job from packagePreviews true",
         "PROMISE: published package does not ship release lifecycle GitHub API fetch code"
+      ]
+    },
+    {
+      "id": "readme.generated-preview-comments",
+      "source": "README.md",
+      "anchor": "Generated preview install comments use `async/actions/comment` with an explicit `GITHUB_TOKEN`, a stable marker, and a same-repo pull request guard.",
+      "tests": [
+        "renders generated package preview job from packagePreviews true"
+      ]
+    },
+    {
+      "id": "changelog.generated-preview-comments",
+      "source": "CHANGELOG.md",
+      "anchor": "Route generated package preview install comments through `async/actions/comment` with explicit token inputs, stable markers, bounded bodies, and same-repo pull request guards.",
+      "tests": [
+        "renders generated package preview job from packagePreviews true"
       ]
     },
     {
