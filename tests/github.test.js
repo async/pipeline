@@ -1173,12 +1173,17 @@ test("renders lifecycle publish tasks as async action steps", async () => {
       },
       tasks: {
         pack: task({ run: sh`npm pack --dry-run` }),
+        "release-evidence": task({
+          dependsOn: ["pack"],
+          outputs: [".async/release/evidence.json"],
+          run: sh`pnpm run release:evidence:check`
+        }),
         snapshot: task({
           dependsOn: ["pack"],
           run: sh`pnpm async-pipeline publish github main --package .`
         }),
         "release-ensure": task({
-          dependsOn: ["pack"],
+          dependsOn: ["release-evidence"],
           run: sh`pnpm async-pipeline release ensure --package .`
         }),
         "publish-github": task({
@@ -1219,6 +1224,12 @@ test("renders lifecycle publish tasks as async action steps", async () => {
     assert.doesNotMatch(rendered.workflow, /async-pipeline run publish/);
     assert.match(rendered.workflow, /name: Run pipeline task pack/);
     assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"/);
+    assert.match(rendered.workflow, /name: Run pipeline task release-evidence/);
+    assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run-task release-evidence"/);
+    assert.ok(
+      rendered.workflow.indexOf("Run pipeline task release-evidence") < rendered.workflow.indexOf("Create or update GitHub Release"),
+      "package-owned release evidence must run before generated release publishing steps"
+    );
     assert.match(rendered.workflow, /artifact-name: async-pipeline-\$\{\{ github\.job \}\}-pack-runs/);
     assert.match(rendered.workflow, asyncActionUses("preview"));
     assert.match(rendered.workflow, /package-path: "\."/);
@@ -1260,6 +1271,10 @@ test("renders lifecycle publish tasks as async action steps", async () => {
     const packBlock = stepBlock(rendered.workflow, "Run pipeline task pack");
     assert.doesNotMatch(packBlock, /GITHUB_TOKEN/);
     assert.doesNotMatch(packBlock, /NODE_AUTH_TOKEN/);
+
+    const releaseEvidenceBlock = stepBlock(rendered.workflow, "Run pipeline task release-evidence");
+    assert.doesNotMatch(releaseEvidenceBlock, /GITHUB_TOKEN/);
+    assert.doesNotMatch(releaseEvidenceBlock, /NODE_AUTH_TOKEN/);
 
     const previewBlock = stepBlock(rendered.workflow, "Publish main package preview");
     assert.match(previewBlock, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);

@@ -187,6 +187,8 @@ Package lifecycle networking is executed by generated GitHub Actions through `as
 
 Generated preview jobs call `async/actions/preview` for same-repo PR and main preview packages on GitHub Packages and route same-repo PR install comments through `async/actions/comment`. Generated release lifecycle jobs call `async/actions/doctor` for `@async/release` package planning, inspection, changelog checks, release-note rendering, and final doctor evidence under `.async/release`. Generated publish jobs call `async/actions/publish` for npm publish, GitHub Packages mirrors, GitHub Releases, dist-tags, and unauthenticated `npm view` verification.
 
+Package-owned release evidence uses the same task dependency graph as every other release prerequisite. Add a deterministic local task such as `release-evidence`, make `release ensure` or `release sync-descriptions` depend on it, and write the rendered Markdown evidence into the current `CHANGELOG.md` section. Generated workflows preserve that dependency order and pipeline does not parse package-specific metrics.
+
 The published `@async/pipeline` package keeps workflow generation local and does not ship release lifecycle GitHub API networking code. This keeps normal installs free of lifecycle `fetch` code; release jobs make networking explicit in GitHub Actions steps.
 
 ## task

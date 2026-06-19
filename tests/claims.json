@@ -1203,6 +1203,14 @@
       ]
     },
     {
+      "id": "api.package-owned-release-evidence",
+      "source": "docs/api.md",
+      "anchor": "Package-owned release evidence uses the same task dependency graph as every other release prerequisite. Add a deterministic local task such as `release-evidence`, make `release ensure` or `release sync-descriptions` depend on it, and write the rendered Markdown evidence into the current `CHANGELOG.md` section. Generated workflows preserve that dependency order and pipeline does not parse package-specific metrics.",
+      "tests": [
+        "renders lifecycle publish tasks as async action steps"
+      ]
+    },
+    {
       "id": "readme.generated-preview-comments",
       "source": "README.md",
       "anchor": "Generated preview install comments use `async/actions/comment` with an explicit `GITHUB_TOKEN`, a stable marker, and a same-repo pull request guard.",
@@ -1237,6 +1245,14 @@
       ]
     },
     {
+      "id": "readme.package-owned-release-evidence",
+      "source": "README.md",
+      "anchor": "Package-owned release evidence stays in ordinary tasks: put a deterministic `release-evidence` task before `release ensure` or `release sync-descriptions` with `dependsOn`, write the rendered Markdown into the current `CHANGELOG.md` section, and generated workflows preserve that order without pipeline knowing package-specific metrics.",
+      "tests": [
+        "renders lifecycle publish tasks as async action steps"
+      ]
+    },
+    {
       "id": "changelog.package-lifecycle-cli",
       "source": "CHANGELOG.md",
       "anchor": "Add shared package lifecycle CLI commands for GitHub Packages previews/snapshots/releases, npm publishing, and release doctor checks with `--package <path>` package selection.",
@@ -1254,6 +1270,25 @@
         "lifecycle CLI release ensure updates stale GitHub Release notes from CHANGELOG",
         "lifecycle CLI release ensure syncs multiple semver GitHub Release notes",
         "lifecycle CLI release doctor fails when GitHub Release notes drift from CHANGELOG"
+      ]
+    },
+    {
+      "id": "changelog.release-sync-descriptions",
+      "source": "CHANGELOG.md",
+      "anchor": "Add `async-pipeline release sync-descriptions --package <path>` with `--check` mode so GitHub Release descriptions can be checked or repaired from `CHANGELOG.md` without creating tags, creating releases, or publishing packages.",
+      "tests": [
+        "lifecycle CLI release sync-descriptions patches stale semver GitHub Release notes",
+        "lifecycle CLI release sync-descriptions check reports drift without patching",
+        "lifecycle CLI release sync-descriptions fails when a semver GitHub Release has no CHANGELOG section",
+        "lifecycle CLI release usage names sync-descriptions"
+      ]
+    },
+    {
+      "id": "changelog.package-owned-release-evidence",
+      "source": "CHANGELOG.md",
+      "anchor": "Document the package-owned release evidence hook: deterministic evidence tasks use normal `dependsOn` ordering before release note sync or publish tasks, while packages own metric computation and changelog Markdown.",
+      "tests": [
+        "renders lifecycle publish tasks as async action steps"
       ]
     },
     {

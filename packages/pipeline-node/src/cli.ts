@@ -9,7 +9,7 @@ import { checkGitHubWorkflow, planGitHubJobs, readGitHubEventContext, renderGitH
 import { loadPipeline } from "./loader.js";
 import { beginShutdown, cacheManifestForJob, cacheManifestForTask, commandProxy, planJob, runJob, runSingleTask, shutdownExitCode, type CommandResult, type GitHubCacheManifestTrust, type PipelineCommands } from "./runner.js";
 import { runMcpServer } from "./mcp.js";
-import { ensureGitHubRelease, publishGitHubPackage, publishNpmPackage, runLifecycleCli, runReleaseDoctor, type GitHubPackagePublishMode } from "./package-lifecycle.js";
+import { ensureGitHubRelease, publishGitHubPackage, publishNpmPackage, runLifecycleCli, runReleaseDoctor, syncGitHubReleaseDescriptions, type GitHubPackagePublishMode } from "./package-lifecycle.js";
 import { computeTaskInputManifest, createStore, diffInputManifests, pruneCacheEntries, readCacheInputManifest, readContextPacks, readTaskBaseline, readTaskCacheReceipts, type TaskCacheReceipt, type TaskContextPack } from "./store.js";
 import { matrixForJob, readPipelineMetadata, resolveSources, sourceContext } from "./sources.js";
 import { checkTaskSync, describeTaskSync, renderTaskSync, writeTaskSync } from "./sync.js";
@@ -500,7 +500,8 @@ async function handlePublishCommand(args: string[], context: PipelineCliContext,
 
 async function handleReleaseCommand(args: string[], context: PipelineCliContext, program: string): Promise<number> {
   const subcommand = args[0];
-  const packagePath = requiredFlagValue(args, "--package", `Usage: ${program} release <ensure|doctor> --package <path>`);
+  const usage = `Usage: ${program} release <ensure|doctor|sync-descriptions> --package <path>`;
+  const packagePath = requiredFlagValue(args, "--package", usage);
   if (subcommand === "ensure") {
     return runLifecycleCli(
       () => ensureGitHubRelease({ cwd: context.cwd, packagePath, env: context.env, io: context }),
@@ -513,7 +514,13 @@ async function handleReleaseCommand(args: string[], context: PipelineCliContext,
       context
     );
   }
-  throw new Error(`Usage: ${program} release <ensure|doctor> --package <path>`);
+  if (subcommand === "sync-descriptions") {
+    return runLifecycleCli(
+      () => syncGitHubReleaseDescriptions({ cwd: context.cwd, packagePath, env: context.env, io: context, check: args.includes("--check") }),
+      context
+    );
+  }
+  throw new Error(usage);
 }
 
 async function printDryRun(context: PipelineCliContext, format: "text" | "json", jobId?: string, taskId?: string): Promise<number> {
@@ -969,6 +976,7 @@ function printHelp(program: string): string {
   ${program} publish npm --package <path>
   ${program} release ensure --package <path>
   ${program} release doctor --package <path>
+  ${program} release sync-descriptions --package <path> [--check]
   ${program} sync list
   ${program} sync generate
   ${program} sync check

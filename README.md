@@ -435,6 +435,7 @@ Publishing runs through generated GitHub Actions from the same `pipeline.ts` tha
 
 - Stable releases publish to GitHub Packages as `@async/pipeline` before npm, so a stable version exists on the fallback registry even when npm publishing has an issue.
 - Stable release jobs create or verify the matching `v<version>` Git tag and GitHub Release through `async/actions/publish` before package publishing, and refuse to move an existing tag.
+- Package-owned release evidence stays in ordinary tasks: put a deterministic `release-evidence` task before `release ensure` or `release sync-descriptions` with `dependsOn`, write the rendered Markdown into the current `CHANGELOG.md` section, and generated workflows preserve that order without pipeline knowing package-specific metrics.
 - Pushes to `main` that pass the verify chain publish an immutable `0.0.0-main.sha.<sha>` snapshot to GitHub Packages and move the `main` dist-tag.
 - Same-repo pull requests publish an immutable `0.0.0-pr.<n>.sha.<sha>` preview and move the `pr-<number>` dist-tag; fork pull requests never publish previews. Previews build the PR merge commit and are stamped with the PR head SHA.
 - Generated preview install comments use `async/actions/comment` with an explicit `GITHUB_TOKEN`, a stable marker, and a same-repo pull request guard.

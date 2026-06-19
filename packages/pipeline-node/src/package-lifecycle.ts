@@ -396,6 +396,30 @@ export async function runReleaseDoctor(options: PackageLifecycleOptions): Promis
   options.io.stdout(`Release doctor passed for ${manifest.name}@${manifest.version}.\n`);
 }
 
+export async function syncGitHubReleaseDescriptions(options: PackageLifecycleOptions & { check?: boolean }): Promise<void> {
+  const { manifest } = await readPackageContext(options.cwd, options.packagePath);
+  assertPublicPackage(manifest);
+  const repository = options.env.GITHUB_REPOSITORY ?? packageRepositoryName(manifest);
+  if (!repository) {
+    throw new Error("Set GITHUB_REPOSITORY or package.json repository so release description sync can resolve GitHub state.");
+  }
+  const token = options.env.GITHUB_TOKEN;
+  if (!token) {
+    throw new Error(
+      options.check
+        ? "Set GITHUB_TOKEN so release description sync can list GitHub Releases."
+        : "Set GITHUB_TOKEN with contents:write so release description sync can update GitHub Releases."
+    );
+  }
+  const apiBase = (options.env.GITHUB_API_URL ?? "https://api.github.com").replace(/\/$/, "");
+  const releaseNotes = await readChangelogReleaseNotes(options.cwd);
+  if (options.check) {
+    await checkGitHubReleaseNotes(repository, releaseNotes, token, apiBase, options.io);
+    return;
+  }
+  await syncGitHubReleaseNotes(repository, releaseNotes, token, apiBase, options.io);
+}
+
 async function resolveGitHubPublishContext(
   mode: GitHubPackagePublishMode,
   options: { manifest: PackageManifest; repository: string; env: NodeJS.ProcessEnv; io: PackageLifecycleIO }
@@ -613,12 +637,22 @@ async function assertGitHubReleaseNotes(repository: string, releaseNotes: Map<st
     throw new Error("Set GITHUB_TOKEN so release doctor can verify GitHub Release descriptions.");
   }
   const apiBase = (options.env.GITHUB_API_URL ?? "https://api.github.com").replace(/\/$/, "");
+  await checkGitHubReleaseNotes(repository, releaseNotes, token, apiBase, options.io);
+}
+
+async function checkGitHubReleaseNotes(
+  repository: string,
+  releaseNotes: Map<string, ReleaseNote>,
+  token: string,
+  apiBase: string,
+  io: PackageLifecycleIO
+): Promise<void> {
   const releases = await listGitHubReleases(repository, token, apiBase);
   const failures = releaseNoteFailures(releases, releaseNotes);
   if (failures.length > 0) {
     throw new Error(`GitHub Release descriptions do not match CHANGELOG.md: ${failures.join("; ")}`);
   }
-  options.io.stdout(`OK GitHub Release descriptions: ${releases.filter((release) => semverTagVersion(release.tagName)).length} semver release(s) match CHANGELOG.md\n`);
+  io.stdout(`OK GitHub Release descriptions: ${releases.filter((release) => semverTagVersion(release.tagName)).length} semver release(s) match CHANGELOG.md\n`);
 }
 
 async function syncGitHubReleaseNotes(

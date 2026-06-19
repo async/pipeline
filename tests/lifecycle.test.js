@@ -372,6 +372,55 @@ test("lifecycle CLI release ensure fails when a semver GitHub Release has no CHA
   assert.equal(run.api.requests.some((request) => request.method === "PATCH" && request.url.includes("/releases/")), false);
 });
 
+test("lifecycle CLI release sync-descriptions patches stale semver GitHub Release notes", async () => {
+  const run = await runCli(["release", "sync-descriptions", "--package", "packages/pipeline"], {
+    api: {
+      releases: [
+        releaseFixture(manifest.version, { id: 1, body: "current stale" }),
+        releaseFixture("0.7.0", { id: 2, body: "historical stale" }),
+        releaseFixture(manifest.version, { id: 3, tagName: "nightly", body: "custom notes" })
+      ]
+    }
+  });
+
+  assert.equal(run.status, 0, run.stderr);
+  const patches = run.api.requests.filter((request) => request.method === "PATCH" && request.url.includes("/releases/"));
+  assert.equal(patches.length, 2);
+  assert.equal(JSON.parse(patches.find((request) => request.url.endsWith("/releases/1")).body).body, expectedReleaseBody(manifest.version));
+  assert.equal(JSON.parse(patches.find((request) => request.url.endsWith("/releases/2")).body).body, expectedReleaseBody("0.7.0"));
+  assert.equal(run.api.releases.find((release) => release.tag_name === "nightly").body, "custom notes");
+  assert.equal(run.api.requests.some((request) => request.method === "POST" && request.url.includes("/git/refs")), false);
+  assert.equal(run.api.requests.some((request) => request.method === "POST" && request.url.includes("/releases")), false);
+  assert.match(run.stdout, /Updated GitHub Release notes/);
+});
+
+test("lifecycle CLI release sync-descriptions check reports drift without patching", async () => {
+  const run = await runCli(["release", "sync-descriptions", "--package", "packages/pipeline", "--check"], {
+    api: { releases: [releaseFixture(manifest.version, { id: 1, body: "stale notes" }), releaseFixture("0.7.0", { id: 2 })] }
+  });
+
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, new RegExp(`GitHub Release descriptions do not match CHANGELOG\\.md: v${manifest.version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} body differs`));
+  assert.equal(run.api.requests.some((request) => request.method === "PATCH" && request.url.includes("/releases/")), false);
+});
+
+test("lifecycle CLI release sync-descriptions fails when a semver GitHub Release has no CHANGELOG section", async () => {
+  const run = await runCli(["release", "sync-descriptions", "--package", "packages/pipeline"], {
+    api: { releases: [releaseFixture(manifest.version, { id: 1 }), releaseFixture("9.9.9", { id: 2, body: "orphan release notes" })] }
+  });
+
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /v9\.9\.9 has no parseable, non-empty CHANGELOG\.md section/);
+  assert.equal(run.api.requests.some((request) => request.method === "PATCH" && request.url.includes("/releases/")), false);
+});
+
+test("lifecycle CLI release usage names sync-descriptions", async () => {
+  const run = await runCli(["release", "sync-descriptions"]);
+
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /release <ensure\|doctor\|sync-descriptions> --package <path>/);
+});
+
 test("lifecycle CLI release ensure rejects changelog headings without same-line dates", async () => {
   const dir = mkdtempSync(join(tmpdir(), "async-pipeline-lifecycle-malformed-changelog-"));
   try {

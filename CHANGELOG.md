@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.16 - 2026-06-19
+
+### Features
+
+- Add `async-pipeline release sync-descriptions --package <path>` with `--check` mode so GitHub Release descriptions can be checked or repaired from `CHANGELOG.md` without creating tags, creating releases, or publishing packages.
+- Document the package-owned release evidence hook: deterministic evidence tasks use normal `dependsOn` ordering before release note sync or publish tasks, while packages own metric computation and changelog Markdown.
+
 ## 0.9.15 - 2026-06-19
 
 ### Fixes

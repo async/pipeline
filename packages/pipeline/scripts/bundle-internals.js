@@ -102,6 +102,7 @@ async function writeLifecycleStub(nodeInternalDir) {
     "export function publishNpmPackage() { throw new Error(message); }",
     "export function ensureGitHubRelease() { throw new Error(message); }",
     "export function runReleaseDoctor() { throw new Error(message); }",
+    "export function syncGitHubReleaseDescriptions() { throw new Error(message); }",
     "export async function runLifecycleCli(_action, io) { io?.stderr?.(`${message}\\n`); return 1; }",
     ""
   ].join("\n"), "utf8");
@@ -113,6 +114,7 @@ async function writeLifecycleStub(nodeInternalDir) {
     "export declare function publishNpmPackage(): never;",
     "export declare function ensureGitHubRelease(): never;",
     "export declare function runReleaseDoctor(): never;",
+    "export declare function syncGitHubReleaseDescriptions(): never;",
     "export declare function runLifecycleCli(_action: () => Promise<void>, io: PackageLifecycleIO): Promise<number>;",
     ""
   ].join("\n"), "utf8");
