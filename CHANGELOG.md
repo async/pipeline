@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.10 - 2026-06-19
+
+### Features
+
+- Add generated agent evidence bundling through `async/actions/agent-evidence` so agent prompts, redacted transcripts, context packs, explicit outputs, evidence receipts, and optional comment summaries stay outside the published package.
+
 ## 0.9.9 - 2026-06-19
 
 ### Features

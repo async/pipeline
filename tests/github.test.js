@@ -7,14 +7,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { definePipeline, env, execution, job, sandbox, sh, source, task, trigger } from "../packages/pipeline-core/dist/index.js";
+import { agent, definePipeline, env, execution, job, sandbox, sh, source, task, trigger } from "../packages/pipeline-core/dist/index.js";
 import { checkGitHubWorkflow, jobsForGitHubEvent, renderGitHubWorkflow, writeGitHubWorkflow } from "../packages/pipeline-node/dist/index.js";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
 const cliPath = join(repoRoot, "packages/pipeline-node/dist/cli.js");
-const asyncActionsSha = "cda9d1eeb37086a26187ff6c27f7f7c9a3650e34";
-const asyncActionsLabel = "v0.1.11";
+const asyncActionsSha = "c08a62380ee60fa175d5c3598d41c4485c0ead98";
+const asyncActionsLabel = "v0.1.12";
 const asyncActionsRefPattern = `${asyncActionsSha} # ${asyncActionsLabel.replaceAll(".", "\\.")}`;
 const asyncActionUses = (name) => new RegExp(`uses: async/actions/${name}@${asyncActionsRefPattern}`);
 
@@ -504,6 +504,54 @@ test("renders generated package preview job from packagePreviews true", async ()
       ifNoFilesFound: "warn",
       includeSummary: true
     });
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("renders agent evidence bundles and comment handoff for agent jobs", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-agent-evidence-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "workspace", private: true, packageManager: "pnpm@11.1.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: { github: { evidence: true } },
+      triggers: {
+        pr: trigger.github({ events: ["pull_request"] })
+      },
+      agents: {
+        mock: { command: ["node", "scripts/mock-agent.mjs"], model: "mock" }
+      },
+      tasks: {
+        prepare: task({ run: sh`echo prep` }),
+        review: task({
+          dependsOn: ["prepare"],
+          outputs: ["claims.patch", "review.md"],
+          run: agent({ use: "mock", prompt: "review the change", stdoutTo: "review.md" })
+        })
+      },
+      jobs: {
+        review: job({
+          target: "review",
+          trigger: ["pr"],
+          github: { permissions: { issues: "write", pullRequests: "write" } }
+        })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, asyncActionUses("agent-evidence"));
+    assert.match(rendered.workflow, /name: Bundle agent evidence[\s\S]+id: async-agent-evidence[\s\S]+mode: comment/);
+    assert.match(rendered.workflow, /outputs: \|\n            claims\.patch\n            review\.md/);
+    assert.match(rendered.workflow, /receipt-path: "\.async\/actions\/receipts\/\$\{\{ github\.job \}\}-agent-evidence\.json"/);
+    assert.match(rendered.workflow, /comment-marker: async-agent-evidence-\$\{\{ github\.job \}\}/);
+    assert.match(rendered.workflow, /name: Comment agent evidence[\s\S]+if: github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name == github\.repository && steps\.async-agent-evidence\.outputs\.comment-body != ''/);
+    assert.match(rendered.workflow, /body: \$\{\{ steps\.async-agent-evidence\.outputs\.comment-body \}\}/);
+    assert.match(rendered.workflow, /token: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
+    assert.match(rendered.workflow, /receipt-paths: \|\n            \.async\/actions\/receipts\/\*\*\/\*\.json/);
+    assert.equal(rendered.lock.actions.find((entry) => entry.id === "async.actions.agent-evidence")?.sha, asyncActionsSha);
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }

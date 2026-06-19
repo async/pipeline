@@ -8,7 +8,7 @@ import { sourceImpactPlanForJob, type SourceImpactPlan } from "./sources.js";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 20;
+const GENERATOR_VERSION = 21;
 const DEFAULT_NODE_VERSION = "24";
 const DEFAULT_DENO_VERSION = "2";
 const DEFAULT_PNPM_VERSION = "11.1.0";
@@ -32,8 +32,8 @@ function defineActionRef(id: string, uses: string, sha: string, label: string): 
   };
 }
 
-const ASYNC_ACTIONS_SHA = "cda9d1eeb37086a26187ff6c27f7f7c9a3650e34";
-const ASYNC_ACTIONS_LABEL = "v0.1.11";
+const ASYNC_ACTIONS_SHA = "c08a62380ee60fa175d5c3598d41c4485c0ead98";
+const ASYNC_ACTIONS_LABEL = "v0.1.12";
 const ASYNC_RELEASE_COMMAND = "npx --yes github:async/release#3892d94a4890600d26b812052aa58dec98b05bfb";
 
 const GENERATED_ACTIONS = [
@@ -46,6 +46,7 @@ const GENERATED_ACTIONS = [
   defineActionRef("async.actions.comment", "async/actions/comment", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.dependabot-merge", "async/actions/dependabot-merge", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.evidence", "async/actions/evidence", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("async.actions.agent-evidence", "async/actions/agent-evidence", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.source-impact", "async/actions/source-impact", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.cache", "async/actions/cache", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.attest", "async/actions/attest", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
@@ -68,6 +69,7 @@ const ASYNC_DOCTOR_ACTION = actionRef("async.actions.doctor");
 const ASYNC_COMMENT_ACTION = actionRef("async.actions.comment");
 const ASYNC_DEPENDABOT_MERGE_ACTION = actionRef("async.actions.dependabot-merge");
 const ASYNC_EVIDENCE_ACTION = actionRef("async.actions.evidence");
+const ASYNC_AGENT_EVIDENCE_ACTION = actionRef("async.actions.agent-evidence");
 const ASYNC_SOURCE_IMPACT_ACTION = actionRef("async.actions.source-impact");
 const ASYNC_CACHE_ACTION = actionRef("async.actions.cache");
 const ASYNC_ATTEST_ACTION = actionRef("async.actions.attest");
@@ -855,6 +857,7 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
     renderRunActionStep(lines, "Run pipeline job", `${model.command} github check && ${model.command} run ${shellWord(job.id)}${job.execution ? ` --execution ${shellWord(job.execution)}` : ""}`, job.env);
   }
   renderAttestSteps(lines, model, lifecyclePlan);
+  renderAgentEvidenceStep(lines, model, job, { matrix: Boolean(runnerMatrix && runnerMatrix.length > 0) });
   renderTaskCacheSaveSteps(lines, model, { kind: "job", id: job.id });
   if (job.github?.pages) {
     lines.push("");
@@ -1118,6 +1121,80 @@ function renderEvidenceCollectStep(lines: string[], model: ReturnType<typeof bui
     `          if-no-files-found: ${model.evidence.ifNoFilesFound}`,
     `          include-summary: ${model.evidence.includeSummary ? "true" : "false"}`
   );
+}
+
+function renderAgentEvidenceStep(
+  lines: string[],
+  model: ReturnType<typeof buildRenderModel>,
+  job: ReturnType<typeof buildRenderModel>["jobs"][number],
+  options: { matrix?: boolean } = {}
+): void {
+  const evidence = agentEvidenceForTargets(model.tasks, job.target);
+  if (!evidence.hasAgentStep) return;
+  const suffix = options.matrix ? "${{ github.job }}-${{ strategy.job-index }}" : "${{ github.job }}";
+  const canComment = job.github?.permissions?.issues === "write" || job.github?.permissions?.pullRequests === "write";
+  lines.push(
+    "",
+    "      - name: Bundle agent evidence",
+    "        if: ${{ always() }}",
+    "        id: async-agent-evidence",
+    `        uses: ${ASYNC_AGENT_EVIDENCE_ACTION}`,
+    "        with:",
+    `          mode: ${canComment ? "comment" : "bundle"}`,
+    "          run-directory: .async/runs",
+    ...(evidence.outputs.length > 0
+      ? [
+          "          outputs: |",
+          ...evidence.outputs.map((path) => `            ${path}`)
+        ]
+      : []),
+    `          evidence-path: ".async/actions/agent-evidence/${suffix}/manifest.json"`,
+    `          bundle-path: ".async/actions/agent-evidence/${suffix}/bundle.json"`,
+    `          receipt-path: ".async/actions/receipts/${suffix}-agent-evidence.json"`,
+    `          comment: ${canComment ? "true" : "false"}`,
+    "          comment-marker: async-agent-evidence-${{ github.job }}"
+  );
+  if (canComment) {
+    renderPrCommentActionStep(lines, "Comment agent evidence", "async-agent-evidence");
+  }
+}
+
+function renderPrCommentActionStep(lines: string[], name: string, sourceStepId: string): void {
+  lines.push(
+    "",
+    `      - name: ${name}`,
+    `        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && steps.${sourceStepId}.outputs.comment-body != ''`,
+    `        uses: ${ASYNC_COMMENT_ACTION}`,
+    "        with:",
+    "          mode: pr-comment",
+    "          repository: ${{ github.repository }}",
+    "          number: ${{ github.event.pull_request.number }}",
+    `          marker: \${{ steps.${sourceStepId}.outputs.comment-marker }}`,
+    `          body: \${{ steps.${sourceStepId}.outputs.comment-body }}`,
+    "          token: ${{ secrets.GITHUB_TOKEN }}"
+  );
+}
+
+function agentEvidenceForTargets(tasks: Record<string, NormalizedTask>, targets: readonly string[]): { hasAgentStep: boolean; outputs: string[] } {
+  const visited = new Set<string>();
+  const outputs = new Set<string>();
+  let hasAgentStep = false;
+
+  const visit = (taskId: string): void => {
+    if (visited.has(taskId)) return;
+    visited.add(taskId);
+    const task = tasks[taskId];
+    if (!task) return;
+    for (const dependency of task.dependsOn) visit(dependency);
+    const taskHasAgent = task.steps.some((step) => typeof step === "object" && step !== null && "kind" in step && step.kind === "agent");
+    if (taskHasAgent) {
+      hasAgentStep = true;
+      for (const path of task.outputs) outputs.add(path);
+    }
+  };
+
+  for (const target of targets) visit(target);
+  return { hasAgentStep, outputs: [...outputs].sort((left, right) => left.localeCompare(right)) };
 }
 
 function resolveLifecycleJobPlan(

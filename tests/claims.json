@@ -1050,6 +1050,14 @@
       ]
     },
     {
+      "id": "github-actions.generated-agent-evidence",
+      "source": "docs/github-actions.md",
+      "anchor": "Generated jobs with agent steps call `async/actions/agent-evidence` after the pipeline run.",
+      "tests": [
+        "renders agent evidence bundles and comment handoff for agent jobs"
+      ]
+    },
+    {
       "id": "github-actions.generated-source-impact",
       "source": "docs/github-actions.md",
       "anchor": "`sync.github.sourceImpact: true` adds generated `<job>-source-plan` and `<job>-sources` jobs for source-backed pipeline jobs while leaving the original job in place.",
@@ -1124,6 +1132,14 @@
       "anchor": "Route generated package preview install comments through `async/actions/comment` with explicit token inputs, stable markers, bounded bodies, and same-repo pull request guards.",
       "tests": [
         "renders generated package preview job from packagePreviews true"
+      ]
+    },
+    {
+      "id": "changelog.generated-agent-evidence",
+      "source": "CHANGELOG.md",
+      "anchor": "Add generated agent evidence bundling through `async/actions/agent-evidence` so agent prompts, redacted transcripts, context packs, explicit outputs, evidence receipts, and optional comment summaries stay outside the published package.",
+      "tests": [
+        "renders agent evidence bundles and comment handoff for agent jobs"
       ]
     },
     {
@@ -1456,6 +1472,14 @@
       "anchor": "`stdoutTo` lands the adapter's stdout as a task artifact after a successful step",
       "tests": [
         "PROMISE: agent stdoutTo lands the adapter's stdout as a task artifact and caches it like any output"
+      ]
+    },
+    {
+      "id": "api.generated-agent-evidence",
+      "source": "docs/api.md",
+      "anchor": "Generated GitHub jobs that contain agent steps package prompt files, redacted transcripts, context packs, and explicit agent task outputs through `async/actions/agent-evidence`; comments use metadata-only summaries rather than pasting patches, logs, or transcripts inline.",
+      "tests": [
+        "renders agent evidence bundles and comment handoff for agent jobs"
       ]
     },
     {
