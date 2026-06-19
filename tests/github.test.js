@@ -13,8 +13,8 @@ import { checkGitHubWorkflow, jobsForGitHubEvent, planGitHubJobs, renderGitHubWo
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
 const cliPath = join(repoRoot, "packages/pipeline-node/dist/cli.js");
-const asyncActionsSha = "e77416c811e51a2218543656617fbb5688238540";
-const asyncActionsLabel = "v0.1.18";
+const asyncActionsSha = "e78904e9a85c70cd5c54e46370473e92e0f1eb73";
+const asyncActionsLabel = "v0.1.19";
 const asyncActionsRefPattern = `${asyncActionsSha} # ${asyncActionsLabel.replaceAll(".", "\\.")}`;
 const asyncActionUses = (name) => new RegExp(`uses: async/actions/${name}@${asyncActionsRefPattern}`);
 
@@ -488,7 +488,7 @@ test("renders generated package preview job from packagePreviews true", async ()
     assert.match(rendered.workflow, /package-path: "packages\/pipeline"/);
     assert.match(rendered.workflow, /target-registry: "https:\/\/npm\.pkg\.github\.com"/);
     assert.match(rendered.workflow, /mode: pr/);
-    assert.match(rendered.workflow, /release-package: "github:async\/release#v0\.1\.3"/);
+    assert.match(rendered.workflow, /release-package: "github:async\/release#v0\.1\.4"/);
     assert.match(rendered.workflow, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
     assert.match(rendered.workflow, /name: Publish package preview\n        id: async-package-preview/);
     assert.match(rendered.workflow, /name: Verify PR package preview\n        if: github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name == github\.repository && steps\.async-package-preview\.outputs\.package-spec != ''[\s\S]+preview doctor[\s\S]+--network live/);
@@ -1267,7 +1267,7 @@ test("renders lifecycle publish tasks as async action steps", async () => {
     assert.match(rendered.workflow, /mode: npm/);
     assert.match(rendered.workflow, /provenance: true/);
     assert.match(rendered.workflow, asyncActionUses("doctor"));
-    assert.match(rendered.workflow, /name: Plan release package[\s\S]+mode: plan[\s\S]+release-command: "pnpm dlx github:async\/release#v0\.1\.3"/);
+    assert.match(rendered.workflow, /name: Plan release package[\s\S]+mode: plan[\s\S]+release-command: "pnpm dlx github:async\/release#v0\.1\.4"/);
     assert.match(rendered.workflow, /name: Inspect release package[\s\S]+mode: inspect/);
     assert.match(rendered.workflow, /name: Check release changelog[\s\S]+mode: changelog/);
     assert.match(rendered.workflow, /name: Render release notes[\s\S]+mode: notes/);
@@ -1303,7 +1303,7 @@ test("renders lifecycle publish tasks as async action steps", async () => {
 
     const previewBlock = stepBlock(rendered.workflow, "Publish main package preview");
     assert.match(previewBlock, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
-    assert.match(previewBlock, /release-package: "github:async\/release#v0\.1\.3"/);
+    assert.match(previewBlock, /release-package: "github:async\/release#v0\.1\.4"/);
     assert.doesNotMatch(previewBlock, /NODE_AUTH_TOKEN/);
 
     const previewDoctorBlock = stepBlock(rendered.workflow, "Verify main package preview");

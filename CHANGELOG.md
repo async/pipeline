@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.28 - 2026-06-19
+
+### Fixes
+
+- Pin generated preview workflows to `async/actions@v0.1.19` and
+  `@async/release@v0.1.4` so preview doctor can authenticate read-only GitHub
+  Packages checks after publishing previews.
+
 ## 0.9.27 - 2026-06-19
 
 ### Fixes
