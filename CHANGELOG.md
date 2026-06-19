@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.29 - 2026-06-19
+
+### Fixes
+
+- Pin generated preview workflows to `async/actions@v0.1.20` and
+  `@async/release@v0.1.5` so preview doctor uses the GitHub Packages token
+  precedence fix for same-repo preview verification.
+
 ## 0.9.28 - 2026-06-19
 
 ### Fixes

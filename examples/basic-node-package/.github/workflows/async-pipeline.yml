@@ -47,14 +47,14 @@ jobs:
 
       - name: Restore Async task cache
         id: async-cache-restore
-        uses: async/actions/cache@e78904e9a85c70cd5c54e46370473e92e0f1eb73 # v0.1.19
+        uses: async/actions/cache@41e79159e12a7a2092c6911d850450082a8add09 # v0.1.20
         with:
           mode: restore
           manifest: .async/actions/cache/nightly-cache-manifest.json
           trust: read-only
 
       - name: Run pipeline job
-        uses: async/actions/run@e78904e9a85c70cd5c54e46370473e92e0f1eb73 # v0.1.19
+        uses: async/actions/run@41e79159e12a7a2092c6911d850450082a8add09 # v0.1.20
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run nightly"
           check-generated: false
@@ -64,7 +64,7 @@ jobs:
 
       - name: Save Async task cache
         if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
-        uses: async/actions/cache@e78904e9a85c70cd5c54e46370473e92e0f1eb73 # v0.1.19
+        uses: async/actions/cache@41e79159e12a7a2092c6911d850450082a8add09 # v0.1.20
         with:
           mode: save
           manifest: .async/actions/cache/nightly-cache-manifest.json
@@ -94,14 +94,14 @@ jobs:
 
       - name: Restore Async task cache
         id: async-cache-restore
-        uses: async/actions/cache@e78904e9a85c70cd5c54e46370473e92e0f1eb73 # v0.1.19
+        uses: async/actions/cache@41e79159e12a7a2092c6911d850450082a8add09 # v0.1.20
         with:
           mode: restore
           manifest: .async/actions/cache/verify-cache-manifest.json
           trust: read-only
 
       - name: Run pipeline job
-        uses: async/actions/run@e78904e9a85c70cd5c54e46370473e92e0f1eb73 # v0.1.19
+        uses: async/actions/run@41e79159e12a7a2092c6911d850450082a8add09 # v0.1.20
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run verify"
           check-generated: false
@@ -111,7 +111,7 @@ jobs:
 
       - name: Save Async task cache
         if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
-        uses: async/actions/cache@e78904e9a85c70cd5c54e46370473e92e0f1eb73 # v0.1.19
+        uses: async/actions/cache@41e79159e12a7a2092c6911d850450082a8add09 # v0.1.20
         with:
           mode: save
           manifest: .async/actions/cache/verify-cache-manifest.json
