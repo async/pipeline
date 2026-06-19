@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.23 - 2026-06-19
+
+### Fixes
+
+- Normalize generated workflow line endings during `github check` so Windows
+  runner checkouts do not falsely report generated workflows stale.
+
 ## 0.9.22 - 2026-06-19
 
 ### Fixes

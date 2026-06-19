@@ -457,7 +457,7 @@ export async function checkGitHubWorkflow(result: GitHubRenderResult, cwd: strin
     if (existingMutableRefs.length > 0) {
       issues.push(`Generated workflow ${result.workflowPath} contains mutable action refs (${existingMutableRefs.join(", ")}). Run async-pipeline github generate.`);
     }
-    if (existingWorkflow !== result.workflow) {
+    if (normalizeWorkflowLineEndings(existingWorkflow) !== normalizeWorkflowLineEndings(result.workflow)) {
       issues.push(`Generated workflow ${result.workflowPath} is stale. Run async-pipeline github generate.`);
     }
   }
@@ -472,6 +472,10 @@ export async function checkGitHubWorkflow(result: GitHubRenderResult, cwd: strin
   }
 
   return issues;
+}
+
+function normalizeWorkflowLineEndings(workflow: string): string {
+  return workflow.replace(/\r\n?/gu, "\n");
 }
 
 function findMutableRemoteActionRefs(workflow: string): string[] {

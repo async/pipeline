@@ -1941,10 +1941,15 @@ export default definePipeline({
     const check = spawnSync("node", [cliPath, "github", "check"], { cwd: dir, encoding: "utf8" });
     assert.equal(check.status, 0, check.stderr);
 
+    const workflowPath = join(dir, ".github/workflows/async-pipeline.yml");
+    writeFileSync(workflowPath, readFileSync(workflowPath, "utf8").replaceAll("\n", "\r\n"), "utf8");
+    const windowsCheck = spawnSync("node", [cliPath, "github", "check"], { cwd: dir, encoding: "utf8" });
+    assert.equal(windowsCheck.status, 0, windowsCheck.stderr);
+
     const lock = JSON.parse(readFileSync(join(dir, ".github/async-pipeline.lock.json"), "utf8"));
     assert.equal(lock.triggers.push.branches[0], "main");
     assert.equal(lock.actions.find((entry) => entry.id === "async.actions.run")?.sha, asyncActionsSha);
-    assertAllRemoteActionRefsPinned(readFileSync(join(dir, ".github/workflows/async-pipeline.yml"), "utf8"));
+    assertAllRemoteActionRefsPinned(readFileSync(workflowPath, "utf8"));
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
