@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.19 - 2026-06-19
+
+### Fixes
+
+- Keep nested package audits anchored to the owning repo root even when the package has its own `scripts/` directory, while still reporting package-local lifecycle scripts.
+
 ## 0.9.18 - 2026-06-19
 
 ### Fixes

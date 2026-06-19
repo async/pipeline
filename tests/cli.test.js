@@ -561,6 +561,7 @@ test("lifecycle audit recognizes pipeline-owned scripts and nested package paths
   const dir = mkdtempSync(join(tmpdir(), "async-pipeline-lifecycle-audit-managed-"));
   try {
     mkdirSync(join(dir, "packages", "tool"), { recursive: true });
+    mkdirSync(join(dir, "packages", "tool", "scripts"), { recursive: true });
     mkdirSync(join(dir, ".github", "workflows"), { recursive: true });
     mkdirSync(join(dir, ".async-pipeline"), { recursive: true });
     writeFileSync(join(dir, "pipeline.js"), "export default {};\n", "utf8");
@@ -572,13 +573,14 @@ test("lifecycle audit recognizes pipeline-owned scripts and nested package paths
       version: "0.1.0",
       type: "module",
       devDependencies: {
-        "@async/pipeline": "0.9.17"
+        "@async/pipeline": "0.9.18"
       },
       scripts: {
         "pipeline:publish": "async-pipeline run publish",
         "release:evidence:check": "node scripts/evidence.js --check"
       }
     }, null, 2), "utf8");
+    writeFileSync(join(dir, "packages", "tool", "scripts", "release.mjs"), "export {};\n", "utf8");
 
     let stdout = "";
     let stderr = "";
@@ -596,7 +598,7 @@ test("lifecycle audit recognizes pipeline-owned scripts and nested package paths
     assert.equal(result.code, 0, stderr);
     assert.match(stdout, /Lifecycle audit: @async\/tool/);
     assert.match(stdout, /Pipeline config: pipeline.js/);
-    assert.match(stdout, /@async\/pipeline: 0.9.17/);
+    assert.match(stdout, /@async\/pipeline: 0.9.18/);
 
     stdout = "";
     stderr = "";
@@ -615,7 +617,9 @@ test("lifecycle audit recognizes pipeline-owned scripts and nested package paths
     const report = JSON.parse(stdout);
     assert.equal(report.package.path, "packages/tool/package.json");
     assert.equal(report.pipeline.configPath, "pipeline.js");
-    assert.equal(report.package.asyncPipelineVersion, "0.9.17");
+    assert.equal(report.package.asyncPipelineVersion, "0.9.18");
+    assert.ok(report.workflows.some((workflow) => workflow.path === ".github/workflows/async-pipeline.yml"));
+    assert.ok(report.files.some((file) => file.path === "packages/tool/scripts/release.mjs"));
     assert.ok(report.scripts.some((script) => script.name === "pipeline:publish" && script.managedByPipeline));
     assert.ok(report.scripts.some((script) => script.name === "release:evidence:check" && script.category === "keep"));
   } finally {

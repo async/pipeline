@@ -100,7 +100,7 @@ export async function auditLifecycle(options: LifecycleAuditOptions): Promise<Li
     : undefined;
   const scripts = packageJson ? scriptSignals(objectRecord(packageJson.scripts)) : [];
   const workflows = await workflowSignals(cwd, scanRoot);
-  const files = await fileSignals(cwd, scanRoot);
+  const files = await fileSignals(cwd, scanRoot, packageRoot);
   const findings = buildFindings({
     packageSummary,
     pipelineConfig,
@@ -213,8 +213,9 @@ async function workflowSignals(cwd: string, scanRoot: string): Promise<Lifecycle
   return signals.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-async function fileSignals(cwd: string, scanRoot: string): Promise<LifecycleFileSignal[]> {
+async function fileSignals(cwd: string, scanRoot: string, packageRoot: string): Promise<LifecycleFileSignal[]> {
   const signals: LifecycleFileSignal[] = [];
+  const seen = new Set<string>();
   for (const path of [
     ".github/async-pipeline.lock.json",
     ".async-pipeline/tasks.lock.json",
@@ -230,25 +231,39 @@ async function fileSignals(cwd: string, scanRoot: string): Promise<LifecycleFile
     });
   }
 
-  const scriptsDir = join(scanRoot, "scripts");
+  for (const scriptsRoot of scriptSignalRoots(scanRoot, packageRoot)) {
+    await appendScriptFileSignals({ cwd, scriptsRoot, signals, seen });
+  }
+  return signals.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+async function appendScriptFileSignals(input: {
+  cwd: string;
+  scriptsRoot: string;
+  signals: LifecycleFileSignal[];
+  seen: Set<string>;
+}): Promise<void> {
+  const scriptsDir = join(input.scriptsRoot, "scripts");
   let entries: Array<{ name: string; isFile(): boolean }>;
   try {
     entries = await readdir(scriptsDir, { withFileTypes: true });
   } catch {
-    return signals;
+    return;
   }
 
   for (const entry of entries) {
     if (!entry.isFile()) continue;
     const keywords = keywordsFromText(entry.name);
     if (keywords.length === 0) continue;
-    signals.push({
-      path: relativePath(cwd, join(scriptsDir, entry.name)),
+    const path = relativePath(input.cwd, join(scriptsDir, entry.name));
+    if (input.seen.has(path)) continue;
+    input.seen.add(path);
+    input.signals.push({
+      path,
       kind: "script",
       keywords
     });
   }
-  return signals.sort((left, right) => left.path.localeCompare(right.path));
 }
 
 function buildFindings(input: {
@@ -413,10 +428,21 @@ function findPipelineConfig(cwd: string, scanRoot: string): string | undefined {
 
 function resolveLifecycleScanRoot(cwd: string, packageRoot: string): string {
   if (packageRoot === cwd) return cwd;
-  for (const marker of [".git", ".github", ".async-pipeline", "scripts", ...DEFAULT_PIPELINE_CONFIG_FILES]) {
+  for (const marker of [".git", ".github", ".async-pipeline", ...DEFAULT_PIPELINE_CONFIG_FILES]) {
     if (existsSync(join(packageRoot, marker))) return packageRoot;
   }
+  if (isDirectChild(cwd, packageRoot) && existsSync(join(packageRoot, "package.json"))) return packageRoot;
   return cwd;
+}
+
+function scriptSignalRoots(scanRoot: string, packageRoot: string): string[] {
+  if (scanRoot === packageRoot) return [scanRoot];
+  return [scanRoot, packageRoot];
+}
+
+function isDirectChild(cwd: string, path: string): boolean {
+  const value = relative(cwd, path);
+  return value !== "" && !value.startsWith("..") && !value.includes(sep);
 }
 
 async function readJsonIfExists(path: string): Promise<Record<string, unknown> | null> {
