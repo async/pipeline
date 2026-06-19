@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.8 - 2026-06-19
+
+### Features
+
+- Add generated release planning, package inspection, changelog, release-note, and doctor evidence steps through `async/actions/doctor` and `@async/release`, while keeping registry and GitHub Release writes in `async/actions/publish`.
+
 ## 0.9.7 - 2026-06-19
 
 ### Features

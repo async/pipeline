@@ -13,8 +13,8 @@ import { checkGitHubWorkflow, jobsForGitHubEvent, renderGitHubWorkflow, writeGit
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
 const cliPath = join(repoRoot, "packages/pipeline-node/dist/cli.js");
-const asyncActionsSha = "c143729ab861e8794535c1d73630a2f2e613f11d";
-const asyncActionsLabel = "v0.1.9";
+const asyncActionsSha = "31d990ff5d1f74ed93c5ac7ea5cfe3f6b3709862";
+const asyncActionsLabel = "v0.1.10";
 const asyncActionsRefPattern = `${asyncActionsSha} # ${asyncActionsLabel.replaceAll(".", "\\.")}`;
 const asyncActionUses = (name) => new RegExp(`uses: async/actions/${name}@${asyncActionsRefPattern}`);
 
@@ -649,6 +649,12 @@ test("renders lifecycle publish tasks as async action steps", async () => {
     assert.match(rendered.workflow, /mode: github-packages/);
     assert.match(rendered.workflow, /mode: npm/);
     assert.match(rendered.workflow, /provenance: true/);
+    assert.match(rendered.workflow, asyncActionUses("doctor"));
+    assert.match(rendered.workflow, /name: Plan release package[\s\S]+mode: plan[\s\S]+release-command: "npx --yes github:async\/release#3892d94a4890600d26b812052aa58dec98b05bfb"/);
+    assert.match(rendered.workflow, /name: Inspect release package[\s\S]+mode: inspect/);
+    assert.match(rendered.workflow, /name: Check release changelog[\s\S]+mode: changelog/);
+    assert.match(rendered.workflow, /name: Render release notes[\s\S]+mode: notes/);
+    assert.match(rendered.workflow, /name: Create or update GitHub Release[\s\S]+notes-file: \.async\/release\/release-notes\.md/);
     assert.match(rendered.workflow, /mode: doctor/);
     assert.match(rendered.workflow, /NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/);
     assert.match(rendered.workflow, /publish:\n    name: publish[\s\S]+permissions:\n      contents: write\n      id-token: write\n      packages: write/);
@@ -668,6 +674,7 @@ test("renders lifecycle publish tasks as async action steps", async () => {
       githubAttestation: true
     });
     assert.equal(rendered.lock.actions.find((entry) => entry.id === "async.actions.attest")?.sha, asyncActionsSha);
+    assert.equal(rendered.lock.actions.find((entry) => entry.id === "async.actions.doctor")?.sha, asyncActionsSha);
 
     const packBlock = stepBlock(rendered.workflow, "Run pipeline task pack");
     assert.doesNotMatch(packBlock, /GITHUB_TOKEN/);
@@ -692,6 +699,7 @@ test("renders lifecycle publish tasks as async action steps", async () => {
     assert.doesNotMatch(npmBlock, /GITHUB_TOKEN/);
 
     const doctorBlock = stepBlock(rendered.workflow, "Run release doctor");
+    assert.match(doctorBlock, asyncActionUses("doctor"));
     assert.match(doctorBlock, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
     assert.doesNotMatch(doctorBlock, /NODE_AUTH_TOKEN/);
   } finally {

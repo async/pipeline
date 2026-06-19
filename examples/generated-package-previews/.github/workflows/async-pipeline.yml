@@ -56,14 +56,14 @@ jobs:
 
       - name: Restore Async task cache
         id: async-cache-restore
-        uses: async/actions/cache@c143729ab861e8794535c1d73630a2f2e613f11d # v0.1.9
+        uses: async/actions/cache@31d990ff5d1f74ed93c5ac7ea5cfe3f6b3709862 # v0.1.10
         with:
           mode: restore
           manifest: .async/actions/cache/verify-cache-manifest.json
           trust: read-only
 
       - name: Run pipeline job
-        uses: async/actions/run@c143729ab861e8794535c1d73630a2f2e613f11d # v0.1.9
+        uses: async/actions/run@31d990ff5d1f74ed93c5ac7ea5cfe3f6b3709862 # v0.1.10
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run verify"
           check-generated: false
@@ -73,7 +73,7 @@ jobs:
 
       - name: Save Async task cache
         if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
-        uses: async/actions/cache@c143729ab861e8794535c1d73630a2f2e613f11d # v0.1.9
+        uses: async/actions/cache@31d990ff5d1f74ed93c5ac7ea5cfe3f6b3709862 # v0.1.10
         with:
           mode: save
           manifest: .async/actions/cache/verify-cache-manifest.json
@@ -81,7 +81,7 @@ jobs:
 
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@c143729ab861e8794535c1d73630a2f2e613f11d # v0.1.9
+        uses: async/actions/evidence@31d990ff5d1f74ed93c5ac7ea5cfe3f6b3709862 # v0.1.10
         with:
           mode: collect
           paths: |
@@ -110,7 +110,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Merge validated Dependabot PR
-        uses: async/actions/dependabot-merge@c143729ab861e8794535c1d73630a2f2e613f11d # v0.1.9
+        uses: async/actions/dependabot-merge@31d990ff5d1f74ed93c5ac7ea5cfe3f6b3709862 # v0.1.10
         with:
           pull-request-number: ${{ github.event.pull_request.number }}
           actor: ${{ github.event.pull_request.user.login }}
@@ -153,14 +153,14 @@ jobs:
 
       - name: Restore Async task cache
         id: async-cache-restore
-        uses: async/actions/cache@c143729ab861e8794535c1d73630a2f2e613f11d # v0.1.9
+        uses: async/actions/cache@31d990ff5d1f74ed93c5ac7ea5cfe3f6b3709862 # v0.1.10
         with:
           mode: restore
           manifest: .async/actions/cache/package-preview-cache-manifest.json
           trust: read-only
 
       - name: Run package preview target
-        uses: async/actions/run@c143729ab861e8794535c1d73630a2f2e613f11d # v0.1.9
+        uses: async/actions/run@31d990ff5d1f74ed93c5ac7ea5cfe3f6b3709862 # v0.1.10
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"
           check-generated: false
@@ -170,14 +170,14 @@ jobs:
 
       - name: Save Async task cache
         if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
-        uses: async/actions/cache@c143729ab861e8794535c1d73630a2f2e613f11d # v0.1.9
+        uses: async/actions/cache@31d990ff5d1f74ed93c5ac7ea5cfe3f6b3709862 # v0.1.10
         with:
           mode: save
           manifest: .async/actions/cache/package-preview-cache-manifest.json
           trust: read-write
 
       - name: Publish package preview
-        uses: async/actions/preview@c143729ab861e8794535c1d73630a2f2e613f11d # v0.1.9
+        uses: async/actions/preview@31d990ff5d1f74ed93c5ac7ea5cfe3f6b3709862 # v0.1.10
         with:
           package-path: "."
           target-registry: "https://npm.pkg.github.com"
@@ -190,7 +190,7 @@ jobs:
 
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@c143729ab861e8794535c1d73630a2f2e613f11d # v0.1.9
+        uses: async/actions/evidence@31d990ff5d1f74ed93c5ac7ea5cfe3f6b3709862 # v0.1.10
         with:
           mode: collect
           paths: |
@@ -213,7 +213,7 @@ jobs:
       contents: read
     steps:
       - name: Merge evidence manifests
-        uses: async/actions/evidence@c143729ab861e8794535c1d73630a2f2e613f11d # v0.1.9
+        uses: async/actions/evidence@31d990ff5d1f74ed93c5ac7ea5cfe3f6b3709862 # v0.1.10
         with:
           mode: merge
           artifact-pattern: async-evidence-*

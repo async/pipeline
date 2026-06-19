@@ -77,7 +77,9 @@ Each generated job calls `async/actions/run` to run the pipeline command, explai
 
 `sync.github.attest: true` adds attestation evidence steps to generated release lifecycle jobs. Pipeline still owns the release job graph, package subjects, OIDC grants, trusted-publishing setting, and release ordering; `async/actions/attest` only computes subject digests, writes SBOM evidence, scans explicit npm tarball subjects, and records bounded provenance or attestation receipts. Digest and SBOM evidence does not grant OIDC by itself. `id-token: write` is rendered only when the job declares `requires.provenance: true` or `sync.github.attest.githubAttestation: true`.
 
-Lifecycle lowering only happens for exact, whole-command publish, preview, release, or doctor lifecycle steps with representable semantics. Compound shell syntax, unmodeled flags, retries, and timeouts stay in the normal `async/actions/run` path so the pipeline runtime keeps ownership of task semantics. Generated lifecycle publish and preview steps pass secret env only to the exact Async action step that needs it.
+Generated release lifecycle jobs add `async/actions/doctor` steps for `@async/release` package planning, package inspection, changelog checks, release-note rendering, and final doctor evidence under `.async/release`. The GitHub Release publish step uses `.async/release/release-notes.md`, and registry or GitHub writes still run through `async/actions/publish`. Pipeline owns the release job graph, package path, action command, and secret routing; `@async/release` owns deterministic package evidence and doctor checks.
+
+Lifecycle lowering only happens for exact, whole-command publish, preview, release, or doctor lifecycle steps with representable semantics. Compound shell syntax, unmodeled flags, retries, and timeouts stay in the normal `async/actions/run` path so the pipeline runtime keeps ownership of task semantics. Generated lifecycle publish, preview, and release doctor steps pass secret env only to the exact Async action step that needs it.
 
 ## Generated Package Previews And Dependabot Merge
 

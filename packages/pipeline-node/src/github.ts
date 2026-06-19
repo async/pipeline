@@ -8,7 +8,7 @@ import { sourceImpactPlanForJob, type SourceImpactPlan } from "./sources.js";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 18;
+const GENERATOR_VERSION = 19;
 const DEFAULT_NODE_VERSION = "24";
 const DEFAULT_DENO_VERSION = "2";
 const DEFAULT_PNPM_VERSION = "11.1.0";
@@ -32,8 +32,9 @@ function defineActionRef(id: string, uses: string, sha: string, label: string): 
   };
 }
 
-const ASYNC_ACTIONS_SHA = "c143729ab861e8794535c1d73630a2f2e613f11d";
-const ASYNC_ACTIONS_LABEL = "v0.1.9";
+const ASYNC_ACTIONS_SHA = "31d990ff5d1f74ed93c5ac7ea5cfe3f6b3709862";
+const ASYNC_ACTIONS_LABEL = "v0.1.10";
+const ASYNC_RELEASE_COMMAND = "npx --yes github:async/release#3892d94a4890600d26b812052aa58dec98b05bfb";
 
 const GENERATED_ACTIONS = [
   defineActionRef("async.actions.setup", "async/actions/setup", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
@@ -41,6 +42,7 @@ const GENERATED_ACTIONS = [
   defineActionRef("async.actions.pages", "async/actions/pages", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.preview", "async/actions/preview", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.publish", "async/actions/publish", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("async.actions.doctor", "async/actions/doctor", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.dependabot-merge", "async/actions/dependabot-merge", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.evidence", "async/actions/evidence", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.source-impact", "async/actions/source-impact", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
@@ -61,6 +63,7 @@ const ASYNC_RUN_ACTION = actionRef("async.actions.run");
 const ASYNC_PAGES_ACTION = actionRef("async.actions.pages");
 const ASYNC_PREVIEW_ACTION = actionRef("async.actions.preview");
 const ASYNC_PUBLISH_ACTION = actionRef("async.actions.publish");
+const ASYNC_DOCTOR_ACTION = actionRef("async.actions.doctor");
 const ASYNC_DEPENDABOT_MERGE_ACTION = actionRef("async.actions.dependabot-merge");
 const ASYNC_EVIDENCE_ACTION = actionRef("async.actions.evidence");
 const ASYNC_SOURCE_IMPACT_ACTION = actionRef("async.actions.source-impact");
@@ -178,7 +181,8 @@ interface SourceImpactRenderJob {
 type LifecyclePlanItem =
   | { kind: "run-task"; taskId: string }
   | { kind: "preview"; mode: "main" | "pr"; packagePath: string; registry: string; namespace?: string; comment: boolean; tokenEnv: string }
-  | { kind: "publish"; mode: "npm" | "github-packages" | "github-release" | "doctor"; packagePath: string; registry: string; distTag: string };
+  | { kind: "publish"; mode: "npm" | "github-packages" | "github-release"; packagePath: string; registry: string; distTag: string }
+  | { kind: "release"; mode: "doctor"; packagePath: string };
 
 export interface GitHubRenderResult {
   workflowPath: string;
@@ -1211,11 +1215,9 @@ function parseLifecycleCommand(command: string): LifecyclePlanItem | undefined {
   if (args[0] === "release" && args[1] === "doctor") {
     if (!hasOnlyAllowedOptions(args, 2, new Set(["--package"]), new Set())) return undefined;
     return {
-      kind: "publish",
+      kind: "release",
       mode: "doctor",
-      packagePath,
-      registry: "https://registry.npmjs.org",
-      distTag: "latest"
+      packagePath
     };
   }
   return undefined;
@@ -1227,6 +1229,9 @@ function renderLifecycleJobPlan(
   job: ReturnType<typeof buildRenderModel>["jobs"][number],
   plan: LifecyclePlanItem[]
 ): void {
+  if (hasReleaseLifecycle(plan)) {
+    renderReleaseEvidenceSteps(lines, lifecyclePackagePath(plan) ?? ".", job.env);
+  }
   for (const item of plan) {
     if (item.kind === "run-task") {
       renderRunActionStep(
@@ -1242,8 +1247,19 @@ function renderLifecycleJobPlan(
       renderPreviewActionStep(lines, item, job.env);
       continue;
     }
+    if (item.kind === "release") {
+      renderReleaseDoctorActionStep(lines, "Run release doctor", "doctor", item.packagePath, job.env, { network: "live" });
+      continue;
+    }
     renderPublishActionStep(lines, item, job.env, job.requires?.provenance === true);
   }
+}
+
+function renderReleaseEvidenceSteps(lines: string[], packagePath: string, env: Record<string, EnvValue>): void {
+  renderReleaseDoctorActionStep(lines, "Plan release package", "plan", packagePath, env);
+  renderReleaseDoctorActionStep(lines, "Inspect release package", "inspect", packagePath, env);
+  renderReleaseDoctorActionStep(lines, "Check release changelog", "changelog", packagePath, env);
+  renderReleaseDoctorActionStep(lines, "Render release notes", "notes", packagePath, env);
 }
 
 function renderPreviewActionStep(lines: string[], preview: Extract<LifecyclePlanItem, { kind: "preview" }>, env: Record<string, EnvValue>): void {
@@ -1272,9 +1288,7 @@ function renderPublishActionStep(
     ? "Create or update GitHub Release"
     : publish.mode === "github-packages"
       ? "Publish GitHub Packages mirror"
-      : publish.mode === "doctor"
-        ? "Run release doctor"
-        : "Publish npm package";
+      : "Publish npm package";
   lines.push(
     "",
     `      - name: ${label}`,
@@ -1286,9 +1300,32 @@ function renderPublishActionStep(
     `          dist-tag: ${JSON.stringify(publish.distTag)}`,
     ...(publish.mode === "npm" ? ["          token-env-name: NODE_AUTH_TOKEN"] : []),
     ...(publish.mode === "github-packages" ? ["          token-env-name: GITHUB_TOKEN"] : []),
+    ...(publish.mode === "github-release" ? ["          notes-file: .async/release/release-notes.md"] : []),
     ...(publish.mode === "npm" ? [`          provenance: ${provenance ? "true" : "false"}`] : [])
   );
   renderActionEnv(lines, scopeActionEnv(env, publish.mode === "npm" ? new Set(["NODE_AUTH_TOKEN"]) : new Set(["GITHUB_TOKEN"])));
+}
+
+function renderReleaseDoctorActionStep(
+  lines: string[],
+  label: string,
+  mode: "plan" | "inspect" | "changelog" | "notes" | "doctor",
+  packagePath: string,
+  env: Record<string, EnvValue>,
+  options: { network?: "live" | "mock" } = {}
+): void {
+  lines.push(
+    "",
+    `      - name: ${label}`,
+    `        uses: ${ASYNC_DOCTOR_ACTION}`,
+    "        with:",
+    `          mode: ${mode}`,
+    `          package-path: ${JSON.stringify(packagePath)}`,
+    "          evidence-dir: .async/release",
+    `          release-command: ${JSON.stringify(ASYNC_RELEASE_COMMAND)}`,
+    ...(mode === "doctor" ? [`          network: ${options.network ?? "live"}`] : [])
+  );
+  renderActionEnv(lines, scopeActionEnv(env, mode === "doctor" ? new Set(["GITHUB_TOKEN"]) : new Set()));
 }
 
 function attestRequiresOidc(model: ReturnType<typeof buildRenderModel>, lifecyclePlan: LifecyclePlanItem[] | undefined): boolean {
@@ -1353,7 +1390,7 @@ function hasReleaseLifecycle(lifecyclePlan: LifecyclePlanItem[] | undefined): bo
 }
 
 function lifecyclePackagePath(lifecyclePlan: LifecyclePlanItem[] | undefined): string | undefined {
-  const item = lifecyclePlan?.find((entry): entry is Extract<LifecyclePlanItem, { kind: "publish" }> => entry.kind === "publish");
+  const item = lifecyclePlan?.find((entry): entry is Extract<LifecyclePlanItem, { kind: "publish" | "release" }> => entry.kind === "publish" || entry.kind === "release");
   return item?.packagePath;
 }
 
