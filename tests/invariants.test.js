@@ -454,3 +454,14 @@ test("PROMISE: self hygiene gates run in the release pack chain", async () => {
     assert.equal(packageJson.scripts[`${taskId}:check`], undefined, `${taskId} script must stay hidden inside @async/hygiene`);
   }
 });
+
+test("PROMISE: generated sync checks wait for the built CLI before release packing", async () => {
+  const { default: pipeline } = await import("../pipeline.ts");
+
+  assert.deepEqual(
+    pipeline.tasks["sync-check"].dependsOn,
+    ["build"],
+    "sync-check executes packages/pipeline-node/dist/cli.js and must not race the build output"
+  );
+  assert.ok(pipeline.tasks.pack.dependsOn.includes("sync-check"), "release pack gate must include generated sync drift checks");
+});

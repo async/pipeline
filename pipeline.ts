@@ -97,6 +97,7 @@ export default definePipeline({
     }),
     "sync-check": task({
       description: "All synced surfaces (generated workflow, lock, package scripts) still match pipeline.ts.",
+      dependsOn: ["build"],
       inputs: [
         "pipeline.ts",
         "package.json",

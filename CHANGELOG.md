@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.11 - 2026-06-19
+
+### Fixes
+
+- Make the self `sync-check` task depend on `build` so generated release verification cannot race stale `packages/pipeline-node/dist` output.
+
 ## 0.9.10 - 2026-06-19
 
 ### Features

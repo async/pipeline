@@ -1483,6 +1483,14 @@
       ]
     },
     {
+      "id": "changelog.release-sync-check-build",
+      "source": "CHANGELOG.md",
+      "anchor": "Make the self `sync-check` task depend on `build` so generated release verification cannot race stale `packages/pipeline-node/dist` output.",
+      "tests": [
+        "PROMISE: generated sync checks wait for the built CLI before release packing"
+      ]
+    },
+    {
       "id": "api.agent-outputs-doctor-warning",
       "source": "docs/api.md",
       "anchor": "`doctor` warns when an agent task declares no outputs",
