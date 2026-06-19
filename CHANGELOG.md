@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.27 - 2026-06-19
+
+### Fixes
+
+- Pin generated workflows to `async/actions@v0.1.18`, which stages preview
+  publish files inside the repository workspace so `@async/release` path safety
+  accepts action-driven preview staging.
+
 ## 0.9.26 - 2026-06-19
 
 ### Features

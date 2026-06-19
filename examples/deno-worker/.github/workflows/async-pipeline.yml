@@ -46,14 +46,14 @@ jobs:
 
       - name: Restore Async task cache
         id: async-cache-restore
-        uses: async/actions/cache@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
+        uses: async/actions/cache@e77416c811e51a2218543656617fbb5688238540 # v0.1.18
         with:
           mode: restore
           manifest: .async/actions/cache/verify-cache-manifest.json
           trust: read-only
 
       - name: Run pipeline job
-        uses: async/actions/run@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
+        uses: async/actions/run@e77416c811e51a2218543656617fbb5688238540 # v0.1.18
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run verify"
           check-generated: false
@@ -63,7 +63,7 @@ jobs:
 
       - name: Save Async task cache
         if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
-        uses: async/actions/cache@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
+        uses: async/actions/cache@e77416c811e51a2218543656617fbb5688238540 # v0.1.18
         with:
           mode: save
           manifest: .async/actions/cache/verify-cache-manifest.json
@@ -93,14 +93,14 @@ jobs:
 
       - name: Restore Async task cache
         id: async-cache-restore
-        uses: async/actions/cache@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
+        uses: async/actions/cache@e77416c811e51a2218543656617fbb5688238540 # v0.1.18
         with:
           mode: restore
           manifest: .async/actions/cache/workerCheck-cache-manifest.json
           trust: read-only
 
       - name: Run pipeline job
-        uses: async/actions/run@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
+        uses: async/actions/run@e77416c811e51a2218543656617fbb5688238540 # v0.1.18
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run workerCheck"
           check-generated: false
@@ -110,7 +110,7 @@ jobs:
 
       - name: Save Async task cache
         if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
-        uses: async/actions/cache@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
+        uses: async/actions/cache@e77416c811e51a2218543656617fbb5688238540 # v0.1.18
         with:
           mode: save
           manifest: .async/actions/cache/workerCheck-cache-manifest.json
