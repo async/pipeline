@@ -13,8 +13,8 @@ import { checkGitHubWorkflow, jobsForGitHubEvent, planGitHubJobs, renderGitHubWo
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
 const cliPath = join(repoRoot, "packages/pipeline-node/dist/cli.js");
-const asyncActionsSha = "87e033782ca1f84334d9e3a2543b0db064848fb7";
-const asyncActionsLabel = "v0.1.14";
+const asyncActionsSha = "65477189c448280bd62b93ae8e0fe987bcac91a8";
+const asyncActionsLabel = "v0.1.15";
 const asyncActionsRefPattern = `${asyncActionsSha} # ${asyncActionsLabel.replaceAll(".", "\\.")}`;
 const asyncActionUses = (name) => new RegExp(`uses: async/actions/${name}@${asyncActionsRefPattern}`);
 
@@ -662,6 +662,163 @@ test("renders and plans generated contract evidence jobs", async () => {
       eventName: "pull_request"
     });
     assert.ok(releasePrPlan.skippedJobs.some((entry) => entry.id === "contract" && entry.reason === "event_filter"));
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("renders and plans generated hygiene evidence jobs", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-hygiene-"));
+  try {
+    mkdirSync(join(dir, "packages", "pipeline"), { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "workspace", private: true, packageManager: "pnpm@11.1.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    writeFileSync(join(dir, "packages", "pipeline", "package.json"), JSON.stringify({ name: "@async/pipeline", version: "0.0.0" }), "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          evidence: true,
+          hygiene: {
+            mode: "report",
+            profiles: ["package", "github", "docs", "release"],
+            releaseGate: true,
+            packagePath: "packages/pipeline"
+          }
+        }
+      },
+      tasks: {
+        verify: task({ run: sh`echo verify` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, /pull_request:\n    types:/);
+    assert.match(rendered.workflow, /release:\n    types:\n      - "published"/);
+    assert.match(rendered.workflow, /- "hygiene"/);
+    assert.match(rendered.workflow, /hygiene:\n    name: hygiene/);
+    assert.match(rendered.workflow, /github\.event_name == 'pull_request' && github\.event\.pull_request\.draft == false/);
+    assert.match(rendered.workflow, /github\.event_name == 'release' && github\.event\.action == 'published'/);
+    assert.match(rendered.workflow, asyncActionUses("hygiene"));
+    assert.match(rendered.workflow, /name: Run hygiene evidence[\s\S]+mode: report/);
+    assert.match(rendered.workflow, /profiles: "package,github,docs,release"/);
+    assert.match(rendered.workflow, /package-path: "packages\/pipeline"/);
+    assert.match(rendered.workflow, /evidence-dir: "\.async\/hygiene"/);
+    assert.match(rendered.workflow, /fail-on: generated-policy/);
+    assert.match(rendered.workflow, /release-gate: true/);
+    assert.match(rendered.workflow, /name: Collect evidence manifest[\s\S]+paths: \|\n            \.async\/runs\n            \.async\/hygiene/);
+    assert.match(rendered.workflow, /evidence:\n    name: evidence\n    needs: \["hygiene","verify"\]\n    if: always\(\)/);
+    assert.equal(rendered.lock.actions.find((entry) => entry.id === "async.actions.hygiene")?.sha, asyncActionsSha);
+    assert.deepEqual(rendered.lock.hygiene, {
+      enabled: true,
+      mode: "report",
+      job: "hygiene",
+      profiles: ["package", "github", "docs", "release"],
+      releaseGate: true,
+      packagePath: "packages/pipeline",
+      evidenceDir: ".async/hygiene",
+      annotations: true
+    });
+
+    const prPlan = await planGitHubJobs(pipeline, {
+      cwd: dir,
+      configPath: join(dir, "pipeline.ts"),
+      job: "hygiene",
+      eventName: "pull_request",
+      eventAction: "opened",
+      network: "deny"
+    });
+    assert.equal(prPlan.manifests.length, 1);
+    const manifest = prPlan.manifests[0];
+    assert.equal(manifest.job.id, "hygiene");
+    assert.deepEqual(manifest.job.permissions, { contents: "read" });
+    const hygieneStep = manifest.steps.find((entry) => entry.local.contract === "hygiene");
+    assert.ok(hygieneStep);
+    assert.equal(hygieneStep.with.mode, "report");
+    assert.equal(hygieneStep.with["release-gate"], true);
+    assert.equal(hygieneStep.with["fail-on"], "generated-policy");
+    assert.equal(hygieneStep.local.networked, false);
+    assert.ok(manifest.steps.some((entry) => entry.local.contract === "evidence" && Array.isArray(entry.with.paths) && entry.with.paths.includes(".async/hygiene")));
+    const receipt = await runGitHubLocalManifest(manifest, dir);
+    assert.equal(receipt.status, "passed");
+    assert.ok(receipt.stepReceipts.some((entry) => entry.contract === "hygiene" && entry.decision === "mocked"));
+
+    const releasePlan = await planGitHubJobs(pipeline, {
+      cwd: dir,
+      configPath: join(dir, "pipeline.ts"),
+      job: "hygiene",
+      eventName: "release",
+      eventAction: "published",
+      network: "deny"
+    });
+    assert.equal(releasePlan.manifests[0].job.id, "hygiene");
+    assert.equal(releasePlan.manifests[0].steps.find((entry) => entry.local.contract === "hygiene")?.with["release-gate"], true);
+
+    const gatedPipeline = definePipeline({
+      name: "test-gated-release",
+      sync: {
+        github: {
+          hygiene: {
+            mode: "report",
+            releaseGate: true
+          }
+        }
+      },
+      triggers: {
+        release: trigger.github({ events: ["release"], types: ["published"] }),
+        manual: trigger.manual()
+      },
+      tasks: {
+        publish: task({ run: sh`echo publish` })
+      },
+      jobs: {
+        publish: job({ target: "publish", trigger: ["release", "manual"] })
+      }
+    });
+    const gatedRendered = await renderGitHubWorkflow(gatedPipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+    assert.match(gatedRendered.workflow, /hygiene:\n    name: hygiene[\s\S]+github\.event\.inputs\.job == 'publish'/);
+    assert.match(gatedRendered.workflow, /publish:\n    name: publish[\s\S]+needs: \["hygiene"\]/);
+    const manualPublishPlan = await planGitHubJobs(gatedPipeline, {
+      cwd: dir,
+      configPath: join(dir, "pipeline.ts"),
+      eventName: "workflow_dispatch",
+      selectedJob: "publish",
+      network: "deny"
+    });
+    assert.ok(manualPublishPlan.manifests.some((entry) => entry.job.id === "hygiene"));
+    assert.ok(manualPublishPlan.manifests.some((entry) => entry.job.id === "publish"));
+
+    const checkPipeline = definePipeline({
+      name: "test-check",
+      sync: {
+        github: {
+          hygiene: {
+            mode: "check",
+            profiles: ["repo"]
+          }
+        }
+      },
+      tasks: {
+        verify: task({ run: sh`echo verify` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+    const checkPlan = await planGitHubJobs(checkPipeline, {
+      cwd: dir,
+      configPath: join(dir, "pipeline.ts"),
+      job: "hygiene",
+      eventName: "pull_request",
+      eventAction: "opened",
+      network: "deny"
+    });
+    assert.equal(checkPlan.manifests[0].steps.find((entry) => entry.local.contract === "hygiene")?.with.mode, "check");
+    assert.equal((await runGitHubLocalManifest(checkPlan.manifests[0], dir)).status, "passed");
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }

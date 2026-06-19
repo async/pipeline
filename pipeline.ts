@@ -40,6 +40,11 @@ export default definePipeline({
           output: ".async/contract/schema.json"
         }
       },
+      hygiene: {
+        mode: "report",
+        profiles: ["package", "github", "docs", "release"],
+        releaseGate: true
+      },
       pages: {
         target: "docs.site"
       }

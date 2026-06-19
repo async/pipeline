@@ -811,6 +811,16 @@ test("normalizes sync github and task defaults independently from triggers", () 
     evidenceDir: ".async/contract",
     annotations: true
   });
+  assert.deepEqual(pipeline.sync.github.hygiene, {
+    enabled: false,
+    mode: "off",
+    job: "hygiene",
+    profiles: ["package", "github", "docs"],
+    releaseGate: false,
+    packagePath: ".",
+    evidenceDir: ".async/hygiene",
+    annotations: true
+  });
   assert.equal(pipeline.sync.tasks.enabled, true);
   assert.equal(pipeline.sync.tasks.prefix, "pipeline");
   assert.equal(pipeline.sync.tasks.runners, "all");
@@ -891,6 +901,15 @@ test("normalizes explicit sync task config and validates selected ids", () => {
           },
           packagePath: "packages/example",
           evidenceDir: ".async/contract",
+          annotations: false
+        },
+        hygiene: {
+          mode: "check",
+          job: "repo-hygiene",
+          profiles: ["package", "github", "docs", "package"],
+          releaseGate: true,
+          packagePath: "packages/example",
+          evidenceDir: ".async/hygiene",
           annotations: false
         }
       },
@@ -993,6 +1012,16 @@ test("normalizes explicit sync task config and validates selected ids", () => {
     evidenceDir: ".async/contract",
     annotations: false
   });
+  assert.deepEqual(pipeline.sync.github.hygiene, {
+    enabled: true,
+    mode: "check",
+    job: "repo-hygiene",
+    profiles: ["package", "github", "docs"],
+    releaseGate: true,
+    packagePath: "packages/example",
+    evidenceDir: ".async/hygiene",
+    annotations: false
+  });
   assert.deepEqual(pipeline.sync.tasks.runners, ["package"]);
   assert.deepEqual(pipeline.sync.tasks.jobs, ["verify"]);
   assert.deepEqual(pipeline.sync.tasks.tasks, ["build"]);
@@ -1049,6 +1078,45 @@ test("normalizes explicit sync task config and validates selected ids", () => {
     tasks: { build: task({ run: sh`echo build` }) },
     jobs: { verify: job({ target: "build" }) }
   }), (error) => error.code === "ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID" && /at least one/.test(error.message));
+
+  assert.throws(() => definePipeline({
+    name: "bad",
+    sync: {
+      github: {
+        hygiene: {
+          mode: "enforce"
+        }
+      }
+    },
+    tasks: { build: task({ run: sh`echo build` }) },
+    jobs: { verify: job({ target: "build" }) }
+  }), (error) => error.code === "ASYNC_PIPELINE_GITHUB_HYGIENE_INVALID" && /mode/.test(error.message));
+
+  assert.throws(() => definePipeline({
+    name: "bad",
+    sync: {
+      github: {
+        hygiene: {
+          profiles: ["unknown"]
+        }
+      }
+    },
+    tasks: { build: task({ run: sh`echo build` }) },
+    jobs: { verify: job({ target: "build" }) }
+  }), (error) => error.code === "ASYNC_PIPELINE_GITHUB_HYGIENE_INVALID" && /profiles/.test(error.message));
+
+  assert.throws(() => definePipeline({
+    name: "bad",
+    sync: {
+      github: {
+        hygiene: {
+          evidenceDir: "../hygiene"
+        }
+      }
+    },
+    tasks: { build: task({ run: sh`echo build` }) },
+    jobs: { verify: job({ target: "build" }) }
+  }), (error) => error.code === "ASYNC_PIPELINE_GITHUB_HYGIENE_INVALID" && /parent-directory/.test(error.message));
 
   assert.throws(() => definePipeline({
     name: "bad",
@@ -1344,6 +1412,11 @@ test("rejects unknown config fields with the field name", () => {
     ...base,
     sync: { github: { contract: { schema: { outpt: ".async/contract/schema.json" } } } }
   }), /sync\.github\.contract\.schema has unknown field "outpt"/);
+
+  assert.throws(() => definePipeline({
+    ...base,
+    sync: { github: { hygiene: { profilez: ["package"] } } }
+  }), /sync\.github\.hygiene has unknown field "profilez"/);
 
   assert.throws(() => definePipeline({
     ...base,

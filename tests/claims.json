@@ -968,7 +968,7 @@
     {
       "id": "api.generated-dependabot-package-previews",
       "source": "docs/api.md",
-      "anchor": "`dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates through `async/actions/dependabot-merge`. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, publishes a GitHub Packages PR preview through `async/actions/preview`, and comments install instructions on same-repo PRs. `evidence: true` adds manifest-backed evidence collection to generated jobs and a fan-in evidence job that merges downloaded manifests through `async/actions/evidence`. `sourceImpact: true` adds generated `<job>-source-plan` and `<job>-sources` jobs for source-backed jobs; the plan job writes static source metadata, `async/actions/source-impact` emits the source matrix, and the matrix job validates checkout and prepare metadata before running namespaced source tasks. `attest: true` adds digest, SBOM, tarball-scan, and optional GitHub attestation receipt steps to generated release lifecycle jobs through `async/actions/attest`; OIDC is granted only for provenance or explicit GitHub attestation. `contract` object form generates a contract evidence job through `async/actions/contract`; `report`, `check`, and `strict` run on pull requests, `release` runs on published releases, and schema sources write bounded JSON evidence under the configured `.async/contract` path. Generated release lifecycle jobs add `async/actions/doctor` steps for `@async/release` package planning, package inspection, changelog checks, release-note rendering, and final doctor evidence under `.async/release` while registry and GitHub writes stay in `async/actions/publish`. `bridge` object form generates an `async-bridge` job that pulls approved Async change sets through `@async/github-app`, enforces the configured branch prefix and path allowlist, and scopes the project token to the bridge pull step. `pages: true` generates GitHub Pages build/deploy jobs from an existing docs task, defaulting to `.async/pages` and pull request, `main`, and manual triggers; `build.kind: \"prerender\"` validates static prerender output for GitHub Pages.",
+      "anchor": "`dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates through `async/actions/dependabot-merge`. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, publishes a GitHub Packages PR preview through `async/actions/preview`, and comments install instructions on same-repo PRs. `evidence: true` adds manifest-backed evidence collection to generated jobs and a fan-in evidence job that merges downloaded manifests through `async/actions/evidence`. `sourceImpact: true` adds generated `<job>-source-plan` and `<job>-sources` jobs for source-backed jobs; the plan job writes static source metadata, `async/actions/source-impact` emits the source matrix, and the matrix job validates checkout and prepare metadata before running namespaced source tasks. `attest: true` adds digest, SBOM, tarball-scan, and optional GitHub attestation receipt steps to generated release lifecycle jobs through `async/actions/attest`; OIDC is granted only for provenance or explicit GitHub attestation. `contract` object form generates a contract evidence job through `async/actions/contract`; `report`, `check`, and `strict` run on pull requests, `release` runs on published releases, and schema sources write bounded JSON evidence under the configured `.async/contract` path. `hygiene` object form generates a hygiene evidence job through `async/actions/hygiene`; selected profiles write bounded manifest, findings, summary, and JSON report evidence under the configured `.async/hygiene` path, pull-request report mode is advisory, check and strict modes are blocking, and `releaseGate: true` makes report-mode hygiene also run as a blocking published-release job. Generated release lifecycle jobs add `async/actions/doctor` steps for `@async/release` package planning, package inspection, changelog checks, release-note rendering, and final doctor evidence under `.async/release` while registry and GitHub writes stay in `async/actions/publish`. `bridge` object form generates an `async-bridge` job that pulls approved Async change sets through `@async/github-app`, enforces the configured branch prefix and path allowlist, and scopes the project token to the bridge pull step. `pages: true` generates GitHub Pages build/deploy jobs from an existing docs task, defaulting to `.async/pages` and pull request, `main`, and manual triggers; `build.kind: \"prerender\"` validates static prerender output for GitHub Pages.",
       "tests": [
         "normalizes explicit sync task config and validates selected ids",
         "renders generated Dependabot auto-merge workflow job",
@@ -977,6 +977,7 @@
         "renders lifecycle publish tasks as async action steps",
         "renders attestation digest steps without id-token when GitHub attestation is not requested",
         "renders and plans generated contract evidence jobs",
+        "renders and plans generated hygiene evidence jobs",
         "renders generated actions bridge job from sync github bridge",
         "renders generated github pages jobs from sync github pages",
         "renders prerender github pages build through async pages action"
@@ -1000,12 +1001,30 @@
       ]
     },
     {
+      "id": "github-actions.generated-hygiene-evidence",
+      "source": "docs/github-actions.md",
+      "anchor": "`sync.github.hygiene` adds a generated hygiene evidence job through `async/actions/hygiene`. Pipeline owns the generated job id, selected profiles, event selection, release-gate policy, permissions, local manifest, and evidence collection; the action owns bounded manifest, findings, summary, and JSON report evidence under `.async/hygiene`. `mode: \"report\"` runs on pull requests as advisory evidence, `check` and `strict` make findings block the generated job, `mode: \"release\"` runs on published releases, and `releaseGate: true` makes report-mode hygiene also run as a blocking published-release job.",
+      "tests": [
+        "normalizes explicit sync task config and validates selected ids",
+        "renders and plans generated hygiene evidence jobs"
+      ]
+    },
+    {
       "id": "changelog.generated-contract-evidence",
       "source": "CHANGELOG.md",
       "anchor": "Add `sync.github.contract` so generated workflows can run API, claims, and schema contract evidence jobs through `async/actions/contract`, plan and run those jobs locally, collect `.async/contract` evidence into the manifest fan-in, and choose advisory pull-request or release-blocking policy in `pipeline.ts`.",
       "tests": [
         "normalizes explicit sync task config and validates selected ids",
         "renders and plans generated contract evidence jobs"
+      ]
+    },
+    {
+      "id": "changelog.generated-hygiene-evidence",
+      "source": "CHANGELOG.md",
+      "anchor": "Add `sync.github.hygiene` so generated workflows can run package, GitHub, docs, repo, release, and mixed hygiene evidence jobs through `async/actions/hygiene`, plan and run those jobs locally, collect `.async/hygiene` evidence into the manifest fan-in, and keep pull-request hygiene advisory while making release hygiene blocking when `releaseGate` is enabled.",
+      "tests": [
+        "normalizes explicit sync task config and validates selected ids",
+        "renders and plans generated hygiene evidence jobs"
       ]
     },
     {

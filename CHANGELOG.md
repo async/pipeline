@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.14 - 2026-06-19
+
+### Features
+
+- Add `sync.github.hygiene` so generated workflows can run package, GitHub, docs, repo, release, and mixed hygiene evidence jobs through `async/actions/hygiene`, plan and run those jobs locally, collect `.async/hygiene` evidence into the manifest fan-in, and keep pull-request hygiene advisory while making release hygiene blocking when `releaseGate` is enabled.
+
 ## 0.9.13 - 2026-06-19
 
 ### Features

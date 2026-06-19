@@ -377,6 +377,21 @@ export interface GitHubContractConfig {
 
 export type GitHubContractInput = boolean | GitHubContractConfig;
 
+export type GitHubHygieneMode = "off" | "report" | "check" | "strict" | "release";
+export type GitHubHygieneProfile = "package" | "github" | "docs" | "repo" | "release" | "mixed";
+
+export interface GitHubHygieneConfig {
+  mode?: GitHubHygieneMode;
+  job?: string;
+  profiles?: GitHubHygieneProfile[];
+  releaseGate?: boolean;
+  packagePath?: string;
+  evidenceDir?: string;
+  annotations?: boolean;
+}
+
+export type GitHubHygieneInput = boolean | GitHubHygieneConfig;
+
 export interface GitHubSyncConfig {
   workflow?: string;
   lock?: string;
@@ -393,6 +408,7 @@ export interface GitHubSyncConfig {
   sourceImpact?: GitHubSourceImpactInput;
   attest?: GitHubAttestInput;
   contract?: GitHubContractInput;
+  hygiene?: GitHubHygieneInput;
 }
 
 export type GitHubSyncInput = boolean | GitHubSyncConfig;
@@ -431,6 +447,7 @@ export interface NormalizedGitHubSyncConfig {
   sourceImpact: NormalizedGitHubSourceImpactConfig;
   attest: NormalizedGitHubAttestConfig;
   contract: NormalizedGitHubContractConfig;
+  hygiene: NormalizedGitHubHygieneConfig;
 }
 
 export interface NormalizedDependabotAutoMergeConfig {
@@ -516,6 +533,17 @@ export interface NormalizedGitHubContractConfig {
   api: boolean;
   claims: boolean;
   schema: NormalizedGitHubContractSchemaConfig;
+  packagePath: string;
+  evidenceDir: string;
+  annotations: boolean;
+}
+
+export interface NormalizedGitHubHygieneConfig {
+  enabled: boolean;
+  mode: GitHubHygieneMode;
+  job: string;
+  profiles: GitHubHygieneProfile[];
+  releaseGate: boolean;
   packagePath: string;
   evidenceDir: string;
   annotations: boolean;
@@ -1026,7 +1054,7 @@ const GITHUB_PAGES_STATIC_BUILD_FIELDS = new Set(["kind", "path"]);
 const GITHUB_PAGES_PRERENDER_BUILD_FIELDS = new Set(["kind", "path", "spaFallback", "validateIndex"]);
 const GITHUB_PERMISSION_FIELDS = new Set(["contents", "idToken", "issues", "packages", "pullRequests"]);
 const SYNC_FIELDS = new Set(["command", "github", "tasks"]);
-const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "packagePreviews", "dependabotAutoMerge", "evidence", "bridge", "pages", "sourceImpact", "attest", "contract"]);
+const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "packagePreviews", "dependabotAutoMerge", "evidence", "bridge", "pages", "sourceImpact", "attest", "contract", "hygiene"]);
 const GITHUB_SETUP_PROVIDERS = new Set<GitHubSetupProvider>(["auto", "async", "pnpm", "node"]);
 const DEPENDABOT_AUTO_MERGE_FIELDS = new Set(["ecosystems"]);
 const DEPENDABOT_AUTO_MERGE_ECOSYSTEMS = new Set<DependabotAutoMergeEcosystem>(["github-actions", "npm", "deno"]);
@@ -1038,6 +1066,7 @@ const GITHUB_SOURCE_IMPACT_FIELDS = new Set(["jobs"]);
 const GITHUB_ATTEST_FIELDS = new Set(["packagePath", "artifacts", "subjectManifest", "sbomPath", "evidencePath", "requireNpmProvenance", "tarballScan", "githubAttestation"]);
 const GITHUB_CONTRACT_FIELDS = new Set(["mode", "job", "api", "claims", "schema", "packagePath", "evidenceDir", "annotations"]);
 const GITHUB_CONTRACT_SCHEMA_FIELDS = new Set(["enabled", "sources", "output"]);
+const GITHUB_HYGIENE_FIELDS = new Set(["mode", "job", "profiles", "releaseGate", "packagePath", "evidenceDir", "annotations"]);
 const GITHUB_SYNC_PAGES_TRIGGERS_FIELDS = new Set(["manual", "main", "pullRequest"]);
 const GITHUB_SYNC_PAGES_MAIN_TRIGGER_FIELDS = new Set(["branch"]);
 const CONTAINER_PROVIDERS = new Set(["auto", "docker", "apple-container", "lima"]);
@@ -1103,6 +1132,9 @@ function validateDefinitionShape(definition: PipelineDefinition): void {
       if (definition.sync.github.contract.schema && typeof definition.sync.github.contract.schema === "object") {
         rejectUnknownFields(GITHUB_CONTRACT_SCHEMA_FIELDS, definition.sync.github.contract.schema, "sync.github.contract.schema");
       }
+    }
+    if (definition.sync.github.hygiene && typeof definition.sync.github.hygiene === "object") {
+      rejectUnknownFields(GITHUB_HYGIENE_FIELDS, definition.sync.github.hygiene, "sync.github.hygiene");
     }
     if (definition.sync.github.pages && typeof definition.sync.github.pages === "object") {
       rejectUnknownFields(GITHUB_SYNC_PAGES_FIELDS, definition.sync.github.pages, "sync.github.pages");
@@ -1945,7 +1977,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       pages: normalizeGitHubPagesSync(undefined),
       sourceImpact: normalizeGitHubSourceImpact(undefined),
       attest: normalizeGitHubAttest(undefined),
-      contract: normalizeGitHubContract(undefined)
+      contract: normalizeGitHubContract(undefined),
+      hygiene: normalizeGitHubHygiene(undefined)
     };
   }
   if (github === true) {
@@ -1965,7 +1998,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       pages: normalizeGitHubPagesSync(undefined),
       sourceImpact: normalizeGitHubSourceImpact(undefined),
       attest: normalizeGitHubAttest(undefined),
-      contract: normalizeGitHubContract(undefined)
+      contract: normalizeGitHubContract(undefined),
+      hygiene: normalizeGitHubHygiene(undefined)
     };
   }
   return {
@@ -1984,7 +2018,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
     pages: normalizeGitHubPagesSync(github.pages),
     sourceImpact: normalizeGitHubSourceImpact(github.sourceImpact),
     attest: normalizeGitHubAttest(github.attest),
-    contract: normalizeGitHubContract(github.contract)
+    contract: normalizeGitHubContract(github.contract),
+    hygiene: normalizeGitHubHygiene(github.hygiene)
   };
 }
 
@@ -2384,6 +2419,83 @@ function validateSafeContractPathLike(value: string, field: string, options: { a
   }
   if (value.startsWith(".github/workflows/")) {
     throw pipelineError("ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID", `${field} cannot include .github/workflows/**.`);
+  }
+}
+
+function normalizeGitHubHygiene(input: GitHubHygieneInput | undefined): NormalizedGitHubHygieneConfig {
+  const disabled: NormalizedGitHubHygieneConfig = {
+    enabled: false,
+    mode: "off",
+    job: "hygiene",
+    profiles: ["package", "github", "docs"],
+    releaseGate: false,
+    packagePath: ".",
+    evidenceDir: ".async/hygiene",
+    annotations: true
+  };
+  if (!input) return disabled;
+  if (input === true) {
+    return { ...disabled, enabled: true, mode: "report" };
+  }
+  const mode = input.mode ?? "report";
+  if (!["off", "report", "check", "strict", "release"].includes(mode)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_HYGIENE_INVALID", `sync.github.hygiene.mode must be off, report, check, strict, or release. Found: ${String(mode)}.`);
+  }
+  if (mode === "off") return disabled;
+  const output: NormalizedGitHubHygieneConfig = {
+    enabled: true,
+    mode,
+    job: normalizeOptionalNonEmptyString(input.job, "sync.github.hygiene.job", "ASYNC_PIPELINE_GITHUB_HYGIENE_INVALID") ?? "hygiene",
+    profiles: normalizeGitHubHygieneProfiles(input.profiles),
+    releaseGate: input.releaseGate ?? false,
+    packagePath: normalizeOptionalNonEmptyString(input.packagePath, "sync.github.hygiene.packagePath", "ASYNC_PIPELINE_GITHUB_HYGIENE_INVALID") ?? ".",
+    evidenceDir: normalizeOptionalNonEmptyString(input.evidenceDir, "sync.github.hygiene.evidenceDir", "ASYNC_PIPELINE_GITHUB_HYGIENE_INVALID") ?? ".async/hygiene",
+    annotations: input.annotations ?? true
+  };
+  if (typeof output.releaseGate !== "boolean") {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_HYGIENE_INVALID", "sync.github.hygiene.releaseGate must be a boolean.");
+  }
+  if (typeof output.annotations !== "boolean") {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_HYGIENE_INVALID", "sync.github.hygiene.annotations must be a boolean.");
+  }
+  validateSafeHygienePathLike(output.packagePath, "sync.github.hygiene.packagePath", { allowDot: true });
+  validateSafeHygienePathLike(output.evidenceDir, "sync.github.hygiene.evidenceDir", { allowDot: false });
+  validateGeneratedJobId(output.job, "sync.github.hygiene.job");
+  return output;
+}
+
+function normalizeGitHubHygieneProfiles(profiles: GitHubHygieneProfile[] | undefined): GitHubHygieneProfile[] {
+  if (profiles === undefined) return ["package", "github", "docs"];
+  if (!Array.isArray(profiles)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_HYGIENE_INVALID", "sync.github.hygiene.profiles must be an array.");
+  }
+  if (profiles.length === 0) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_HYGIENE_INVALID", "sync.github.hygiene.profiles cannot be empty.");
+  }
+  const allowed = new Set(["package", "github", "docs", "repo", "release", "mixed"]);
+  const normalized = profiles.map((profile, index) => {
+    if (typeof profile !== "string" || !allowed.has(profile)) {
+      throw pipelineError("ASYNC_PIPELINE_GITHUB_HYGIENE_INVALID", `sync.github.hygiene.profiles[${index}] must be package, github, docs, repo, release, or mixed.`);
+    }
+    return profile;
+  });
+  return [...new Set(normalized)];
+}
+
+function validateSafeHygienePathLike(value: string, field: string, options: { allowDot: boolean }): void {
+  if (value === "." && options.allowDot) return;
+  if (value.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(value)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_HYGIENE_INVALID", `${field} must be repo-relative.`);
+  }
+  const parts = value.split("/");
+  if (parts.some((part) => part === "" || part === "..")) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_HYGIENE_INVALID", `${field} cannot contain empty segments or parent-directory segments.`);
+  }
+  if (/[*?[\]{}]/u.test(value)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_HYGIENE_INVALID", `${field} cannot contain glob characters.`);
+  }
+  if (value.startsWith(".github/workflows/")) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_HYGIENE_INVALID", `${field} cannot include .github/workflows/**.`);
   }
 }
 

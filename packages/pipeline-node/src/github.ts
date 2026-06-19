@@ -2,13 +2,13 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubAttestConfig, NormalizedGitHubBridgeSyncConfig, NormalizedGitHubContractConfig, NormalizedGitHubEvidenceConfig, NormalizedGitHubPagesSyncConfig, NormalizedGitHubSourceImpactConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, TriggerDefinition, TriggerId } from "@async/pipeline-core";
+import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubAttestConfig, NormalizedGitHubBridgeSyncConfig, NormalizedGitHubContractConfig, NormalizedGitHubEvidenceConfig, NormalizedGitHubHygieneConfig, NormalizedGitHubPagesSyncConfig, NormalizedGitHubSourceImpactConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, TriggerDefinition, TriggerId } from "@async/pipeline-core";
 import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 import { sourceImpactPlanForJob, type SourceImpactPlan } from "./sources.js";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 21;
+const GENERATOR_VERSION = 22;
 const DEFAULT_NODE_VERSION = "24";
 const DEFAULT_DENO_VERSION = "2";
 const DEFAULT_PNPM_VERSION = "11.1.0";
@@ -32,8 +32,8 @@ function defineActionRef(id: string, uses: string, sha: string, label: string): 
   };
 }
 
-const ASYNC_ACTIONS_SHA = "87e033782ca1f84334d9e3a2543b0db064848fb7";
-const ASYNC_ACTIONS_LABEL = "v0.1.14";
+const ASYNC_ACTIONS_SHA = "65477189c448280bd62b93ae8e0fe987bcac91a8";
+const ASYNC_ACTIONS_LABEL = "v0.1.15";
 const ASYNC_RELEASE_COMMAND = "npx --yes github:async/release#3892d94a4890600d26b812052aa58dec98b05bfb";
 
 const GENERATED_ACTIONS = [
@@ -51,6 +51,7 @@ const GENERATED_ACTIONS = [
   defineActionRef("async.actions.cache", "async/actions/cache", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.attest", "async/actions/attest", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.contract", "async/actions/contract", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("async.actions.hygiene", "async/actions/hygiene", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("actions.checkout", "actions/checkout", "de0fac2e4500dabe0009e67214ff5f5447ce83dd", "v6.0.2"),
   defineActionRef("pnpm.setup", "pnpm/setup", "cf03a9b516e09bc5a90f041fc26fc930c9dc631b", "v1.0.0"),
   defineActionRef("deno.setup", "denoland/setup-deno", "667a34cdef165d8d2b2e98dde39547c9daac7282", "v2.0.4"),
@@ -75,6 +76,7 @@ const ASYNC_SOURCE_IMPACT_ACTION = actionRef("async.actions.source-impact");
 const ASYNC_CACHE_ACTION = actionRef("async.actions.cache");
 const ASYNC_ATTEST_ACTION = actionRef("async.actions.attest");
 const ASYNC_CONTRACT_ACTION = actionRef("async.actions.contract");
+const ASYNC_HYGIENE_ACTION = actionRef("async.actions.hygiene");
 const CHECKOUT_ACTION = actionRef("actions.checkout");
 const PNPM_SETUP_ACTION = actionRef("pnpm.setup");
 const DENO_SETUP_ACTION = actionRef("deno.setup");
@@ -135,6 +137,7 @@ export interface GitHubLock {
   };
   attest: NormalizedGitHubAttestConfig;
   contract: NormalizedGitHubContractConfig;
+  hygiene: NormalizedGitHubHygieneConfig;
   bridge: NormalizedGitHubBridgeSyncConfig & {
     job: "async-bridge";
     actionsJob: {
@@ -383,6 +386,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     sourceImpact: renderModel.sourceImpact,
     attest: renderModel.attest,
     contract: renderModel.contract,
+    hygiene: renderModel.hygiene,
     bridge: renderModel.bridge,
     pages: renderModel.pages,
     manualDispatchJobs: renderModel.manualDispatchJobs,
@@ -414,6 +418,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     sourceImpact: renderModel.sourceImpact,
     attest: renderModel.attest,
     contract: renderModel.contract,
+    hygiene: renderModel.hygiene,
     bridge: renderModel.bridge,
     pages: renderModel.pages,
     manualDispatchJobs: renderModel.manualDispatchJobs
@@ -799,6 +804,15 @@ function buildGeneratedJobManifests(
       skipReason: selected ? "" : skipReasonForGeneratedJob(event, [model.contract.job])
     });
   }
+  if (model.hygiene.enabled) {
+    const manualIds = hygieneManualJobIds(model);
+    const selected = hygieneSelected(model, event);
+    candidates.push({
+      manifest: buildHygieneManifest(model, rendered, event, network),
+      selected,
+      skipReason: selected ? "" : skipReasonForGeneratedJob(event, manualIds)
+    });
+  }
   if (model.dependabotAutoMerge.enabled) {
     const selected = event.name === "pull_request_target";
     candidates.push({
@@ -1140,6 +1154,18 @@ function contractChecks(contract: NormalizedGitHubContractConfig): string[] {
   return checks;
 }
 
+function hygieneActionInput(hygiene: NormalizedGitHubHygieneConfig): Record<string, unknown> {
+  return sortObject({
+    mode: hygiene.mode,
+    profiles: hygiene.profiles.join(","),
+    "package-path": hygiene.packagePath,
+    "evidence-dir": hygiene.evidenceDir,
+    annotations: hygiene.annotations,
+    "fail-on": hygiene.mode === "report" ? "generated-policy" : "blocking",
+    "release-gate": hygiene.releaseGate
+  });
+}
+
 function runActionManifestStep(
   id: string,
   name: string,
@@ -1333,6 +1359,7 @@ function artifactPathForContract(contract: string): string {
   if (contract === "evidence") return ".async/evidence";
   if (contract === "agent-evidence") return ".async/actions/agent-evidence";
   if (contract === "contract") return ".async/contract";
+  if (contract === "hygiene") return ".async/hygiene";
   if (contract === "pages") return ".async/pages";
   return ".async/runs";
 }
@@ -1488,6 +1515,36 @@ function buildContractManifest(
   });
 }
 
+function buildHygieneManifest(
+  model: ReturnType<typeof buildRenderModel>,
+  rendered: GitHubRenderResult,
+  event: GitHubManifestEvent,
+  network: GitHubLocalNetworkMode
+): GitHubJobManifest {
+  const hygiene = model.hygiene;
+  const steps = [
+    checkoutStep(),
+    ...setupManifestSteps(model),
+    ...dependencyInstallManifestSteps(model),
+    ...(model.buildCommand ? [shellManifestStep("build-pipeline-cli", "Build pipeline CLI", model.buildCommand, "build")] : []),
+    actionManifestStep("run-hygiene-evidence", "Run hygiene evidence", ASYNC_HYGIENE_ACTION, hygieneActionInput(hygiene), "hygiene"),
+    ...evidenceCollectManifestSteps(model, { extraPaths: [hygiene.evidenceDir] })
+  ];
+  return makeJobManifest(model, rendered, event, {
+    id: hygiene.job,
+    kind: "generated",
+    target: [],
+    runsOn: "ubuntu-latest",
+    permissions: { contents: "read" },
+    environment: null,
+    concurrency: null,
+    if: renderHygieneCondition(model),
+    trigger: hygieneTriggers(hygiene),
+    steps,
+    network
+  });
+}
+
 function buildEvidenceFanInManifest(
   model: ReturnType<typeof buildRenderModel>,
   rendered: GitHubRenderResult,
@@ -1626,6 +1683,18 @@ function contractSelected(contract: NormalizedGitHubContractConfig, event: GitHu
   return event.name === "pull_request";
 }
 
+function hygieneSelected(model: ReturnType<typeof buildRenderModel>, event: GitHubManifestEvent): boolean {
+  const hygiene = model.hygiene;
+  if (event.name === "workflow_dispatch") return Boolean(event.selectedJob && hygieneManualJobIds(model).includes(event.selectedJob));
+  if (hygiene.mode === "release") {
+    return event.name === "release" && (!event.action || event.action === "published");
+  }
+  if (event.name === "release") {
+    return hygiene.releaseGate && (!event.action || event.action === "published");
+  }
+  return event.name === "pull_request";
+}
+
 function skipReasonForJob(event: GitHubManifestEvent, trigger: string[]): string {
   if (event.name === "workflow_dispatch" && !event.selectedJob && trigger.some((id) => id === "manual")) return "manual_selector_missing";
   return "event_filter";
@@ -1686,6 +1755,7 @@ function buildRenderModel(
   const pages = resolveGitHubPages(pipeline);
   const bridge = resolveGitHubBridge(pipeline);
   const contract = resolveGitHubContract(pipeline, { pages, bridge });
+  const hygiene = resolveGitHubHygiene(pipeline, { pages, bridge, contract });
   if (pages.enabled) {
     if (pages.triggers.pullRequest) {
       addGitHubEventTrigger(triggers, "pull_request");
@@ -1704,6 +1774,14 @@ function buildRenderModel(
       addPullRequestTrigger(triggers, "pull_request");
     }
   }
+  if (hygiene.enabled) {
+    if (hygiene.mode !== "release") {
+      addPullRequestTrigger(triggers, "pull_request");
+    }
+    if (hygiene.mode === "release" || hygiene.releaseGate) {
+      addReleasePublishedTrigger(triggers);
+    }
+  }
   const manualDispatchJobs = Object.values(pipeline.jobs)
     .filter((job) => job.trigger.some((triggerId) => pipeline.triggers[triggerId]?.type === "manual"))
     .map((job) => job.id)
@@ -1718,6 +1796,10 @@ function buildRenderModel(
   }
   if (contract.enabled) {
     manualDispatchJobs.push(contract.job);
+    manualDispatchJobs.sort((left, right) => left.localeCompare(right));
+  }
+  if (hygiene.enabled) {
+    manualDispatchJobs.push(hygiene.job);
     manualDispatchJobs.sort((left, right) => left.localeCompare(right));
   }
   const nodeVersion = pipeline.sync.github.nodeVersion ?? DEFAULT_NODE_VERSION;
@@ -1772,6 +1854,7 @@ function buildRenderModel(
     sourceImpact,
     attest: pipeline.sync.github.attest,
     contract,
+    hygiene,
     bridge,
     pages,
     manualDispatchJobs
@@ -1787,7 +1870,14 @@ function resolveGitHubEvidence(pipeline: NormalizedPipeline): NormalizedGitHubEv
       `sync.github.evidence.job "${config.job}" conflicts with an existing pipeline job. Remove the explicit job or set sync.github.evidence.job to a different id.`
     );
   }
-  const generatedJobs = new Set<string>(["package-preview", "dependabot-auto-merge", pipeline.sync.github.pages.job, "async-bridge"]);
+  const generatedJobs = new Set<string>([
+    "package-preview",
+    "dependabot-auto-merge",
+    pipeline.sync.github.pages.job,
+    "async-bridge",
+    pipeline.sync.github.contract.enabled ? pipeline.sync.github.contract.job : "",
+    pipeline.sync.github.hygiene.enabled ? pipeline.sync.github.hygiene.job : ""
+  ].filter(Boolean));
   if (generatedJobs.has(config.job)) {
     throw pipelineError(
       "ASYNC_PIPELINE_GITHUB_EVIDENCE_JOB_CONFLICT",
@@ -1819,10 +1909,44 @@ function resolveGitHubContract(
   if (pipeline.sync.github.evidence.enabled) generatedJobs.add(pipeline.sync.github.evidence.job);
   if (generated.pages.enabled) generatedJobs.add(generated.pages.job);
   if (generated.bridge.actionsJob.enabled) generatedJobs.add(generated.bridge.job);
+  if (pipeline.sync.github.hygiene.enabled) generatedJobs.add(pipeline.sync.github.hygiene.job);
   if ([...generatedJobs].some((id) => id.toLowerCase() === jobId)) {
     throw pipelineError(
       "ASYNC_PIPELINE_GITHUB_CONTRACT_JOB_CONFLICT",
       `sync.github.contract.job "${config.job}" conflicts with a generated GitHub job. Set sync.github.contract.job to a different id.`
+    );
+  }
+  return config;
+}
+
+function resolveGitHubHygiene(
+  pipeline: NormalizedPipeline,
+  generated: {
+    pages: NormalizedGitHubPagesSyncConfig;
+    bridge: ReturnType<typeof resolveGitHubBridge>;
+    contract: NormalizedGitHubContractConfig;
+  }
+): NormalizedGitHubHygieneConfig {
+  const config = pipeline.sync.github.hygiene;
+  if (!config.enabled) return config;
+  const jobId = config.job.toLowerCase();
+  if (Object.keys(pipeline.jobs).some((id) => id.toLowerCase() === jobId)) {
+    throw pipelineError(
+      "ASYNC_PIPELINE_GITHUB_HYGIENE_JOB_CONFLICT",
+      `sync.github.hygiene.job "${config.job}" conflicts with an existing pipeline job. Remove the explicit job or set sync.github.hygiene.job to a different id.`
+    );
+  }
+  const generatedJobs = new Set<string>();
+  if (pipeline.sync.github.packagePreviews.enabled) generatedJobs.add("package-preview");
+  if (pipeline.sync.github.dependabotAutoMerge.enabled) generatedJobs.add("dependabot-auto-merge");
+  if (pipeline.sync.github.evidence.enabled) generatedJobs.add(pipeline.sync.github.evidence.job);
+  if (generated.pages.enabled) generatedJobs.add(generated.pages.job);
+  if (generated.bridge.actionsJob.enabled) generatedJobs.add(generated.bridge.job);
+  if (generated.contract.enabled) generatedJobs.add(generated.contract.job);
+  if ([...generatedJobs].some((id) => id.toLowerCase() === jobId)) {
+    throw pipelineError(
+      "ASYNC_PIPELINE_GITHUB_HYGIENE_JOB_CONFLICT",
+      `sync.github.hygiene.job "${config.job}" conflicts with a generated GitHub job. Set sync.github.hygiene.job to a different id.`
     );
   }
   return config;
@@ -1841,6 +1965,7 @@ function resolveGitHubSourceImpactJobs(pipeline: NormalizedPipeline, cwd: string
     "async-bridge",
     pipeline.sync.github.evidence.job,
     pipeline.sync.github.contract.enabled ? pipeline.sync.github.contract.job : "",
+    pipeline.sync.github.hygiene.enabled ? pipeline.sync.github.hygiene.job : "",
     pipeline.sync.github.pages.job
   ].filter(Boolean).map((id) => id.toLowerCase()));
   const existingJobIds = new Set(Object.keys(pipeline.jobs).map((id) => id.toLowerCase()));
@@ -2121,6 +2246,9 @@ function renderWorkflow(model: ReturnType<typeof buildRenderModel>): string {
   if (model.contract.enabled) {
     renderContractJob(lines, model);
   }
+  if (model.hygiene.enabled) {
+    renderHygieneJob(lines, model);
+  }
   if (model.evidence.enabled) {
     renderEvidenceFanInJob(lines, model);
   }
@@ -2137,6 +2265,10 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
   );
   if (job.if) {
     lines.push(`    if: ${job.if}`);
+  }
+  const needs = releaseGateNeeds(model, job);
+  if (needs.length > 0) {
+    lines.push(`    needs: ${JSON.stringify(needs)}`);
   }
   if (runnerMatrix && runnerMatrix.length > 0) {
     lines.push(
@@ -3164,6 +3296,97 @@ function renderContractCondition(contract: NormalizedGitHubContractConfig): stri
   return `(github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (${manual})`;
 }
 
+function renderHygieneJob(lines: string[], model: ReturnType<typeof buildRenderModel>): void {
+  const hygiene = model.hygiene;
+  lines.push(
+    `  ${yamlKey(hygiene.job)}:`,
+    `    name: ${hygiene.job}`,
+    `    if: ${renderHygieneCondition(model)}`,
+    "    runs-on: ubuntu-latest",
+    "    permissions:",
+    "      contents: read",
+    "    steps:",
+    "      - name: Checkout",
+    `        uses: ${CHECKOUT_ACTION}`,
+    "",
+    ...renderSetupSteps(model),
+    ...renderDependencyInstallSteps(model)
+  );
+  if (model.buildCommand) {
+    lines.push(
+      "",
+      "      - name: Build pipeline CLI",
+      `        run: ${model.buildCommand}`
+    );
+  }
+  renderHygieneActionStep(lines, hygiene);
+  renderEvidenceCollectStep(lines, model, { extraPaths: [hygiene.evidenceDir] });
+  lines.push("");
+}
+
+function renderHygieneActionStep(lines: string[], hygiene: NormalizedGitHubHygieneConfig): void {
+  lines.push(
+    "",
+    "      - name: Run hygiene evidence",
+    `        uses: ${ASYNC_HYGIENE_ACTION}`,
+    "        with:",
+    `          mode: ${hygiene.mode}`,
+    `          profiles: ${JSON.stringify(hygiene.profiles.join(","))}`,
+    `          package-path: ${JSON.stringify(hygiene.packagePath)}`,
+    `          evidence-dir: ${JSON.stringify(hygiene.evidenceDir)}`,
+    `          annotations: ${hygiene.annotations ? "true" : "false"}`,
+    `          fail-on: ${hygiene.mode === "report" ? "generated-policy" : "blocking"}`,
+    `          release-gate: ${hygiene.releaseGate ? "true" : "false"}`
+  );
+}
+
+function renderHygieneCondition(model: ReturnType<typeof buildRenderModel>): string {
+  const hygiene = model.hygiene;
+  const manualJobs = hygieneManualJobIds(model);
+  const manual = manualJobs.length === 1
+    ? `github.event_name == 'workflow_dispatch' && github.event.inputs.job == '${escapeExpressionString(manualJobs[0] ?? hygiene.job)}'`
+    : `github.event_name == 'workflow_dispatch' && (${manualJobs.map((jobId) => `github.event.inputs.job == '${escapeExpressionString(jobId)}'`).join(" || ")})`;
+  const release = "github.event_name == 'release' && github.event.action == 'published'";
+  if (hygiene.mode === "release") {
+    return `(${release}) || (${manual})`;
+  }
+  const pullRequest = "github.event_name == 'pull_request' && github.event.pull_request.draft == false";
+  if (hygiene.releaseGate) {
+    return `(${pullRequest}) || (${release}) || (${manual})`;
+  }
+  return `(${pullRequest}) || (${manual})`;
+}
+
+function hygieneTriggers(hygiene: NormalizedGitHubHygieneConfig): string[] {
+  const triggers = new Set<string>(["workflow_dispatch"]);
+  if (hygiene.mode !== "release") triggers.add("pull_request");
+  if (hygiene.mode === "release" || hygiene.releaseGate) triggers.add("release");
+  return [...triggers].sort((left, right) => left.localeCompare(right));
+}
+
+function hygieneManualJobIds(model: ReturnType<typeof buildRenderModel>): string[] {
+  const ids = new Set<string>([model.hygiene.job]);
+  if (hygieneReleaseGateEnabled(model.hygiene)) {
+    for (const job of model.jobs) {
+      if (jobRunsOnRelease(job)) ids.add(job.id);
+    }
+  }
+  return [...ids].sort((left, right) => left.localeCompare(right));
+}
+
+function releaseGateNeeds(model: ReturnType<typeof buildRenderModel>, job: ReturnType<typeof buildRenderModel>["jobs"][number]): string[] {
+  if (!model.hygiene.enabled || !hygieneReleaseGateEnabled(model.hygiene) || !jobRunsOnRelease(job)) return [];
+  return [model.hygiene.job];
+}
+
+function hygieneReleaseGateEnabled(hygiene: NormalizedGitHubHygieneConfig): boolean {
+  return hygiene.releaseGate || hygiene.mode === "release";
+}
+
+function jobRunsOnRelease(job: ReturnType<typeof buildRenderModel>["jobs"][number]): boolean {
+  return Boolean(job.if?.includes("github.event_name == 'release'"));
+}
+
 function renderEvidenceFanInJob(lines: string[], model: ReturnType<typeof buildRenderModel>): void {
   const needs = evidenceProducerJobIds(model);
   if (needs.length === 0) return;
@@ -3202,6 +3425,7 @@ function evidenceProducerJobIds(model: ReturnType<typeof buildRenderModel>): str
   if (model.packagePreviews.enabled) ids.add("package-preview");
   if (model.bridge.actionsJob.enabled) ids.add(model.bridge.job);
   if (model.contract.enabled) ids.add(model.contract.job);
+  if (model.hygiene.enabled) ids.add(model.hygiene.job);
   ids.delete(model.evidence.job);
   return [...ids].sort((left, right) => left.localeCompare(right));
 }

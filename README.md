@@ -271,7 +271,7 @@ async-pipeline github plan --job verify --event pull_request --format json
 async-pipeline github plan --job contract --event pull_request --format json
 ```
 
-Use `github run` with `--event`, `--event-action`, and `--network mock|deny|allow` to simulate selected generated jobs locally; it writes manifests, per-step JSON, artifact directories, and receipts under `.async/github-local/`. Generated contract lanes from `sync.github.contract` can be planned and run locally with `--network deny` because pipeline owns the event policy and the contract action writes bounded evidence under `.async/contract`.
+Use `github run` with `--event`, `--event-action`, and `--network mock|deny|allow` to simulate selected generated jobs locally; it writes manifests, per-step JSON, artifact directories, and receipts under `.async/github-local/`. Generated contract lanes from `sync.github.contract` and hygiene lanes from `sync.github.hygiene` can be planned and run locally with `--network deny` because pipeline owns the event policy and the actions write bounded evidence under `.async/contract` and `.async/hygiene`.
 
 The checked-in generated workflow is [.github/workflows/async-pipeline.yml](.github/workflows/async-pipeline.yml).
 
