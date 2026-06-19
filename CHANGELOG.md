@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.18 - 2026-06-19
+
+### Fixes
+
+- Make `async-pipeline lifecycle audit --package <path>` scan lifecycle files from the selected package root when that path is a repo root, so workspace-level audits include hidden workflows and `scripts/` release helpers.
+
 ## 0.9.17 - 2026-06-19
 
 ### Features

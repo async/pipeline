@@ -87,19 +87,20 @@ export async function auditLifecycle(options: LifecycleAuditOptions): Promise<Li
   const cwd = resolve(options.cwd);
   const packageRelativePath = normalizeRelativePath(options.packagePath ?? ".");
   const packageRoot = resolveInside(cwd, packageRelativePath);
+  const scanRoot = resolveLifecycleScanRoot(cwd, packageRoot);
   const packageJsonPath = join(packageRoot, "package.json");
   const packageJson = await readJsonIfExists(packageJsonPath);
   const packageSummary = packageJson ? packageSummaryFromJson(cwd, packageRoot, packageJson) : null;
-  const pipelineConfig = findPipelineConfig(cwd);
-  const taskSyncLock = existsSync(join(cwd, ".async-pipeline", "tasks.lock.json"))
-    ? ".async-pipeline/tasks.lock.json"
+  const pipelineConfig = findPipelineConfig(cwd, scanRoot);
+  const taskSyncLock = existsSync(join(scanRoot, ".async-pipeline", "tasks.lock.json"))
+    ? relativePath(cwd, join(scanRoot, ".async-pipeline", "tasks.lock.json"))
     : undefined;
-  const githubLock = existsSync(join(cwd, ".github", "async-pipeline.lock.json"))
-    ? ".github/async-pipeline.lock.json"
+  const githubLock = existsSync(join(scanRoot, ".github", "async-pipeline.lock.json"))
+    ? relativePath(cwd, join(scanRoot, ".github", "async-pipeline.lock.json"))
     : undefined;
   const scripts = packageJson ? scriptSignals(objectRecord(packageJson.scripts)) : [];
-  const workflows = await workflowSignals(cwd);
-  const files = await fileSignals(cwd);
+  const workflows = await workflowSignals(cwd, scanRoot);
+  const files = await fileSignals(cwd, scanRoot);
   const findings = buildFindings({
     packageSummary,
     pipelineConfig,
@@ -186,8 +187,8 @@ function scriptSignals(scripts: Record<string, unknown>): LifecycleScriptSignal[
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
-async function workflowSignals(cwd: string): Promise<LifecycleWorkflowSignal[]> {
-  const workflowsDir = join(cwd, ".github", "workflows");
+async function workflowSignals(cwd: string, scanRoot: string): Promise<LifecycleWorkflowSignal[]> {
+  const workflowsDir = join(scanRoot, ".github", "workflows");
   let entries: Array<{ name: string; isFile(): boolean }>;
   try {
     entries = await readdir(workflowsDir, { withFileTypes: true });
@@ -198,8 +199,9 @@ async function workflowSignals(cwd: string): Promise<LifecycleWorkflowSignal[]> 
   const signals: LifecycleWorkflowSignal[] = [];
   for (const entry of entries) {
     if (!entry.isFile() || (!entry.name.endsWith(".yml") && !entry.name.endsWith(".yaml"))) continue;
-    const relativeWorkflowPath = `.github/workflows/${entry.name}`;
-    const text = await readFile(join(workflowsDir, entry.name), "utf8");
+    const workflowPath = join(workflowsDir, entry.name);
+    const relativeWorkflowPath = relativePath(cwd, workflowPath);
+    const text = await readFile(workflowPath, "utf8");
     const keywords = keywordsFromText(text);
     if (!hasWorkflowLifecycleSignal(keywords) && entry.name !== "async-pipeline.yml") continue;
     signals.push({
@@ -211,7 +213,7 @@ async function workflowSignals(cwd: string): Promise<LifecycleWorkflowSignal[]> 
   return signals.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-async function fileSignals(cwd: string): Promise<LifecycleFileSignal[]> {
+async function fileSignals(cwd: string, scanRoot: string): Promise<LifecycleFileSignal[]> {
   const signals: LifecycleFileSignal[] = [];
   for (const path of [
     ".github/async-pipeline.lock.json",
@@ -219,15 +221,16 @@ async function fileSignals(cwd: string): Promise<LifecycleFileSignal[]> {
     "release-please-config.json",
     ".release-please-manifest.json"
   ]) {
-    if (!existsSync(join(cwd, path))) continue;
+    const absolutePath = join(scanRoot, path);
+    if (!existsSync(absolutePath)) continue;
     signals.push({
-      path,
+      path: relativePath(cwd, absolutePath),
       kind: path.includes("pipeline") ? "pipeline-lock" : "release-config",
       keywords: keywordsFromText(path)
     });
   }
 
-  const scriptsDir = join(cwd, "scripts");
+  const scriptsDir = join(scanRoot, "scripts");
   let entries: Array<{ name: string; isFile(): boolean }>;
   try {
     entries = await readdir(scriptsDir, { withFileTypes: true });
@@ -240,7 +243,7 @@ async function fileSignals(cwd: string): Promise<LifecycleFileSignal[]> {
     const keywords = keywordsFromText(entry.name);
     if (keywords.length === 0) continue;
     signals.push({
-      path: `scripts/${entry.name}`,
+      path: relativePath(cwd, join(scriptsDir, entry.name)),
       kind: "script",
       keywords
     });
@@ -400,11 +403,20 @@ function hasWorkflowLifecycleSignal(keywords: string[]): boolean {
   ].includes(keyword));
 }
 
-function findPipelineConfig(cwd: string): string | undefined {
+function findPipelineConfig(cwd: string, scanRoot: string): string | undefined {
   for (const file of DEFAULT_PIPELINE_CONFIG_FILES) {
-    if (existsSync(join(cwd, file))) return file;
+    const absolutePath = join(scanRoot, file);
+    if (existsSync(absolutePath)) return relativePath(cwd, absolutePath);
   }
   return undefined;
+}
+
+function resolveLifecycleScanRoot(cwd: string, packageRoot: string): string {
+  if (packageRoot === cwd) return cwd;
+  for (const marker of [".git", ".github", ".async-pipeline", "scripts", ...DEFAULT_PIPELINE_CONFIG_FILES]) {
+    if (existsSync(join(packageRoot, marker))) return packageRoot;
+  }
+  return cwd;
 }
 
 async function readJsonIfExists(path: string): Promise<Record<string, unknown> | null> {

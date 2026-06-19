@@ -505,6 +505,58 @@ test("lifecycle audit reports custom release surfaces without a pipeline config"
   }
 });
 
+test("lifecycle audit --package scans selected repo lifecycle files", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "async-pipeline-lifecycle-audit-workspace-"));
+  try {
+    const repo = join(dir, "package-repo");
+    mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
+    mkdirSync(join(repo, "scripts"), { recursive: true });
+    writeFileSync(join(repo, "package.json"), JSON.stringify({
+      name: "@async/package-repo",
+      version: "0.1.0",
+      type: "module",
+      scripts: {
+        "release": "node scripts/release.mjs"
+      }
+    }, null, 2), "utf8");
+    writeFileSync(join(repo, ".github", "workflows", "release.yml"), [
+      "name: release",
+      "on:",
+      "  workflow_dispatch:",
+      "jobs:",
+      "  publish:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: npm publish --provenance",
+      ""
+    ].join("\n"), "utf8");
+    writeFileSync(join(repo, "scripts", "release.mjs"), "export {};\n", "utf8");
+
+    let stdout = "";
+    let stderr = "";
+    const result = await runPipelineCli({
+      args: ["lifecycle", "audit", "--package", "package-repo", "--format", "json"],
+      ...({ cwd: dir }),
+      stdout(text) {
+        stdout += text;
+      },
+      stderr(text) {
+        stderr += text;
+      }
+    });
+
+    assert.equal(result.code, 0, stderr);
+    const report = JSON.parse(stdout);
+    assert.equal(report.package.path, "package-repo/package.json");
+    assert.ok(report.workflows.some((workflow) => workflow.path === "package-repo/.github/workflows/release.yml"));
+    assert.ok(report.files.some((file) => file.path === "package-repo/scripts/release.mjs"));
+    assert.ok(report.findings.some((finding) => finding.id === "workflows.lifecycle.custom"));
+    assert.ok(report.findings.some((finding) => finding.id === "files.lifecycle.scripts"));
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
 test("lifecycle audit recognizes pipeline-owned scripts and nested package paths", async () => {
   const dir = mkdtempSync(join(tmpdir(), "async-pipeline-lifecycle-audit-managed-"));
   try {
