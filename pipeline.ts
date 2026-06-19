@@ -30,6 +30,7 @@ export default definePipeline({
       runtime: ["node@24", "deno@2"],
       dependabotAutoMerge: true,
       packagePreviews: true,
+      evidence: true,
       pages: {
         target: "docs.site"
       }

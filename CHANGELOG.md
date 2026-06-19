@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.4 - 2026-06-18
+
+### Features
+
+- Add `sync.github.evidence` so generated workflows can collect manifest-backed evidence artifacts from each job and merge them through a generated fan-in job using `async/actions/evidence`.
+
 ## 0.9.3 - 2026-06-18
 
 ### Features

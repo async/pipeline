@@ -13,8 +13,8 @@ import { checkGitHubWorkflow, jobsForGitHubEvent, renderGitHubWorkflow, writeGit
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
 const cliPath = join(repoRoot, "packages/pipeline-node/dist/cli.js");
-const asyncActionsSha = "313494352cd10207bf0331c83e83364eb45c8e02";
-const asyncActionsLabel = "v0.1.5";
+const asyncActionsSha = "e91fb515670a66c0694936c079de4061f6306d43";
+const asyncActionsLabel = "v0.1.6";
 const asyncActionsRefPattern = `${asyncActionsSha} # ${asyncActionsLabel.replaceAll(".", "\\.")}`;
 const asyncActionUses = (name) => new RegExp(`uses: async/actions/${name}@${asyncActionsRefPattern}`);
 
@@ -117,7 +117,7 @@ test("renders generated actions bridge job from sync github bridge", async () =>
     assert.match(rendered.workflow, /pull-requests: write/);
     assert.match(rendered.workflow, /group: async-bridge-\$\{\{ github\.repository \}\}/);
     assert.match(rendered.workflow, /name: Check generated workflow[\s\S]+command: "pnpm async-pipeline github check"/);
-    assert.match(rendered.workflow, /name: Pull and apply Async bridge change sets[\s\S]+uses: async\/actions\/run@313494352cd10207bf0331c83e83364eb45c8e02 # v0\.1\.5/);
+    assert.match(rendered.workflow, new RegExp(`name: Pull and apply Async bridge change sets[\\s\\S]+${asyncActionUses("run").source}`));
     assert.match(rendered.workflow, /npx --yes \\"@async\/github-app@0\.1\.1\\" actions pull --branch-prefix async\/bridge\/ --pull-request true --allowed-path pipeline\.ts --allowed-path package\.json --allowed-path \\"docs\/\*\*\\"/);
     assert.match(rendered.workflow, /ASYNC_PROJECT_URL: \$\{\{ vars\.ASYNC_BRIDGE_URL \}\}/);
     assert.match(rendered.workflow, /ASYNC_PROJECT_TOKEN: \$\{\{ secrets\.ASYNC_BRIDGE_TOKEN \}\}/);
@@ -443,7 +443,8 @@ test("renders generated package preview job from packagePreviews true", async ()
       name: "test",
       sync: {
         github: {
-          packagePreviews: true
+          packagePreviews: true,
+          evidence: true
         }
       },
       tasks: {
@@ -468,6 +469,10 @@ test("renders generated package preview job from packagePreviews true", async ()
     assert.match(rendered.workflow, /target-registry: "https:\/\/npm\.pkg\.github\.com"/);
     assert.match(rendered.workflow, /mode: pr/);
     assert.match(rendered.workflow, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
+    assert.match(rendered.workflow, asyncActionUses("evidence"));
+    assert.match(rendered.workflow, /name: Collect evidence manifest[\s\S]+mode: collect[\s\S]+artifact-name: async-evidence-\$\{\{ github\.job \}\}/);
+    assert.match(rendered.workflow, /evidence:\n    name: evidence\n    needs: \["package-preview","verify"\]\n    if: always\(\)/);
+    assert.match(rendered.workflow, /name: Merge evidence manifests[\s\S]+mode: merge[\s\S]+artifact-pattern: async-evidence-\*/);
     assert.deepEqual(rendered.lock.packagePreviews, {
       enabled: true,
       package: "packages/pipeline",
@@ -475,6 +480,16 @@ test("renders generated package preview job from packagePreviews true", async ()
       registry: "https://npm.pkg.github.com",
       tokenEnv: "GITHUB_TOKEN",
       comment: true
+    });
+    assert.deepEqual(rendered.lock.evidence, {
+      enabled: true,
+      job: "evidence",
+      paths: [".async/runs"],
+      receiptPaths: [".async/actions/receipts/**/*.json"],
+      artifactNamePrefix: "async-evidence",
+      retentionDays: 14,
+      ifNoFilesFound: "warn",
+      includeSummary: true
     });
   } finally {
     rmSync(dir, { force: true, recursive: true });

@@ -1,10 +1,10 @@
 {
-  "version": 14,
+  "version": 15,
   "generator": "@async/pipeline",
   "config": "pipeline.ts",
   "workflow": ".github/workflows/async-pipeline.yml",
-  "hash": "sha256:899990c64bb4e9371a647e17bb6149147be26978a0d8ed414ee1e1ee22dcdf3e",
-  "generatedAt": "2026-06-19T00:10:38.389Z",
+  "hash": "sha256:7ae43a3a9cb9f57d7abed3833fed236fa9720be38246a9457efe4cbca938a378",
+  "generatedAt": "2026-06-19T00:33:59.065Z",
   "actions": [
     {
       "id": "actions.cache",
@@ -30,44 +30,51 @@
     {
       "id": "async.actions.dependabot-merge",
       "uses": "async/actions/dependabot-merge",
-      "sha": "313494352cd10207bf0331c83e83364eb45c8e02",
-      "label": "v0.1.5",
-      "ref": "async/actions/dependabot-merge@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5"
+      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
+      "label": "v0.1.6",
+      "ref": "async/actions/dependabot-merge@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
+    },
+    {
+      "id": "async.actions.evidence",
+      "uses": "async/actions/evidence",
+      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
+      "label": "v0.1.6",
+      "ref": "async/actions/evidence@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
     },
     {
       "id": "async.actions.pages",
       "uses": "async/actions/pages",
-      "sha": "313494352cd10207bf0331c83e83364eb45c8e02",
-      "label": "v0.1.5",
-      "ref": "async/actions/pages@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5"
+      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
+      "label": "v0.1.6",
+      "ref": "async/actions/pages@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
     },
     {
       "id": "async.actions.preview",
       "uses": "async/actions/preview",
-      "sha": "313494352cd10207bf0331c83e83364eb45c8e02",
-      "label": "v0.1.5",
-      "ref": "async/actions/preview@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5"
+      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
+      "label": "v0.1.6",
+      "ref": "async/actions/preview@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
     },
     {
       "id": "async.actions.publish",
       "uses": "async/actions/publish",
-      "sha": "313494352cd10207bf0331c83e83364eb45c8e02",
-      "label": "v0.1.5",
-      "ref": "async/actions/publish@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5"
+      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
+      "label": "v0.1.6",
+      "ref": "async/actions/publish@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
     },
     {
       "id": "async.actions.run",
       "uses": "async/actions/run",
-      "sha": "313494352cd10207bf0331c83e83364eb45c8e02",
-      "label": "v0.1.5",
-      "ref": "async/actions/run@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5"
+      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
+      "label": "v0.1.6",
+      "ref": "async/actions/run@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
     },
     {
       "id": "async.actions.setup",
       "uses": "async/actions/setup",
-      "sha": "313494352cd10207bf0331c83e83364eb45c8e02",
-      "label": "v0.1.5",
-      "ref": "async/actions/setup@313494352cd10207bf0331c83e83364eb45c8e02 # v0.1.5"
+      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
+      "label": "v0.1.6",
+      "ref": "async/actions/setup@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
     },
     {
       "id": "deno.setup",
@@ -224,6 +231,20 @@
     "comment": true,
     "package": "packages/pipeline",
     "target": "pack"
+  },
+  "evidence": {
+    "enabled": true,
+    "job": "evidence",
+    "paths": [
+      ".async/runs"
+    ],
+    "receiptPaths": [
+      ".async/actions/receipts/**/*.json"
+    ],
+    "artifactNamePrefix": "async-evidence",
+    "retentionDays": 14,
+    "ifNoFilesFound": "warn",
+    "includeSummary": true
   },
   "bridge": {
     "enabled": false,

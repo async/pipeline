@@ -751,6 +751,16 @@ test("normalizes sync github and task defaults independently from triggers", () 
     tokenEnv: "GITHUB_TOKEN",
     comment: true
   });
+  assert.deepEqual(pipeline.sync.github.evidence, {
+    enabled: false,
+    job: "evidence",
+    paths: [".async/runs"],
+    receiptPaths: [".async/actions/receipts/**/*.json"],
+    artifactNamePrefix: "async-evidence",
+    retentionDays: 14,
+    ifNoFilesFound: "warn",
+    includeSummary: true
+  });
   assert.deepEqual(pipeline.sync.github.bridge, {
     enabled: false,
     mode: "off",
@@ -796,6 +806,15 @@ test("normalizes explicit sync task config and validates selected ids", () => {
           namespace: "preview",
           tokenEnv: "PACKAGES_TOKEN",
           comment: false
+        },
+        evidence: {
+          job: "evidence-index",
+          paths: [".async/runs", "dist/*.tgz", ".async/runs"],
+          receiptPaths: [".async/actions/receipts/**/*.json"],
+          artifactNamePrefix: "async-ci-evidence",
+          retentionDays: 30,
+          ifNoFilesFound: "error",
+          includeSummary: false
         },
         bridge: {
           mode: "actions",
@@ -855,6 +874,16 @@ test("normalizes explicit sync task config and validates selected ids", () => {
     tokenEnv: "PACKAGES_TOKEN",
     comment: false
   });
+  assert.deepEqual(pipeline.sync.github.evidence, {
+    enabled: true,
+    job: "evidence-index",
+    paths: [".async/runs", "dist/*.tgz"],
+    receiptPaths: [".async/actions/receipts/**/*.json"],
+    artifactNamePrefix: "async-ci-evidence",
+    retentionDays: 30,
+    ifNoFilesFound: "error",
+    includeSummary: false
+  });
   assert.deepEqual(pipeline.sync.github.bridge, {
     enabled: true,
     mode: "actions",
@@ -894,6 +923,19 @@ test("normalizes explicit sync task config and validates selected ids", () => {
     tasks: { build: task({ run: sh`echo build` }) },
     jobs: { verify: job({ target: "build" }) }
   }), (error) => error.code === "ASYNC_PIPELINE_SYNC_INVALID_GITHUB_SETUP" && /python/.test(error.message));
+
+  assert.throws(() => definePipeline({
+    name: "bad",
+    sync: {
+      github: {
+        evidence: {
+          paths: ["../outside"]
+        }
+      }
+    },
+    tasks: { build: task({ run: sh`echo build` }) },
+    jobs: { verify: job({ target: "build" }) }
+  }), (error) => error.code === "ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID" && /parent-directory/.test(error.message));
 
   assert.throws(() => definePipeline({
     name: "bad",
@@ -1126,6 +1168,11 @@ test("rejects unknown config fields with the field name", () => {
     ...base,
     sync: { github: { packagePreviews: { namespacee: "async" } } }
   }), /sync\.github\.packagePreviews has unknown field "namespacee"/);
+
+  assert.throws(() => definePipeline({
+    ...base,
+    sync: { github: { evidence: { retention: 30 } } }
+  }), /sync\.github\.evidence has unknown field "retention"/);
 
   assert.throws(() => definePipeline({
     ...base,

@@ -26,6 +26,7 @@ Contract: `@async/pipeline.declaration`
 | `config.source` | Source pipeline declaration | public | stable | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#source) |
 | `config.sync.github` | Generated GitHub Actions sync declaration | public | stable | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/sync.md) |
 | `config.sync.github.bridge` | Generated GitHub Actions storage bridge declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
+| `config.sync.github.evidence` | Generated GitHub Actions evidence fan-in declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
 | `config.sync.github.pages` | Generated GitHub Pages sync declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
 | `config.sync.tasks` | Generated package script and task sync declaration | public | stable | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/sync.md) |
 | `config.task` | Task declaration | public | stable | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#task) |

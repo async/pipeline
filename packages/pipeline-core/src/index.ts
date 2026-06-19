@@ -292,6 +292,20 @@ export interface PackagePreviewsConfig {
 
 export type PackagePreviewsInput = boolean | PackagePreviewsConfig;
 
+export type EvidenceIfNoFilesFound = "ignore" | "warn" | "error";
+
+export interface GitHubEvidenceConfig {
+  job?: string;
+  paths?: string[];
+  receiptPaths?: string[];
+  artifactNamePrefix?: string;
+  retentionDays?: number;
+  ifNoFilesFound?: EvidenceIfNoFilesFound;
+  includeSummary?: boolean;
+}
+
+export type GitHubEvidenceInput = boolean | GitHubEvidenceConfig;
+
 export type GitHubBridgeMode = "actions" | "off";
 
 export interface GitHubBridgeSyncConfig {
@@ -333,6 +347,7 @@ export interface GitHubSyncConfig {
   dependencyCache?: boolean;
   dependabotAutoMerge?: DependabotAutoMergeInput;
   packagePreviews?: PackagePreviewsInput;
+  evidence?: GitHubEvidenceInput;
   bridge?: GitHubBridgeSyncInput;
   pages?: GitHubPagesSyncInput;
 }
@@ -367,6 +382,7 @@ export interface NormalizedGitHubSyncConfig {
   dependencyCache: boolean;
   dependabotAutoMerge: NormalizedDependabotAutoMergeConfig;
   packagePreviews: NormalizedPackagePreviewsConfig;
+  evidence: NormalizedGitHubEvidenceConfig;
   bridge: NormalizedGitHubBridgeSyncConfig;
   pages: NormalizedGitHubPagesSyncConfig;
 }
@@ -384,6 +400,17 @@ export interface NormalizedPackagePreviewsConfig {
   namespace?: string;
   tokenEnv: string;
   comment: boolean;
+}
+
+export interface NormalizedGitHubEvidenceConfig {
+  enabled: boolean;
+  job: string;
+  paths: string[];
+  receiptPaths: string[];
+  artifactNamePrefix: string;
+  retentionDays: number;
+  ifNoFilesFound: EvidenceIfNoFilesFound;
+  includeSummary: boolean;
 }
 
 export interface NormalizedGitHubBridgeSyncConfig {
@@ -918,11 +945,12 @@ const GITHUB_PAGES_STATIC_BUILD_FIELDS = new Set(["kind", "path"]);
 const GITHUB_PAGES_PRERENDER_BUILD_FIELDS = new Set(["kind", "path", "spaFallback", "validateIndex"]);
 const GITHUB_PERMISSION_FIELDS = new Set(["contents", "idToken", "issues", "packages", "pullRequests"]);
 const SYNC_FIELDS = new Set(["command", "github", "tasks"]);
-const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "packagePreviews", "dependabotAutoMerge", "bridge", "pages"]);
+const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "packagePreviews", "dependabotAutoMerge", "evidence", "bridge", "pages"]);
 const GITHUB_SETUP_PROVIDERS = new Set<GitHubSetupProvider>(["auto", "async", "pnpm", "node"]);
 const DEPENDABOT_AUTO_MERGE_FIELDS = new Set(["ecosystems"]);
 const DEPENDABOT_AUTO_MERGE_ECOSYSTEMS = new Set<DependabotAutoMergeEcosystem>(["github-actions", "npm", "deno"]);
 const PACKAGE_PREVIEWS_FIELDS = new Set(["package", "target", "registry", "namespace", "tokenEnv", "comment"]);
+const GITHUB_EVIDENCE_FIELDS = new Set(["job", "paths", "receiptPaths", "artifactNamePrefix", "retentionDays", "ifNoFilesFound", "includeSummary"]);
 const GITHUB_BRIDGE_FIELDS = new Set(["mode", "schedule", "pullRequest", "branchPrefix", "allowedPaths", "endpointVar", "tokenEnv", "packageVersion"]);
 const GITHUB_SYNC_PAGES_FIELDS = new Set(["artifactName", "build", "environment", "job", "target", "triggers"]);
 const GITHUB_SYNC_PAGES_TRIGGERS_FIELDS = new Set(["manual", "main", "pullRequest"]);
@@ -972,6 +1000,9 @@ function validateDefinitionShape(definition: PipelineDefinition): void {
     }
     if (definition.sync.github.packagePreviews && typeof definition.sync.github.packagePreviews === "object") {
       rejectUnknownFields(PACKAGE_PREVIEWS_FIELDS, definition.sync.github.packagePreviews, "sync.github.packagePreviews");
+    }
+    if (definition.sync.github.evidence && typeof definition.sync.github.evidence === "object") {
+      rejectUnknownFields(GITHUB_EVIDENCE_FIELDS, definition.sync.github.evidence, "sync.github.evidence");
     }
     if (definition.sync.github.bridge && typeof definition.sync.github.bridge === "object") {
       rejectUnknownFields(GITHUB_BRIDGE_FIELDS, definition.sync.github.bridge, "sync.github.bridge");
@@ -1812,6 +1843,7 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       dependencyCache: true,
       dependabotAutoMerge: normalizeDependabotAutoMerge(undefined),
       packagePreviews: normalizePackagePreviews(undefined),
+      evidence: normalizeGitHubEvidence(undefined),
       bridge: normalizeGitHubBridge(undefined),
       pages: normalizeGitHubPagesSync(undefined)
     };
@@ -1828,6 +1860,7 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       dependencyCache: true,
       dependabotAutoMerge: normalizeDependabotAutoMerge(undefined),
       packagePreviews: normalizePackagePreviews(undefined),
+      evidence: normalizeGitHubEvidence(undefined),
       bridge: normalizeGitHubBridge(undefined),
       pages: normalizeGitHubPagesSync(undefined)
     };
@@ -1843,6 +1876,7 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
     dependencyCache: github.dependencyCache ?? true,
     dependabotAutoMerge: normalizeDependabotAutoMerge(github.dependabotAutoMerge),
     packagePreviews: normalizePackagePreviews(github.packagePreviews),
+    evidence: normalizeGitHubEvidence(github.evidence),
     bridge: normalizeGitHubBridge(github.bridge),
     pages: normalizeGitHubPagesSync(github.pages)
   };
@@ -1941,6 +1975,88 @@ function normalizePackagePreviews(input: PackagePreviewsInput | undefined): Norm
     throw pipelineError("ASYNC_PIPELINE_PACKAGE_PREVIEWS_INVALID", `sync.github.packagePreviews.tokenEnv must be an environment variable name. Found: ${output.tokenEnv}.`);
   }
   return output;
+}
+
+function normalizeGitHubEvidence(input: GitHubEvidenceInput | undefined): NormalizedGitHubEvidenceConfig {
+  const disabled: NormalizedGitHubEvidenceConfig = {
+    enabled: false,
+    job: "evidence",
+    paths: [".async/runs"],
+    receiptPaths: [".async/actions/receipts/**/*.json"],
+    artifactNamePrefix: "async-evidence",
+    retentionDays: 14,
+    ifNoFilesFound: "warn",
+    includeSummary: true
+  };
+  if (!input) return disabled;
+  if (input === true) {
+    return { ...disabled, enabled: true };
+  }
+  const output: NormalizedGitHubEvidenceConfig = {
+    enabled: true,
+    job: normalizeOptionalNonEmptyString(input.job, "sync.github.evidence.job", "ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID") ?? "evidence",
+    paths: normalizeGitHubEvidencePaths(input.paths, "sync.github.evidence.paths", [".async/runs"]),
+    receiptPaths: normalizeGitHubEvidencePaths(input.receiptPaths, "sync.github.evidence.receiptPaths", [".async/actions/receipts/**/*.json"]),
+    artifactNamePrefix: normalizeOptionalNonEmptyString(input.artifactNamePrefix, "sync.github.evidence.artifactNamePrefix", "ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID") ?? "async-evidence",
+    retentionDays: input.retentionDays ?? 14,
+    ifNoFilesFound: input.ifNoFilesFound ?? "warn",
+    includeSummary: input.includeSummary ?? true
+  };
+  validateGitHubEvidenceJob(output.job);
+  if (!/^[A-Za-z0-9_.-]+$/.test(output.artifactNamePrefix)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID", "sync.github.evidence.artifactNamePrefix may only contain letters, numbers, dash, underscore, and dot.");
+  }
+  if (!Number.isInteger(output.retentionDays) || output.retentionDays < 1 || output.retentionDays > 90) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID", "sync.github.evidence.retentionDays must be an integer from 1 to 90.");
+  }
+  if (!["ignore", "warn", "error"].includes(output.ifNoFilesFound)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID", "sync.github.evidence.ifNoFilesFound must be ignore, warn, or error.");
+  }
+  if (typeof output.includeSummary !== "boolean") {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID", "sync.github.evidence.includeSummary must be a boolean.");
+  }
+  return output;
+}
+
+function normalizeGitHubEvidencePaths(paths: string[] | undefined, field: string, fallback: string[]): string[] {
+  if (paths === undefined) return fallback;
+  if (!Array.isArray(paths)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID", `${field} must be an array of repo-relative paths or globs.`);
+  }
+  if (paths.length === 0) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID", `${field} cannot be empty.`);
+  }
+  const normalized = paths.map((path, index) => {
+    const value = normalizeOptionalNonEmptyString(path, `${field}[${index}]`, "ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID");
+    if (!value) {
+      throw pipelineError("ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID", `${field}[${index}] cannot be empty.`);
+    }
+    validateSafeEvidencePathLike(value, `${field}[${index}]`);
+    return value;
+  });
+  return [...new Set(normalized)];
+}
+
+function validateSafeEvidencePathLike(value: string, field: string): void {
+  if (value.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(value)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID", `${field} must be repo-relative.`);
+  }
+  const parts = value.split("/");
+  if (parts.some((part) => part === "" || part === "..")) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID", `${field} cannot contain empty segments or parent-directory segments.`);
+  }
+  if (value.startsWith(".github/workflows/")) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID", `${field} cannot include .github/workflows/**.`);
+  }
+}
+
+function validateGitHubEvidenceJob(jobId: string): void {
+  if (!jobId.trim()) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID", "sync.github.evidence.job cannot be empty.");
+  }
+  if (jobId.includes(":")) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID", "sync.github.evidence.job cannot contain source namespace delimiter ':'.");
+  }
 }
 
 function normalizeGitHubBridge(input: GitHubBridgeSyncInput | undefined): NormalizedGitHubBridgeSyncConfig {

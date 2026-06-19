@@ -45,6 +45,7 @@ sync: {
     dependencyCache: true,
     dependabotAutoMerge: true,
     packagePreviews: true,
+    evidence: true,
     bridge: {
       mode: "actions",
       schedule: "*/15 * * * *",
@@ -67,6 +68,8 @@ All generated remote `uses:` references, including `async/actions/*`, are resolv
 The default `pnpm/setup` provider still has the historical single-runtime constraint: it installs one primary runtime through `pnpm/setup`, then renders separate setup for additional runtimes. This remains the default until the Async setup action is tested broadly enough to become the generated default.
 
 Each generated job calls `async/actions/run` to run the pipeline command, explain failures, and upload `.async/runs` as evidence. GitHub Actions stays a bootloader for the same task graph; the uploaded evidence is the local run record, graph snapshot, cache receipts, logs, and context packs from the normal runner.
+
+`sync.github.evidence: true` adds a `Collect evidence manifest` step to generated jobs and an `evidence` fan-in job that downloads `async-evidence-*` artifacts, merges their manifests through `async/actions/evidence`, and uploads a bounded index artifact. Manifest entries record paths, kinds, byte counts, and SHA-256 digests; receipt metadata is sanitized before inclusion and raw file contents are not copied into the manifest.
 
 Lifecycle lowering only happens for exact, whole-command publish, preview, release, or doctor lifecycle steps with representable semantics. Compound shell syntax, unmodeled flags, retries, and timeouts stay in the normal `async/actions/run` path so the pipeline runtime keeps ownership of task semantics. Generated lifecycle publish and preview steps pass secret env only to the exact Async action step that needs it.
 

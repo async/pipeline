@@ -12,7 +12,8 @@ export default definePipeline({
   sync: {
     github: {
       dependabotAutoMerge: true,
-      packagePreviews: true
+      packagePreviews: true,
+      evidence: true
     },
     tasks: true
   },
@@ -51,4 +52,3 @@ export default definePipeline({
     })
   }
 });
-

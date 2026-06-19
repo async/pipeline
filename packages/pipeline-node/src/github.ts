@@ -2,12 +2,12 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubBridgeSyncConfig, NormalizedGitHubPagesSyncConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, TriggerDefinition, TriggerId } from "@async/pipeline-core";
+import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubBridgeSyncConfig, NormalizedGitHubEvidenceConfig, NormalizedGitHubPagesSyncConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, TriggerDefinition, TriggerId } from "@async/pipeline-core";
 import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 14;
+const GENERATOR_VERSION = 15;
 const DEFAULT_NODE_VERSION = "24";
 const DEFAULT_DENO_VERSION = "2";
 const DEFAULT_PNPM_VERSION = "11.1.0";
@@ -31,8 +31,8 @@ function defineActionRef(id: string, uses: string, sha: string, label: string): 
   };
 }
 
-const ASYNC_ACTIONS_SHA = "313494352cd10207bf0331c83e83364eb45c8e02";
-const ASYNC_ACTIONS_LABEL = "v0.1.5";
+const ASYNC_ACTIONS_SHA = "e91fb515670a66c0694936c079de4061f6306d43";
+const ASYNC_ACTIONS_LABEL = "v0.1.6";
 
 const GENERATED_ACTIONS = [
   defineActionRef("async.actions.setup", "async/actions/setup", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
@@ -41,6 +41,7 @@ const GENERATED_ACTIONS = [
   defineActionRef("async.actions.preview", "async/actions/preview", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.publish", "async/actions/publish", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.dependabot-merge", "async/actions/dependabot-merge", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("async.actions.evidence", "async/actions/evidence", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("actions.checkout", "actions/checkout", "de0fac2e4500dabe0009e67214ff5f5447ce83dd", "v6.0.2"),
   defineActionRef("actions.cache", "actions/cache", "0057852bfaa89a56745cba8c7296529d2fc39830", "v4"),
   defineActionRef("pnpm.setup", "pnpm/setup", "cf03a9b516e09bc5a90f041fc26fc930c9dc631b", "v1.0.0"),
@@ -58,6 +59,7 @@ const ASYNC_PAGES_ACTION = actionRef("async.actions.pages");
 const ASYNC_PREVIEW_ACTION = actionRef("async.actions.preview");
 const ASYNC_PUBLISH_ACTION = actionRef("async.actions.publish");
 const ASYNC_DEPENDABOT_MERGE_ACTION = actionRef("async.actions.dependabot-merge");
+const ASYNC_EVIDENCE_ACTION = actionRef("async.actions.evidence");
 const CHECKOUT_ACTION = actionRef("actions.checkout");
 const CACHE_ACTION = actionRef("actions.cache");
 const PNPM_SETUP_ACTION = actionRef("pnpm.setup");
@@ -113,6 +115,7 @@ export interface GitHubLock {
     tokenEnv: string;
     comment: boolean;
   };
+  evidence: NormalizedGitHubEvidenceConfig;
   bridge: NormalizedGitHubBridgeSyncConfig & {
     job: "async-bridge";
     actionsJob: {
@@ -191,6 +194,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     dependencyCachePath: renderModel.dependencyCachePath,
     dependabotAutoMerge: renderModel.dependabotAutoMerge,
     packagePreviews: renderModel.packagePreviews,
+    evidence: renderModel.evidence,
     bridge: renderModel.bridge,
     pages: renderModel.pages,
     manualDispatchJobs: renderModel.manualDispatchJobs,
@@ -218,6 +222,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     dependencyCachePath: renderModel.dependencyCachePath,
     dependabotAutoMerge: renderModel.dependabotAutoMerge,
     packagePreviews: renderModel.packagePreviews,
+    evidence: renderModel.evidence,
     bridge: renderModel.bridge,
     pages: renderModel.pages,
     manualDispatchJobs: renderModel.manualDispatchJobs
@@ -344,6 +349,7 @@ function buildRenderModel(
   if (packagePreviews.enabled) {
     addPullRequestTrigger(triggers, "pull_request");
   }
+  const evidence = resolveGitHubEvidence(pipeline);
   const pages = resolveGitHubPages(pipeline);
   const bridge = resolveGitHubBridge(pipeline);
   if (pages.enabled) {
@@ -404,10 +410,30 @@ function buildRenderModel(
     dependencyCachePath: pipeline.sync.github.dependencyCache === false ? undefined : options.dependencyCachePath,
     dependabotAutoMerge: pipeline.sync.github.dependabotAutoMerge,
     packagePreviews,
+    evidence,
     bridge,
     pages,
     manualDispatchJobs
   };
+}
+
+function resolveGitHubEvidence(pipeline: NormalizedPipeline): NormalizedGitHubEvidenceConfig {
+  const config = pipeline.sync.github.evidence;
+  if (!config.enabled) return config;
+  if (pipeline.jobs[config.job]) {
+    throw pipelineError(
+      "ASYNC_PIPELINE_GITHUB_EVIDENCE_JOB_CONFLICT",
+      `sync.github.evidence.job "${config.job}" conflicts with an existing pipeline job. Remove the explicit job or set sync.github.evidence.job to a different id.`
+    );
+  }
+  const generatedJobs = new Set<string>(["package-preview", "dependabot-auto-merge", pipeline.sync.github.pages.job, "async-bridge"]);
+  if (generatedJobs.has(config.job)) {
+    throw pipelineError(
+      "ASYNC_PIPELINE_GITHUB_EVIDENCE_JOB_CONFLICT",
+      `sync.github.evidence.job "${config.job}" conflicts with a generated GitHub job. Set sync.github.evidence.job to a different id.`
+    );
+  }
+  return config;
 }
 
 function resolveGitHubBridge(pipeline: NormalizedPipeline): NormalizedGitHubBridgeSyncConfig & {
@@ -619,6 +645,9 @@ function renderWorkflow(model: ReturnType<typeof buildRenderModel>): string {
   if (model.bridge.actionsJob.enabled) {
     renderBridgeJob(lines, model);
   }
+  if (model.evidence.enabled) {
+    renderEvidenceFanInJob(lines, model);
+  }
   return `${lines.join("\n").replace(/\n+$/u, "")}\n`;
 }
 
@@ -713,6 +742,7 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
     lines.push("");
     renderPagesBuildSteps(lines, job.github.pages);
   }
+  renderEvidenceCollectStep(lines, model, { matrix: Boolean(runnerMatrix && runnerMatrix.length > 0) });
   lines.push("");
 }
 
@@ -753,6 +783,7 @@ function renderGeneratedPagesJob(lines: string[], model: ReturnType<typeof build
   renderRunActionStep(lines, "Run Pages target", `${model.command} github check && ${model.command} run-task ${shellWord(pages.target)}`, {});
   lines.push("");
   renderPagesBuildSteps(lines, pages);
+  renderEvidenceCollectStep(lines, model);
   lines.push("");
 }
 
@@ -795,6 +826,33 @@ function renderRunActionStep(lines: string[], name: string, command: string, env
     `          artifact-name: ${options.artifactName ?? "async-pipeline-${{ github.job }}-runs"}`
   );
   renderActionEnv(lines, env);
+}
+
+function renderEvidenceCollectStep(lines: string[], model: ReturnType<typeof buildRenderModel>, options: { matrix?: boolean } = {}): void {
+  if (!model.evidence.enabled) return;
+  const suffix = options.matrix ? "${{ github.job }}-${{ strategy.job-index }}" : "${{ github.job }}";
+  lines.push(
+    "",
+    "      - name: Collect evidence manifest",
+    "        if: ${{ always() }}",
+    `        uses: ${ASYNC_EVIDENCE_ACTION}`,
+    "        with:",
+    "          mode: collect",
+    "          paths: |",
+    ...model.evidence.paths.map((path) => `            ${path}`),
+    ...(model.evidence.receiptPaths.length > 0
+      ? [
+          "          receipt-paths: |",
+          ...model.evidence.receiptPaths.map((path) => `            ${path}`)
+        ]
+      : []),
+    `          manifest-path: ".async/evidence/${suffix}/manifest.json"`,
+    `          summary-path: ".async/evidence/${suffix}/summary.md"`,
+    `          artifact-name: ${model.evidence.artifactNamePrefix}-${suffix}`,
+    `          retention-days: ${model.evidence.retentionDays}`,
+    `          if-no-files-found: ${model.evidence.ifNoFilesFound}`,
+    `          include-summary: ${model.evidence.includeSummary ? "true" : "false"}`
+  );
 }
 
 function resolveLifecycleJobPlan(
@@ -1149,9 +1207,9 @@ function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof build
     `          token-env-name: ${JSON.stringify(preview.tokenEnv)}`,
     "        env:",
     "          CI: true",
-    `          ${preview.tokenEnv}: \${{ secrets.${preview.tokenEnv} }}`,
-    ""
+    `          ${preview.tokenEnv}: \${{ secrets.${preview.tokenEnv} }}`
   );
+  renderEvidenceCollectStep(lines, model);
   lines.push("");
 }
 
@@ -1198,6 +1256,7 @@ function renderBridgeJob(lines: string[], model: ReturnType<typeof buildRenderMo
   }
   renderRunActionStep(lines, "Check generated workflow", `${model.command} github check`, {});
   renderBridgePullStep(lines, bridge);
+  renderEvidenceCollectStep(lines, model);
   lines.push("");
 }
 
@@ -1240,6 +1299,43 @@ function renderBridgePullStep(lines: string[], bridge: ReturnType<typeof buildRe
     "          GITHUB_REPOSITORY: ${{ github.repository }}",
     "          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}"
   );
+}
+
+function renderEvidenceFanInJob(lines: string[], model: ReturnType<typeof buildRenderModel>): void {
+  const needs = evidenceProducerJobIds(model);
+  if (needs.length === 0) return;
+  const evidence = model.evidence;
+  lines.push(
+    `  ${yamlKey(evidence.job)}:`,
+    `    name: ${evidence.job}`,
+    `    needs: ${JSON.stringify(needs)}`,
+    "    if: always()",
+    "    runs-on: ubuntu-latest",
+    "    permissions:",
+    "      contents: read",
+    "    steps:",
+    "      - name: Merge evidence manifests",
+    `        uses: ${ASYNC_EVIDENCE_ACTION}`,
+    "        with:",
+    "          mode: merge",
+    `          artifact-pattern: ${evidence.artifactNamePrefix}-*`,
+    "          manifest-path: .async/evidence/index.json",
+    "          summary-path: .async/evidence/index.md",
+    `          artifact-name: ${evidence.artifactNamePrefix}-index`,
+    `          retention-days: ${evidence.retentionDays}`,
+    `          if-no-files-found: ${evidence.ifNoFilesFound}`,
+    `          include-summary: ${evidence.includeSummary ? "true" : "false"}`,
+    ""
+  );
+}
+
+function evidenceProducerJobIds(model: ReturnType<typeof buildRenderModel>): string[] {
+  const ids = new Set(model.jobs.map((job) => job.id));
+  if (model.pages.enabled) ids.add(model.pages.job);
+  if (model.packagePreviews.enabled) ids.add("package-preview");
+  if (model.bridge.actionsJob.enabled) ids.add(model.bridge.job);
+  ids.delete(model.evidence.job);
+  return [...ids].sort((left, right) => left.localeCompare(right));
 }
 
 function renderDependabotAutoMergeJob(lines: string[], ecosystems: string[]): void {

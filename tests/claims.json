@@ -912,7 +912,7 @@
     {
       "id": "api.generated-dependabot-package-previews",
       "source": "docs/api.md",
-      "anchor": "`dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates through `async/actions/dependabot-merge`. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, publishes a GitHub Packages PR preview through `async/actions/preview`, and comments install instructions on same-repo PRs. `bridge` object form generates an `async-bridge` job that pulls approved Async change sets through `@async/github-app`, enforces the configured branch prefix and path allowlist, and scopes the project token to the bridge pull step. `pages: true` generates GitHub Pages build/deploy jobs from an existing docs task, defaulting to `.async/pages` and pull request, `main`, and manual triggers; `build.kind: \"prerender\"` validates static prerender output for GitHub Pages.",
+      "anchor": "`dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates through `async/actions/dependabot-merge`. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, publishes a GitHub Packages PR preview through `async/actions/preview`, and comments install instructions on same-repo PRs. `evidence: true` adds manifest-backed evidence collection to generated jobs and a fan-in evidence job that merges downloaded manifests through `async/actions/evidence`. `bridge` object form generates an `async-bridge` job that pulls approved Async change sets through `@async/github-app`, enforces the configured branch prefix and path allowlist, and scopes the project token to the bridge pull step. `pages: true` generates GitHub Pages build/deploy jobs from an existing docs task, defaulting to `.async/pages` and pull request, `main`, and manual triggers; `build.kind: \"prerender\"` validates static prerender output for GitHub Pages.",
       "tests": [
         "normalizes explicit sync task config and validates selected ids",
         "renders generated Dependabot auto-merge workflow job",
@@ -941,6 +941,15 @@
       ]
     },
     {
+      "id": "changelog.generated-evidence-fan-in",
+      "source": "CHANGELOG.md",
+      "anchor": "Add `sync.github.evidence` so generated workflows can collect manifest-backed evidence artifacts from each job and merge them through a generated fan-in job using `async/actions/evidence`.",
+      "tests": [
+        "normalizes explicit sync task config and validates selected ids",
+        "renders generated package preview job from packagePreviews true"
+      ]
+    },
+    {
       "id": "github-actions.generated-package-previews",
       "source": "docs/github-actions.md",
       "anchor": "`sync.github.packagePreviews: true` generates a `package-preview` job on pull requests. The generator finds the public root package, or the single public `packages/*` workspace package when the root package is private.",
@@ -948,6 +957,14 @@
         "renders generated package preview job from packagePreviews true",
         "packagePreviews true requires explicit package when multiple public packages exist",
         "lifecycle CLI accepts custom GitHub package registry and namespace"
+      ]
+    },
+    {
+      "id": "github-actions.generated-evidence-fan-in",
+      "source": "docs/github-actions.md",
+      "anchor": "`sync.github.evidence: true` adds a `Collect evidence manifest` step to generated jobs and an `evidence` fan-in job that downloads `async-evidence-*` artifacts, merges their manifests through `async/actions/evidence`, and uploads a bounded index artifact.",
+      "tests": [
+        "renders generated package preview job from packagePreviews true"
       ]
     },
     {

@@ -71,6 +71,15 @@
           "docsUrl": "https://github.com/async/pipeline/blob/main/docs/github-actions.md"
         },
         {
+          "id": "config.sync.github.evidence",
+          "title": "Generated GitHub Actions evidence fan-in declaration",
+          "releaseTag": "beta",
+          "stability": "preview",
+          "lifecycle": "active",
+          "group": "config",
+          "docsUrl": "https://github.com/async/pipeline/blob/main/docs/github-actions.md"
+        },
+        {
           "id": "config.sync.github.pages",
           "title": "Generated GitHub Pages sync declaration",
           "releaseTag": "beta",
