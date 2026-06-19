@@ -1227,8 +1227,12 @@ test("renders lifecycle publish tasks as async action steps", async () => {
     assert.match(rendered.workflow, /name: Run pipeline task release-evidence/);
     assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run-task release-evidence"/);
     assert.ok(
-      rendered.workflow.indexOf("Run pipeline task release-evidence") < rendered.workflow.indexOf("Create or update GitHub Release"),
-      "package-owned release evidence must run before generated release publishing steps"
+      rendered.workflow.indexOf("Run pipeline task release-evidence") < rendered.workflow.indexOf("Plan release package"),
+      "package-owned release evidence must run before generated release planning steps"
+    );
+    assert.ok(
+      rendered.workflow.indexOf("Plan release package") < rendered.workflow.indexOf("Create or update GitHub Release"),
+      "release planning must run before generated release publishing steps"
     );
     assert.match(rendered.workflow, /artifact-name: async-pipeline-\$\{\{ github\.job \}\}-pack-runs/);
     assert.match(rendered.workflow, asyncActionUses("preview"));

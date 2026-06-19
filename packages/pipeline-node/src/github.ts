@@ -1024,6 +1024,17 @@ function lifecycleManifestSteps(
   plan: LifecyclePlanItem[]
 ): GitHubManifestStep[] {
   const steps: GitHubManifestStep[] = [];
+  const releaseEvidenceTasks = leadingRunTasks(plan);
+  for (const item of releaseEvidenceTasks) {
+    steps.push(runActionManifestStep(
+      `run-pipeline-task-${safeArtifactPart(item.taskId)}`,
+      `Run pipeline task ${item.taskId}`,
+      `${model.command} github check && ${model.command} run-task ${shellWord(item.taskId)}`,
+      scopeTaskRunEnv(job.env, model.tasks[item.taskId]),
+      "run",
+      { "artifact-name": `async-pipeline-\${{ github.job }}-${safeArtifactPart(item.taskId)}-runs` }
+    ));
+  }
   if (hasReleaseLifecycle(plan)) {
     const packagePath = lifecyclePackagePath(plan) ?? ".";
     steps.push(
@@ -1033,7 +1044,7 @@ function lifecycleManifestSteps(
       releaseDoctorManifestStep("render-release-notes", "Render release notes", "notes", packagePath)
     );
   }
-  for (const item of plan) {
+  for (const item of plan.slice(releaseEvidenceTasks.length)) {
     if (item.kind === "run-task") {
       steps.push(runActionManifestStep(
         `run-pipeline-task-${safeArtifactPart(item.taskId)}`,
@@ -2792,10 +2803,20 @@ function renderLifecycleJobPlan(
   job: ReturnType<typeof buildRenderModel>["jobs"][number],
   plan: LifecyclePlanItem[]
 ): void {
+  const releaseEvidenceTasks = leadingRunTasks(plan);
+  for (const item of releaseEvidenceTasks) {
+    renderRunActionStep(
+      lines,
+      `Run pipeline task ${item.taskId}`,
+      `${model.command} github check && ${model.command} run-task ${shellWord(item.taskId)}`,
+      scopeTaskRunEnv(job.env, model.tasks[item.taskId]),
+      { artifactName: `async-pipeline-\${{ github.job }}-${safeArtifactPart(item.taskId)}-runs` }
+    );
+  }
   if (hasReleaseLifecycle(plan)) {
     renderReleaseEvidenceSteps(lines, lifecyclePackagePath(plan) ?? ".", job.env);
   }
-  for (const item of plan) {
+  for (const item of plan.slice(releaseEvidenceTasks.length)) {
     if (item.kind === "run-task") {
       renderRunActionStep(
         lines,
@@ -2816,6 +2837,15 @@ function renderLifecycleJobPlan(
     }
     renderPublishActionStep(lines, item, job.env, job.requires?.provenance === true);
   }
+}
+
+function leadingRunTasks(plan: LifecyclePlanItem[]): Array<Extract<LifecyclePlanItem, { kind: "run-task" }>> {
+  const tasks: Array<Extract<LifecyclePlanItem, { kind: "run-task" }>> = [];
+  for (const item of plan) {
+    if (item.kind !== "run-task") break;
+    tasks.push(item);
+  }
+  return tasks;
 }
 
 function renderReleaseEvidenceSteps(lines: string[], packagePath: string, env: Record<string, EnvValue>): void {

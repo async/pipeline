@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.25 - 2026-06-19
+
+### Fixes
+
+- Run package-owned release evidence tasks before generated release
+  plan/inspect/changelog/notes steps, so packages that build a publishable
+  `dist/` directory during release evidence have a package to inspect.
+
 ## 0.9.24 - 2026-06-19
 
 ### Fixes
