@@ -116,8 +116,8 @@ export default definePipeline({
         "pipeline.ts",
         "package.json",
         ".github/workflows/async-pipeline.yml",
-        ".github/async-pipeline.lock.json",
-        ".async-pipeline/tasks.lock.json"
+        ".locks/pipeline/github-workflow.lock.json",
+        ".locks/pipeline/tasks.lock.json"
       ],
       cache: false,
       run: sh`pnpm async-pipeline sync check`

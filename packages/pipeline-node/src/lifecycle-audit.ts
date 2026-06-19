@@ -92,12 +92,14 @@ export async function auditLifecycle(options: LifecycleAuditOptions): Promise<Li
   const packageJson = await readJsonIfExists(packageJsonPath);
   const packageSummary = packageJson ? packageSummaryFromJson(cwd, packageRoot, packageJson) : null;
   const pipelineConfig = findPipelineConfig(cwd, scanRoot);
-  const taskSyncLock = existsSync(join(scanRoot, ".async-pipeline", "tasks.lock.json"))
-    ? relativePath(cwd, join(scanRoot, ".async-pipeline", "tasks.lock.json"))
-    : undefined;
-  const githubLock = existsSync(join(scanRoot, ".github", "async-pipeline.lock.json"))
-    ? relativePath(cwd, join(scanRoot, ".github", "async-pipeline.lock.json"))
-    : undefined;
+  const taskSyncLock = firstExistingRelative(cwd, scanRoot, [
+    ".locks/pipeline/tasks.lock.json",
+    ".async-pipeline/tasks.lock.json"
+  ]);
+  const githubLock = firstExistingRelative(cwd, scanRoot, [
+    ".locks/pipeline/github-workflow.lock.json",
+    ".github/async-pipeline.lock.json"
+  ]);
   const scripts = packageJson ? scriptSignals(objectRecord(packageJson.scripts)) : [];
   const workflows = await workflowSignals(cwd, scanRoot);
   const files = await fileSignals(cwd, scanRoot, packageRoot);
@@ -217,6 +219,8 @@ async function fileSignals(cwd: string, scanRoot: string, packageRoot: string): 
   const signals: LifecycleFileSignal[] = [];
   const seen = new Set<string>();
   for (const path of [
+    ".locks/pipeline/github-workflow.lock.json",
+    ".locks/pipeline/tasks.lock.json",
     ".github/async-pipeline.lock.json",
     ".async-pipeline/tasks.lock.json",
     "release-please-config.json",
@@ -304,7 +308,7 @@ function buildFindings(input: {
       severity: "warn",
       category: "configure",
       title: "Pipeline config exists, but no task sync lock was found.",
-      evidence: [input.pipelineConfig, ".async-pipeline/tasks.lock.json"],
+      evidence: [input.pipelineConfig, ".locks/pipeline/tasks.lock.json"],
       recommendation: "Use sync.tasks and run async-pipeline sync tasks generate when package scripts should be Pipeline-owned."
     });
   }
@@ -315,7 +319,7 @@ function buildFindings(input: {
       severity: "warn",
       category: "configure",
       title: "Pipeline config exists, but no generated GitHub workflow lock was found.",
-      evidence: [input.pipelineConfig, ".github/async-pipeline.lock.json"],
+      evidence: [input.pipelineConfig, ".locks/pipeline/github-workflow.lock.json"],
       recommendation: "Use sync.github and run async-pipeline github generate when GitHub workflow structure should be Pipeline-owned."
     });
   }
@@ -426,9 +430,17 @@ function findPipelineConfig(cwd: string, scanRoot: string): string | undefined {
   return undefined;
 }
 
+function firstExistingRelative(cwd: string, scanRoot: string, paths: string[]): string | undefined {
+  for (const path of paths) {
+    const absolutePath = join(scanRoot, path);
+    if (existsSync(absolutePath)) return relativePath(cwd, absolutePath);
+  }
+  return undefined;
+}
+
 function resolveLifecycleScanRoot(cwd: string, packageRoot: string): string {
   if (packageRoot === cwd) return cwd;
-  for (const marker of [".git", ".github", ".async-pipeline", ...DEFAULT_PIPELINE_CONFIG_FILES]) {
+  for (const marker of [".git", ".github", ".locks", ".async-pipeline", ...DEFAULT_PIPELINE_CONFIG_FILES]) {
     if (existsSync(join(packageRoot, marker))) return packageRoot;
   }
   if (isDirectChild(cwd, packageRoot) && existsSync(join(packageRoot, "package.json"))) return packageRoot;

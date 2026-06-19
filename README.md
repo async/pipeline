@@ -188,8 +188,8 @@ Keep the generated GitHub workflow and lock committed:
 
 ```txt
 .github/workflows/async-pipeline.yml
-.github/async-pipeline.lock.json
-.async-pipeline/tasks.lock.json
+.locks/pipeline/github-workflow.lock.json
+.locks/pipeline/tasks.lock.json
 ```
 
 Run the same graph locally:
@@ -250,7 +250,7 @@ That writes:
 
 ```txt
 .github/workflows/async-pipeline.yml
-.github/async-pipeline.lock.json
+.locks/pipeline/github-workflow.lock.json
 ```
 
 For tests or local experiments, render somewhere else:
@@ -320,7 +320,7 @@ That can generate:
 }
 ```
 
-Task sync records ownership in `.async-pipeline/tasks.lock.json`. `sync tasks generate` never overwrites an existing unmanaged script or Deno task. If a generated command exists but is not claimed by the lock, it fails with `ASYNC_PIPELINE_SYNC_CONFLICT`.
+Task sync records ownership in `.locks/pipeline/tasks.lock.json`. `sync tasks generate` never overwrites an existing unmanaged script or Deno task. If a generated command exists but is not claimed by the lock, it fails with `ASYNC_PIPELINE_SYNC_CONFLICT`. Checks still read the legacy `.async-pipeline/tasks.lock.json` path while repos migrate.
 
 Deno-only roots with `deno.json` or `deno.jsonc` and no `package.json` default generated task commands to `deno run -A npm:@async/pipeline/cli`; set `sync.command` when you want a local wrapper such as `deno task async-pipeline`.
 

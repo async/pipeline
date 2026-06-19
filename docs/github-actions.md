@@ -100,7 +100,7 @@ Lifecycle lowering only happens for exact, whole-command publish, preview, relea
 
 ## Generated Package Previews And Dependabot Merge
 
-`sync.github.packagePreviews: true` generates a `package-preview` job on pull requests. The generator finds the public root package, or the single public `packages/*` workspace package when the root package is private. It runs the `pack` task when present, falls back to `build`, then calls `async/actions/preview` with the selected package path and GitHub Packages registry. Same-repo PRs publish immutable `0.0.0-pr.<n>.sha.<sha>` previews and update one install comment through `async/actions/comment`; fork PRs skip publish inside the preview action and skip the generated comment step through an explicit same-repo guard.
+`sync.github.packagePreviews: true` generates a `package-preview` job on pull requests. The generator finds the public root package, or the single public `packages/*` workspace package when the root package is private. It runs the `pack` task when present, falls back to `build`, runs `@async/release` preview plan, stage, and inspect evidence before publish, then calls `async/actions/preview` with the selected package path and GitHub Packages registry. Same-repo PRs publish immutable `0.0.0-pr.<n>.sha.<sha>` previews, run preview doctor after publish when the preview action reports a package spec, and update one install comment through `async/actions/comment`; fork PRs skip publish inside the preview action and skip generated doctor and comment steps through explicit same-repo guards. When `sync.github.evidence` is enabled, package preview evidence collection includes `.async/release`.
 
 Use object form when inference is ambiguous or a repo publishes previews somewhere else:
 
@@ -266,7 +266,7 @@ This writes:
 
 ```txt
 .github/workflows/async-pipeline.yml
-.github/async-pipeline.lock.json
+.locks/pipeline/github-workflow.lock.json
 ```
 
 The generated workflow is intentionally thin:

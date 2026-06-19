@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubAttestConfig, NormalizedGitHubBridgeSyncConfig, NormalizedGitHubContractConfig, NormalizedGitHubEvidenceConfig, NormalizedGitHubHygieneConfig, NormalizedGitHubPagesSyncConfig, NormalizedGitHubSourceImpactConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, TriggerDefinition, TriggerId } from "@async/pipeline-core";
 import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 import { sourceImpactPlanForJob, type SourceImpactPlan } from "./sources.js";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
-export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
+export const GITHUB_LOCK_PATH = ".locks/pipeline/github-workflow.lock.json";
+export const LEGACY_GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
 const GENERATOR_VERSION = 22;
 const DEFAULT_NODE_VERSION = "24";
 const DEFAULT_DENO_VERSION = "2";
@@ -32,9 +33,10 @@ function defineActionRef(id: string, uses: string, sha: string, label: string): 
   };
 }
 
-const ASYNC_ACTIONS_SHA = "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4";
-const ASYNC_ACTIONS_LABEL = "v0.1.16";
-const ASYNC_RELEASE_COMMAND = "pnpm dlx github:async/release#e8c938ae44f11558fbbac1c805e0ce81ad765080";
+const ASYNC_ACTIONS_SHA = "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b";
+const ASYNC_ACTIONS_LABEL = "v0.1.17";
+const ASYNC_RELEASE_PACKAGE = "github:async/release#v0.1.3";
+const ASYNC_RELEASE_COMMAND = `pnpm dlx ${ASYNC_RELEASE_PACKAGE}`;
 
 const GENERATED_ACTIONS = [
   defineActionRef("async.actions.setup", "async/actions/setup", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
@@ -438,12 +440,16 @@ export async function writeGitHubWorkflow(result: GitHubRenderResult, cwd: strin
   await mkdir(dirname(lockFile), { recursive: true });
   await writeFile(workflowFile, result.workflow, "utf8");
   await writeFile(lockFile, `${JSON.stringify(result.lock, null, 2)}\n`, "utf8");
+  if (result.lockPath === GITHUB_LOCK_PATH) {
+    await rm(resolve(cwd, LEGACY_GITHUB_LOCK_PATH), { force: true });
+  }
 }
 
 export async function checkGitHubWorkflow(result: GitHubRenderResult, cwd: string): Promise<string[]> {
   const issues: string[] = [];
   const workflowFile = resolve(cwd, result.workflowPath);
   const lockFile = resolve(cwd, result.lockPath);
+  const legacyLockFile = resolve(cwd, LEGACY_GITHUB_LOCK_PATH);
   const renderedMutableRefs = findMutableRemoteActionRefs(result.workflow);
   if (renderedMutableRefs.length > 0) {
     issues.push(`Generated workflow renderer produced mutable action refs: ${renderedMutableRefs.join(", ")}.`);
@@ -462,12 +468,13 @@ export async function checkGitHubWorkflow(result: GitHubRenderResult, cwd: strin
     }
   }
 
-  if (!existsSync(lockFile)) {
+  const existingLockFile = existsSync(lockFile) ? lockFile : existsSync(legacyLockFile) ? legacyLockFile : undefined;
+  if (!existingLockFile) {
     issues.push(`Missing GitHub generation lock ${result.lockPath}. Run async-pipeline github generate.`);
   } else {
-    const existingLock = JSON.parse(await readFile(lockFile, "utf8")) as GitHubLock;
+    const existingLock = JSON.parse(await readFile(existingLockFile, "utf8")) as GitHubLock;
     if (existingLock.hash !== result.lock.hash || existingLock.workflow !== result.lock.workflow || existingLock.config !== result.lock.config) {
-      issues.push(`GitHub generation lock ${result.lockPath} is stale. Run async-pipeline github generate.`);
+      issues.push(`GitHub generation lock ${existingLockFile === legacyLockFile ? LEGACY_GITHUB_LOCK_PATH : result.lockPath} is stale. Run async-pipeline github generate.`);
     }
   }
 
@@ -1057,7 +1064,9 @@ function lifecycleManifestSteps(
       continue;
     }
     if (item.kind === "preview") {
+      steps.push(...previewEvidenceManifestSteps(item, "before-publish"));
       steps.push(previewManifestStep(item));
+      steps.push(previewDoctorManifestStep(item));
       if (item.mode === "pr" && item.comment) steps.push(commentManifestStep("comment-package-preview", "Comment package preview"));
       continue;
     }
@@ -1209,14 +1218,123 @@ function releaseDoctorManifestStep(id: string, name: string, mode: string, packa
 }
 
 function previewManifestStep(preview: Extract<LifecyclePlanItem, { kind: "preview" }>): GitHubManifestStep {
-  return actionManifestStep(`publish-${preview.mode}-package-preview`, `Publish ${preview.mode === "main" ? "main" : "PR"} package preview`, ASYNC_PREVIEW_ACTION, {
+  return actionManifestStep(previewPublishStepId(preview), `Publish ${preview.mode === "main" ? "main" : "PR"} package preview`, ASYNC_PREVIEW_ACTION, {
     "package-path": preview.packagePath,
     "target-registry": preview.registry,
     ...(preview.namespace ? { namespace: preview.namespace } : {}),
     mode: preview.mode,
     comment: preview.comment,
-    "token-env-name": preview.tokenEnv
+    "token-env-name": preview.tokenEnv,
+    "release-package": ASYNC_RELEASE_PACKAGE
   }, "preview", { permissions: { packages: "write" }, secrets: [preview.tokenEnv], networked: true, dangerous: true });
+}
+
+function previewEvidenceManifestSteps(preview: Extract<LifecyclePlanItem, { kind: "preview" }>, phase: "before-publish"): GitHubManifestStep[] {
+  return [
+    shellManifestStep(
+      `plan-${preview.mode}-package-preview-${preview.packagePath}`,
+      `Plan ${preview.mode === "main" ? "main" : "PR"} package preview`,
+      previewEvidenceCommand("plan", preview),
+      "preview"
+    ),
+    shellManifestStep(
+      `stage-${preview.mode}-package-preview-${preview.packagePath}`,
+      `Stage ${preview.mode === "main" ? "main" : "PR"} package preview`,
+      previewEvidenceCommand("stage", preview),
+      "preview"
+    ),
+    shellManifestStep(
+      `inspect-${preview.mode}-package-preview-${preview.packagePath}`,
+      `Inspect ${preview.mode === "main" ? "main" : "PR"} package preview`,
+      previewEvidenceCommand("inspect", preview),
+      "preview"
+    )
+  ].map((step) => ({
+    ...step,
+    id: `${step.id}-${phase}`,
+    local: {
+      ...step.local,
+      networked: true,
+      dangerous: false,
+      mockReason: "released @async/release package source is fetched by pnpm dlx unless the package is already cached"
+    }
+  }));
+}
+
+function previewDoctorManifestStep(preview: Extract<LifecyclePlanItem, { kind: "preview" }>): GitHubManifestStep {
+  return {
+    ...shellManifestStep(
+      `doctor-${preview.mode}-package-preview`,
+      `Verify ${preview.mode === "main" ? "main" : "PR"} package preview`,
+      previewEvidenceCommand("doctor", preview, { network: "live" }),
+      "preview"
+    ),
+    if: previewDoctorCondition(preview),
+    secrets: [preview.tokenEnv],
+    permissions: { packages: "write" },
+    local: {
+      contract: "preview",
+      mode: "shell",
+      network: "mock",
+      networked: true,
+      dangerous: false,
+      mockReason: "preview doctor reads the package registry in live workflows"
+    }
+  };
+}
+
+function previewEvidenceCommand(
+  command: "plan" | "stage" | "inspect" | "doctor",
+  preview: Extract<LifecyclePlanItem, { kind: "preview" }>,
+  options: { network?: "live" | "mock" } = {}
+): string {
+  const args = [
+    ASYNC_RELEASE_COMMAND,
+    "preview",
+    command,
+    "--package",
+    shellWord(preview.packagePath),
+    "--mode",
+    preview.mode,
+    "--namespace",
+    shellWord(preview.namespace ?? "${{ github.repository_owner }}"),
+    "--source-repository",
+    "\"${{ github.repository }}\"",
+    "--source-sha",
+    "\"${{ github.sha }}\"",
+    "--evidence-dir",
+    ".async/release",
+    "--json"
+  ];
+  if (command === "stage") {
+    args.push("--registry", shellWord(preview.registry));
+  }
+  if (command === "doctor") {
+    args.push("--registry", shellWord(preview.registry), "--network", options.network ?? "mock");
+  }
+  if (preview.mode === "pr") {
+    args.push(
+      "--pr-number",
+      "\"${{ github.event.pull_request.number }}\"",
+      "--head-sha",
+      "\"${{ github.event.pull_request.head.sha }}\""
+    );
+  }
+  if (preview.mode === "pr" && !preview.comment) {
+    args.push("--no-comment");
+  }
+  return args.join(" ");
+}
+
+function previewPublishStepId(preview: Extract<LifecyclePlanItem, { kind: "preview" }>): string {
+  return safeGeneratedJobId(`async-${preview.mode}-package-preview-${preview.packagePath}`);
+}
+
+function previewDoctorCondition(preview: Extract<LifecyclePlanItem, { kind: "preview" }>, stepId = previewPublishStepId(preview)): string {
+  if (preview.mode === "pr") {
+    return `github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && steps.${stepId}.outputs.package-spec != ''`;
+  }
+  return `steps.${stepId}.outputs.package-spec != ''`;
 }
 
 function publishManifestStep(publish: Extract<LifecyclePlanItem, { kind: "publish" }>, provenance: boolean): GitHubManifestStep {
@@ -1419,6 +1537,15 @@ function buildPackagePreviewManifest(
   network: GitHubLocalNetworkMode
 ): GitHubJobManifest {
   const preview = model.packagePreviews;
+  const previewItem: Extract<LifecyclePlanItem, { kind: "preview" }> = {
+    kind: "preview",
+    mode: "pr",
+    packagePath: preview.package ?? ".",
+    registry: preview.registry,
+    namespace: preview.namespace,
+    comment: preview.comment,
+    tokenEnv: preview.tokenEnv
+  };
   const steps = [
     checkoutStep(),
     ...setupManifestSteps(model),
@@ -1427,16 +1554,19 @@ function buildPackagePreviewManifest(
     ...taskCacheManifestSteps(model, { kind: "task", id: preview.target ?? "pack", manifestPath: ".async/actions/cache/package-preview-cache-manifest.json" }),
     runActionManifestStep("run-package-preview-target", "Run package preview target", `${model.command} github check && ${model.command} run-task ${shellWord(preview.target ?? "pack")}`, {}, "run"),
     ...taskCacheSaveManifestSteps(model, { kind: "task", id: preview.target ?? "pack", manifestPath: ".async/actions/cache/package-preview-cache-manifest.json" }),
+    ...previewEvidenceManifestSteps(previewItem, "before-publish"),
     actionManifestStep("publish-package-preview", "Publish package preview", ASYNC_PREVIEW_ACTION, {
       "package-path": preview.package ?? ".",
       "target-registry": preview.registry,
       ...(preview.namespace ? { namespace: preview.namespace } : {}),
       mode: "pr",
       comment: preview.comment,
-      "token-env-name": preview.tokenEnv
+      "token-env-name": preview.tokenEnv,
+      "release-package": ASYNC_RELEASE_PACKAGE
     }, "preview", { permissions: { packages: "write" }, secrets: [preview.tokenEnv], networked: true, dangerous: true }),
+    previewDoctorManifestStep(previewItem),
     ...(preview.comment ? [commentManifestStep("comment-package-preview", "Comment package preview")] : []),
-    ...evidenceCollectManifestSteps(model)
+    ...evidenceCollectManifestSteps(model, { extraPaths: [".async/release"] })
   ];
   return makeJobManifest(model, rendered, event, {
     id: "package-preview",
@@ -2828,7 +2958,9 @@ function renderLifecycleJobPlan(
       continue;
     }
     if (item.kind === "preview") {
+      renderPreviewEvidenceSteps(lines, item);
       renderPreviewActionStep(lines, item, job.env);
+      renderPreviewDoctorStep(lines, item);
       continue;
     }
     if (item.kind === "release") {
@@ -2855,8 +2987,22 @@ function renderReleaseEvidenceSteps(lines: string[], packagePath: string, env: R
   renderReleaseDoctorActionStep(lines, "Render release notes", "notes", packagePath, env);
 }
 
+function renderPreviewEvidenceSteps(lines: string[], preview: Extract<LifecyclePlanItem, { kind: "preview" }>): void {
+  for (const [command, label] of [
+    ["plan", "Plan"],
+    ["stage", "Stage"],
+    ["inspect", "Inspect"]
+  ] as const) {
+    lines.push(
+      "",
+      `      - name: ${label} ${preview.mode === "main" ? "main" : "PR"} package preview`,
+      `        run: ${previewEvidenceCommand(command, preview)}`
+    );
+  }
+}
+
 function renderPreviewActionStep(lines: string[], preview: Extract<LifecyclePlanItem, { kind: "preview" }>, env: Record<string, EnvValue>): void {
-  const stepId = safeGeneratedJobId(`async-${preview.mode}-package-preview-${preview.packagePath}`);
+  const stepId = previewPublishStepId(preview);
   lines.push(
     "",
     `      - name: Publish ${preview.mode === "main" ? "main" : "PR"} package preview`,
@@ -2868,12 +3014,24 @@ function renderPreviewActionStep(lines: string[], preview: Extract<LifecyclePlan
     ...(preview.namespace ? [`          namespace: ${JSON.stringify(preview.namespace)}`] : []),
     `          mode: ${preview.mode}`,
     `          comment: ${preview.comment ? "true" : "false"}`,
-    `          token-env-name: ${JSON.stringify(preview.tokenEnv)}`
+    `          token-env-name: ${JSON.stringify(preview.tokenEnv)}`,
+    `          release-package: ${JSON.stringify(ASYNC_RELEASE_PACKAGE)}`
   );
   renderActionEnv(lines, scopeActionEnv(env, new Set([preview.tokenEnv])));
   if (preview.mode === "pr" && preview.comment) {
     renderPreviewCommentStep(lines, stepId);
   }
+}
+
+function renderPreviewDoctorStep(lines: string[], preview: Extract<LifecyclePlanItem, { kind: "preview" }>, publishStepId = previewPublishStepId(preview)): void {
+  lines.push(
+    "",
+    `      - name: Verify ${preview.mode === "main" ? "main" : "PR"} package preview`,
+    `        if: ${previewDoctorCondition(preview, publishStepId)}`,
+    `        run: ${previewEvidenceCommand("doctor", preview, { network: "live" })}`,
+    "        env:",
+    `          ${preview.tokenEnv}: \${{ secrets.${preview.tokenEnv} }}`
+  );
 }
 
 function renderPreviewCommentStep(lines: string[], previewStepId: string): void {
@@ -3144,6 +3302,15 @@ function safeGeneratedJobId(value: string): string {
 function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof buildRenderModel>): void {
   const preview = model.packagePreviews;
   if (!preview.package || !preview.target) return;
+  const previewItem: Extract<LifecyclePlanItem, { kind: "preview" }> = {
+    kind: "preview",
+    mode: "pr",
+    packagePath: preview.package,
+    registry: preview.registry,
+    namespace: preview.namespace,
+    comment: preview.comment,
+    tokenEnv: preview.tokenEnv
+  };
   lines.push(
     "  package-preview:",
     "    name: package-preview",
@@ -3173,6 +3340,7 @@ function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof build
   renderTaskCacheRestoreSteps(lines, model, { kind: "task", id: preview.target, manifestPath: ".async/actions/cache/package-preview-cache-manifest.json" });
   renderRunActionStep(lines, "Run package preview target", `${model.command} github check && ${model.command} run-task ${shellWord(preview.target)}`, {});
   renderTaskCacheSaveSteps(lines, model, { kind: "task", id: preview.target, manifestPath: ".async/actions/cache/package-preview-cache-manifest.json" });
+  renderPreviewEvidenceSteps(lines, previewItem);
   lines.push(
     "",
     "      - name: Publish package preview",
@@ -3185,14 +3353,16 @@ function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof build
     "          mode: pr",
     `          comment: ${preview.comment ? "true" : "false"}`,
     `          token-env-name: ${JSON.stringify(preview.tokenEnv)}`,
+    `          release-package: ${JSON.stringify(ASYNC_RELEASE_PACKAGE)}`,
     "        env:",
     "          CI: true",
     `          ${preview.tokenEnv}: \${{ secrets.${preview.tokenEnv} }}`
   );
+  renderPreviewDoctorStep(lines, previewItem, "async-package-preview");
   if (preview.comment) {
     renderPreviewCommentStep(lines, "async-package-preview");
   }
-  renderEvidenceCollectStep(lines, model);
+  renderEvidenceCollectStep(lines, model, { extraPaths: [".async/release"] });
   lines.push("");
 }
 

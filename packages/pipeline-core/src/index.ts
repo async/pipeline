@@ -1958,13 +1958,15 @@ function normalizeSyncCommand(command: string | undefined): string {
 }
 
 const DEFAULT_GITHUB_NODE_VERSION = "24";
+const DEFAULT_GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
+const DEFAULT_GITHUB_LOCK_PATH = ".locks/pipeline/github-workflow.lock.json";
 
 function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGitHubSyncConfig {
   if (github === undefined || github === false) {
     return {
       enabled: false,
-      workflow: ".github/workflows/async-pipeline.yml",
-      lock: ".github/async-pipeline.lock.json",
+      workflow: DEFAULT_GITHUB_WORKFLOW_PATH,
+      lock: DEFAULT_GITHUB_LOCK_PATH,
       setup: "pnpm",
       nodeVersion: DEFAULT_GITHUB_NODE_VERSION,
       runtime: [],
@@ -1984,8 +1986,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
   if (github === true) {
     return {
       enabled: true,
-      workflow: ".github/workflows/async-pipeline.yml",
-      lock: ".github/async-pipeline.lock.json",
+      workflow: DEFAULT_GITHUB_WORKFLOW_PATH,
+      lock: DEFAULT_GITHUB_LOCK_PATH,
       setup: "pnpm",
       nodeVersion: DEFAULT_GITHUB_NODE_VERSION,
       runtime: [],
@@ -2004,8 +2006,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
   }
   return {
     enabled: true,
-    workflow: github.workflow ?? ".github/workflows/async-pipeline.yml",
-    lock: github.lock ?? ".github/async-pipeline.lock.json",
+    workflow: github.workflow ?? DEFAULT_GITHUB_WORKFLOW_PATH,
+    lock: github.lock ?? DEFAULT_GITHUB_LOCK_PATH,
     setup: normalizeGitHubSetup(github.setup),
     nodeVersion: normalizeGitHubNodeVersion(github.nodeVersion),
     runtime: normalizeGitHubRuntime(github.runtime),

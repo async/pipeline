@@ -52,7 +52,7 @@ pnpm async-pipeline run verify
 pnpm async-pipeline sync generate
 ```
 
-Sync writes `pipeline:verify` and `pipeline:sync:check` into `packages/app/package.json` and `packages/api/package.json`, records ownership in `.async-pipeline/tasks.lock.json`, and leaves `packages/internal-tools/package.json` alone.
+Sync writes `pipeline:verify` and `pipeline:sync:check` into `packages/app/package.json` and `packages/api/package.json`, records ownership in `.locks/pipeline/tasks.lock.json`, and leaves `packages/internal-tools/package.json` alone.
 
 The generated scripts work from inside the packages because the CLI finds `pipeline.ts` by walking up:
 

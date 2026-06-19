@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { NormalizedPipeline, NormalizedTaskSyncConfig, SyncRunner, SyncTargetSelector } from "@async/pipeline-core";
 import { pipelineError } from "@async/pipeline-core";
 
-export const TASK_SYNC_LOCK_PATH = ".async-pipeline/tasks.lock.json";
+export const TASK_SYNC_LOCK_PATH = ".locks/pipeline/tasks.lock.json";
+export const LEGACY_TASK_SYNC_LOCK_PATH = ".async-pipeline/tasks.lock.json";
 const TASK_SYNC_GENERATOR_VERSION = 1;
 const DEFAULT_DENO_PIPELINE_COMMAND = "deno run -A npm:@async/pipeline/cli";
 
@@ -101,6 +102,9 @@ export async function writeTaskSync(result: TaskSyncRenderResult, cwd: string): 
   const lockFile = resolve(cwd, result.lockPath);
   await mkdir(dirname(lockFile), { recursive: true });
   await writeFile(lockFile, `${JSON.stringify(result.lock, null, 2)}\n`, "utf8");
+  if (result.lockPath === TASK_SYNC_LOCK_PATH) {
+    await rm(resolve(cwd, LEGACY_TASK_SYNC_LOCK_PATH), { force: true });
+  }
 }
 
 export async function checkTaskSync(result: TaskSyncRenderResult, cwd: string, options: { requireConfigured?: boolean } = {}): Promise<string[]> {
@@ -281,6 +285,7 @@ function shouldSkipDirectory(name: string): boolean {
     || name === "node_modules"
     || name === "dist"
     || name === ".async"
+    || name === ".locks"
     || name === ".async-pipeline"
     || name === ".tmp"
     || name === "coverage";
@@ -327,8 +332,10 @@ function managedCommandsForManifest(lock: TaskSyncLock | null, manifestPath: str
 }
 
 async function readTaskSyncLock(cwd: string): Promise<TaskSyncLock | null> {
-  const lockFile = resolve(cwd, TASK_SYNC_LOCK_PATH);
-  if (!existsSync(lockFile)) return null;
+  const lockFile = [TASK_SYNC_LOCK_PATH, LEGACY_TASK_SYNC_LOCK_PATH]
+    .map((candidate) => resolve(cwd, candidate))
+    .find((candidate) => existsSync(candidate));
+  if (!lockFile) return null;
   return JSON.parse(await readFile(lockFile, "utf8")) as TaskSyncLock;
 }
 

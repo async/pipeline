@@ -4,19 +4,20 @@
   "config": "pipeline.ts",
   "prefix": "pipeline",
   "runners": [
-    "package"
+    "package",
+    "deno"
   ],
   "targets": [
     {
-      "package": "@async-framework/example-monorepo-app"
+      "path": "package.json"
     },
     {
-      "package": "@async-framework/example-monorepo-api"
+      "path": "worker/deno.json"
     }
   ],
   "manifests": [
     {
-      "path": "packages/api/package.json",
+      "path": "package.json",
       "runner": "package",
       "field": "scripts",
       "commands": [
@@ -31,9 +32,9 @@
       ]
     },
     {
-      "path": "packages/app/package.json",
-      "runner": "package",
-      "field": "scripts",
+      "path": "worker/deno.json",
+      "runner": "deno",
+      "field": "tasks",
       "commands": [
         {
           "name": "pipeline:verify",
@@ -56,6 +57,6 @@
       "value": "async-pipeline sync check"
     }
   ],
-  "hash": "sha256:80ed5d5ae079b83128a1a81a991ce26c481702c41797ea77afa83ea9a5d890ab",
-  "generatedAt": "2026-06-19T07:19:28.967Z"
+  "hash": "sha256:c8f1464a57a9d3e8a7aefef5798a244670405948622a11d2a8d4ed685eed7940",
+  "generatedAt": "2026-06-19T22:56:17.993Z"
 }

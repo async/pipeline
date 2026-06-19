@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.26 - 2026-06-19
+
+### Features
+
+- Move committed generated Pipeline locks to `.locks/pipeline/` while keeping
+  checks compatible with the legacy `.github/async-pipeline.lock.json` and
+  `.async-pipeline/tasks.lock.json` paths during migration.
+- Generate package preview plan, stage, inspect, and doctor evidence through
+  `@async/release`, while keeping publish, dist-tags, and comment writes in
+  `async/actions/preview` and `async/actions/comment`.
+
 ## 0.9.25 - 2026-06-19
 
 ### Fixes

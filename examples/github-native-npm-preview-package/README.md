@@ -59,8 +59,8 @@ That can generate:
 
 ```txt
 .github/workflows/async-pipeline.yml
-.github/async-pipeline.lock.json
-.async-pipeline/tasks.lock.json
+.locks/pipeline/github-workflow.lock.json
+.locks/pipeline/tasks.lock.json
 ```
 
 The generated workflow is still only a bootloader. GitHub starts from YAML; `pipeline.mjs` decides which matching job to run after the workflow starts.

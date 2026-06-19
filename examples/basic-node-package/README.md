@@ -58,8 +58,8 @@ That writes and then guards:
 
 ```txt
 .github/workflows/async-pipeline.yml   # thin bootloader: checkout, node, cache, delegate to the CLI
-.github/async-pipeline.lock.json       # hash of the trigger/job metadata it was built from
-.async-pipeline/tasks.lock.json        # ownership record for generated package.json scripts
+.locks/pipeline/github-workflow.lock.json  # hash of the trigger/job metadata it was built from
+.locks/pipeline/tasks.lock.json            # ownership record for generated package.json scripts
 ```
 
 `tasks: true` syncs every job, so `package.json` gains `pipeline:verify` and `pipeline:nightly` next to the hand-written `build`, `test`, and `typecheck` scripts — which sync never touches. Edit a generated script by hand and `sync check` fails, naming the stale script and the command to regenerate it.

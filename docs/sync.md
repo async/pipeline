@@ -28,7 +28,7 @@ writes two files:
 
 ```txt
 .github/workflows/async-pipeline.yml   # pinned action SHAs, contents: read, calls the CLI
-.github/async-pipeline.lock.json       # hash plus resolved action refs, triggers, and jobs
+.locks/pipeline/github-workflow.lock.json  # hash plus resolved action refs, triggers, and jobs
 ```
 
 The workflow checks out, sets up the pipeline runtime, restores the task cache, runs `async-pipeline github check` (so a stale workflow fails its own run), and delegates job selection back to the CLI. Task commands, dependency order, caching, and retries never appear in YAML — they stay in `pipeline.ts`, which means changing a task does not require touching CI.
@@ -64,7 +64,7 @@ sync: {
 }
 ```
 
-Every generated script is namespaced under your chosen prefix and recorded in `.async-pipeline/tasks.lock.json`. That lock is the ownership boundary: sync only ever rewrites scripts the lock claims. If a generated name collides with a script it does not own, generation fails with `ASYNC_PIPELINE_SYNC_CONFLICT` instead of overwriting your work. Your hand-written scripts are never rewritten, reordered, or removed.
+Every generated script is namespaced under your chosen prefix and recorded in `.locks/pipeline/tasks.lock.json`. That lock is the ownership boundary: sync only ever rewrites scripts the lock claims. If a generated name collides with a script it does not own, generation fails with `ASYNC_PIPELINE_SYNC_CONFLICT` instead of overwriting your work. Your hand-written scripts are never rewritten, reordered, or removed. Checks still accept the legacy `.async-pipeline/tasks.lock.json` path during migration.
 
 Deno-only repos can omit `package.json`: with `deno.json` or `deno.jsonc` at the root, generated tasks default to `deno run -A npm:@async/pipeline/cli`.
 

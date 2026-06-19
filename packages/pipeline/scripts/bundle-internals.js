@@ -1,4 +1,5 @@
 import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,6 +8,7 @@ const packageRoot = resolve(scriptDir, "..");
 const repoRoot = resolve(packageRoot, "../..");
 const distDir = join(packageRoot, "dist");
 const internalDir = join(distDir, "internal");
+const stagedInternalDir = join(distDir, `.internal-${process.pid}-${Date.now()}`);
 
 const internalPackages = [
   ["pipeline-core", "core"],
@@ -14,13 +16,13 @@ const internalPackages = [
   ["pipeline-adapter-lima", "lima"]
 ];
 
-await rm(internalDir, { recursive: true, force: true });
-await mkdir(internalDir, { recursive: true });
+await rm(stagedInternalDir, { recursive: true, force: true });
+await mkdir(stagedInternalDir, { recursive: true });
 
 for (const [workspacePackage, targetName] of internalPackages) {
   await cp(
     join(repoRoot, "packages", workspacePackage, "dist"),
-    join(internalDir, targetName),
+    join(stagedInternalDir, targetName),
     { recursive: true }
   );
 }
@@ -37,14 +39,14 @@ const rewrites = [
     ]
   },
   {
-    dir: join(internalDir, "node"),
+    dir: join(stagedInternalDir, "node"),
     replacements: [
       ["@async/pipeline-core/graph", "../core/graph.js"],
       ["@async/pipeline-core", "../core/index.js"]
     ]
   },
   {
-    dir: join(internalDir, "lima"),
+    dir: join(stagedInternalDir, "lima"),
     replacements: [
       ["@async/pipeline-core/graph", "../core/graph.js"],
       ["@async/pipeline-core", "../core/index.js"],
@@ -57,7 +59,9 @@ for (const rewrite of rewrites) {
   await rewriteTextFiles(rewrite.dir, rewrite.replacements);
 }
 
-await writeLifecycleStub(join(internalDir, "node"));
+await writeLifecycleStub(join(stagedInternalDir, "node"));
+await syncDirectory(stagedInternalDir, internalDir);
+await rm(stagedInternalDir, { recursive: true, force: true });
 
 async function rewriteTextFiles(dir, replacements) {
   const entries = await listTextFiles(dir);
@@ -90,13 +94,34 @@ async function listTextFiles(root) {
   return files;
 }
 
+async function syncDirectory(source, target) {
+  await mkdir(target, { recursive: true });
+  await cp(source, target, { recursive: true, force: true });
+  await removeStaleEntries(source, target);
+}
+
+async function removeStaleEntries(source, target) {
+  if (!existsSync(target)) return;
+  for (const entry of await readdir(target, { withFileTypes: true })) {
+    const sourcePath = join(source, entry.name);
+    const targetPath = join(target, entry.name);
+    if (!existsSync(sourcePath)) {
+      await rm(targetPath, { recursive: true, force: true });
+      continue;
+    }
+    if (entry.isDirectory()) {
+      await removeStaleEntries(sourcePath, targetPath);
+    }
+  }
+}
+
 function isTextBuildFile(fileName) {
   return fileName.endsWith(".js") || fileName.endsWith(".d.ts") || fileName.endsWith(".map");
 }
 
 async function writeLifecycleStub(nodeInternalDir) {
   const message = "Package lifecycle commands moved out of the @async/pipeline npm tarball. Use generated workflows with async/actions publish, preview, and pages steps.";
-  const releaseCommand = "pnpm dlx github:async/release#e8c938ae44f11558fbbac1c805e0ce81ad765080";
+  const releaseCommand = "pnpm dlx github:async/release#v0.1.3";
   await writeFile(join(nodeInternalDir, "package-lifecycle.js"), [
     "import { spawnSync } from \"node:child_process\";",
     "const message = \"Package lifecycle commands moved out of the @async/pipeline npm tarball. Use generated workflows with async/actions publish, preview, and pages steps.\";",

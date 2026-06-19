@@ -13,8 +13,8 @@ import { checkGitHubWorkflow, jobsForGitHubEvent, planGitHubJobs, renderGitHubWo
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
 const cliPath = join(repoRoot, "packages/pipeline-node/dist/cli.js");
-const asyncActionsSha = "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4";
-const asyncActionsLabel = "v0.1.16";
+const asyncActionsSha = "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b";
+const asyncActionsLabel = "v0.1.17";
 const asyncActionsRefPattern = `${asyncActionsSha} # ${asyncActionsLabel.replaceAll(".", "\\.")}`;
 const asyncActionUses = (name) => new RegExp(`uses: async/actions/${name}@${asyncActionsRefPattern}`);
 
@@ -469,12 +469,33 @@ test("renders generated package preview job from packagePreviews true", async ()
     assert.match(rendered.workflow, /permissions:\n      contents: read\n      issues: write\n      packages: write\n      pull-requests: write/);
     assert.match(rendered.workflow, asyncActionUses("run"));
     assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"/);
+    assert.ok(
+      rendered.workflow.indexOf("Plan PR package preview") < rendered.workflow.indexOf("Publish package preview"),
+      "preview planning must run before privileged preview publish"
+    );
+    assert.ok(
+      rendered.workflow.indexOf("Stage PR package preview") < rendered.workflow.indexOf("Publish package preview"),
+      "preview staging must run before privileged preview publish"
+    );
+    assert.ok(
+      rendered.workflow.indexOf("Inspect PR package preview") < rendered.workflow.indexOf("Publish package preview"),
+      "preview inspection must run before privileged preview publish"
+    );
     assert.match(rendered.workflow, asyncActionUses("preview"));
+    assert.match(rendered.workflow, /name: Plan PR package preview[\s\S]+preview plan[\s\S]+--package packages\/pipeline[\s\S]+--mode pr[\s\S]+--pr-number "\$\{\{ github\.event\.pull_request\.number \}\}"[\s\S]+--head-sha "\$\{\{ github\.event\.pull_request\.head\.sha \}\}"/);
+    assert.match(rendered.workflow, /name: Stage PR package preview[\s\S]+preview stage[\s\S]+--registry https:\/\/npm\.pkg\.github\.com/);
+    assert.match(rendered.workflow, /name: Inspect PR package preview[\s\S]+preview inspect/);
     assert.match(rendered.workflow, /package-path: "packages\/pipeline"/);
     assert.match(rendered.workflow, /target-registry: "https:\/\/npm\.pkg\.github\.com"/);
     assert.match(rendered.workflow, /mode: pr/);
+    assert.match(rendered.workflow, /release-package: "github:async\/release#v0\.1\.3"/);
     assert.match(rendered.workflow, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
     assert.match(rendered.workflow, /name: Publish package preview\n        id: async-package-preview/);
+    assert.match(rendered.workflow, /name: Verify PR package preview\n        if: github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name == github\.repository && steps\.async-package-preview\.outputs\.package-spec != ''[\s\S]+preview doctor[\s\S]+--network live/);
+    assert.ok(
+      rendered.workflow.indexOf("Publish package preview") < rendered.workflow.indexOf("Verify PR package preview"),
+      "preview doctor must run after privileged preview publish"
+    );
     assert.match(rendered.workflow, asyncActionUses("comment"));
     assert.match(rendered.workflow, /name: Comment package preview[\s\S]+if: github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name == github\.repository && steps\.async-package-preview\.outputs\.comment-body != ''/);
     assert.match(rendered.workflow, /mode: pr-comment/);
@@ -482,7 +503,7 @@ test("renders generated package preview job from packagePreviews true", async ()
     assert.match(rendered.workflow, /body: \$\{\{ steps\.async-package-preview\.outputs\.comment-body \}\}/);
     assert.match(rendered.workflow, /token: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
     assert.match(rendered.workflow, asyncActionUses("evidence"));
-    assert.match(rendered.workflow, /name: Collect evidence manifest[\s\S]+mode: collect[\s\S]+artifact-name: async-evidence-\$\{\{ github\.job \}\}/);
+    assert.match(rendered.workflow, /name: Collect evidence manifest[\s\S]+mode: collect[\s\S]+paths: \|\n            \.async\/runs\n            \.async\/release[\s\S]+artifact-name: async-evidence-\$\{\{ github\.job \}\}/);
     assert.match(rendered.workflow, /evidence:\n    name: evidence\n    needs: \["package-preview","verify"\]\n    if: always\(\)/);
     assert.match(rendered.workflow, /name: Merge evidence manifests[\s\S]+mode: merge[\s\S]+artifact-pattern: async-evidence-\*/);
     assert.deepEqual(rendered.lock.packagePreviews, {
@@ -1246,7 +1267,7 @@ test("renders lifecycle publish tasks as async action steps", async () => {
     assert.match(rendered.workflow, /mode: npm/);
     assert.match(rendered.workflow, /provenance: true/);
     assert.match(rendered.workflow, asyncActionUses("doctor"));
-    assert.match(rendered.workflow, /name: Plan release package[\s\S]+mode: plan[\s\S]+release-command: "pnpm dlx github:async\/release#e8c938ae44f11558fbbac1c805e0ce81ad765080"/);
+    assert.match(rendered.workflow, /name: Plan release package[\s\S]+mode: plan[\s\S]+release-command: "pnpm dlx github:async\/release#v0\.1\.3"/);
     assert.match(rendered.workflow, /name: Inspect release package[\s\S]+mode: inspect/);
     assert.match(rendered.workflow, /name: Check release changelog[\s\S]+mode: changelog/);
     assert.match(rendered.workflow, /name: Render release notes[\s\S]+mode: notes/);
@@ -1282,7 +1303,12 @@ test("renders lifecycle publish tasks as async action steps", async () => {
 
     const previewBlock = stepBlock(rendered.workflow, "Publish main package preview");
     assert.match(previewBlock, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
+    assert.match(previewBlock, /release-package: "github:async\/release#v0\.1\.3"/);
     assert.doesNotMatch(previewBlock, /NODE_AUTH_TOKEN/);
+
+    const previewDoctorBlock = stepBlock(rendered.workflow, "Verify main package preview");
+    assert.match(previewDoctorBlock, /if: steps\.async-main-package-preview\.outputs\.package-spec != ''/);
+    assert.match(previewDoctorBlock, /preview doctor/);
 
     const releaseBlock = stepBlock(rendered.workflow, "Create or update GitHub Release");
     assert.match(releaseBlock, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
@@ -1940,7 +1966,7 @@ export default definePipeline({
     const generate = spawnSync("node", [cliPath, "github", "generate"], { cwd: dir, encoding: "utf8" });
     assert.equal(generate.status, 0, generate.stderr);
     assert.equal(existsSync(join(dir, ".github/workflows/async-pipeline.yml")), true);
-    assert.equal(existsSync(join(dir, ".github/async-pipeline.lock.json")), true);
+    assert.equal(existsSync(join(dir, ".locks/pipeline/github-workflow.lock.json")), true);
 
     const check = spawnSync("node", [cliPath, "github", "check"], { cwd: dir, encoding: "utf8" });
     assert.equal(check.status, 0, check.stderr);
@@ -1950,7 +1976,7 @@ export default definePipeline({
     const windowsCheck = spawnSync("node", [cliPath, "github", "check"], { cwd: dir, encoding: "utf8" });
     assert.equal(windowsCheck.status, 0, windowsCheck.stderr);
 
-    const lock = JSON.parse(readFileSync(join(dir, ".github/async-pipeline.lock.json"), "utf8"));
+    const lock = JSON.parse(readFileSync(join(dir, ".locks/pipeline/github-workflow.lock.json"), "utf8"));
     assert.equal(lock.triggers.push.branches[0], "main");
     assert.equal(lock.actions.find((entry) => entry.id === "async.actions.run")?.sha, asyncActionsSha);
     assertAllRemoteActionRefsPinned(readFileSync(workflowPath, "utf8"));

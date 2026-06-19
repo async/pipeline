@@ -170,7 +170,7 @@ Commit the generated files:
 
 ```txt
 .github/workflows/async-pipeline.yml
-.github/async-pipeline.lock.json
+.locks/pipeline/github-workflow.lock.json
 ```
 
 CI then runs:
@@ -224,8 +224,8 @@ Commit:
 
 - `pipeline.ts`, `pipeline.js`, `pipeline.mjs`, or `pipeline.mts`
 - `.github/workflows/async-pipeline.yml`
-- `.github/async-pipeline.lock.json`
-- `.async-pipeline/tasks.lock.json` when `sync.tasks` is configured
+- `.locks/pipeline/github-workflow.lock.json`
+- `.locks/pipeline/tasks.lock.json` when `sync.tasks` is configured
 - package metadata and lockfile changes
 - docs that explain the project pipeline
 

@@ -52,7 +52,7 @@ test("renders package scripts for synced jobs and opt-in raw tasks", async () =>
     assert.equal(packageJson.scripts["ci:verify"], "async-pipeline run verify");
     assert.equal(packageJson.scripts["ci:task:typecheck"], "async-pipeline run-task typecheck");
     assert.equal(packageJson.scripts["ci:sync:check"], "async-pipeline sync check");
-    assert.equal(existsSync(join(dir, ".async-pipeline/tasks.lock.json")), true);
+    assert.equal(existsSync(join(dir, ".locks/pipeline/tasks.lock.json")), true);
     assert.deepEqual(await checkTaskSync(rendered, dir), []);
   } finally {
     rmSync(dir, { force: true, recursive: true });
@@ -340,8 +340,8 @@ export default definePipeline({
     const generate = spawnSync("node", [cliPath, "sync", "generate"], { cwd: dir, encoding: "utf8" });
     assert.equal(generate.status, 0, generate.stderr);
     assert.equal(existsSync(join(dir, ".github/workflows/async-pipeline.yml")), true);
-    assert.equal(existsSync(join(dir, ".github/async-pipeline.lock.json")), true);
-    assert.equal(existsSync(join(dir, ".async-pipeline/tasks.lock.json")), true);
+    assert.equal(existsSync(join(dir, ".locks/pipeline/github-workflow.lock.json")), true);
+    assert.equal(existsSync(join(dir, ".locks/pipeline/tasks.lock.json")), true);
 
     const check = spawnSync("node", [cliPath, "sync", "check"], { cwd: dir, encoding: "utf8" });
     assert.equal(check.status, 0, check.stderr);

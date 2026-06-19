@@ -3,8 +3,8 @@
   "generator": "@async/pipeline",
   "config": "pipeline.ts",
   "workflow": ".github/workflows/async-pipeline.yml",
-  "hash": "sha256:67f5f162f4b969c1ad62b4c449137465dd58a2efd60c0ff8a1eb868ef2d8141e",
-  "generatedAt": "2026-06-19T07:29:18.871Z",
+  "hash": "sha256:89f334e6d34168c09ef208c66aa5888f09d02938343c14074af3d0045a282d70",
+  "generatedAt": "2026-06-19T23:05:13.185Z",
   "actions": [
     {
       "id": "actions.checkout",
@@ -23,107 +23,107 @@
     {
       "id": "async.actions.agent-evidence",
       "uses": "async/actions/agent-evidence",
-      "sha": "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4",
-      "label": "v0.1.16",
-      "ref": "async/actions/agent-evidence@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16"
+      "sha": "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b",
+      "label": "v0.1.17",
+      "ref": "async/actions/agent-evidence@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17"
     },
     {
       "id": "async.actions.attest",
       "uses": "async/actions/attest",
-      "sha": "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4",
-      "label": "v0.1.16",
-      "ref": "async/actions/attest@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16"
+      "sha": "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b",
+      "label": "v0.1.17",
+      "ref": "async/actions/attest@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17"
     },
     {
       "id": "async.actions.cache",
       "uses": "async/actions/cache",
-      "sha": "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4",
-      "label": "v0.1.16",
-      "ref": "async/actions/cache@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16"
+      "sha": "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b",
+      "label": "v0.1.17",
+      "ref": "async/actions/cache@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17"
     },
     {
       "id": "async.actions.comment",
       "uses": "async/actions/comment",
-      "sha": "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4",
-      "label": "v0.1.16",
-      "ref": "async/actions/comment@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16"
+      "sha": "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b",
+      "label": "v0.1.17",
+      "ref": "async/actions/comment@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17"
     },
     {
       "id": "async.actions.contract",
       "uses": "async/actions/contract",
-      "sha": "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4",
-      "label": "v0.1.16",
-      "ref": "async/actions/contract@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16"
+      "sha": "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b",
+      "label": "v0.1.17",
+      "ref": "async/actions/contract@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17"
     },
     {
       "id": "async.actions.dependabot-merge",
       "uses": "async/actions/dependabot-merge",
-      "sha": "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4",
-      "label": "v0.1.16",
-      "ref": "async/actions/dependabot-merge@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16"
+      "sha": "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b",
+      "label": "v0.1.17",
+      "ref": "async/actions/dependabot-merge@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17"
     },
     {
       "id": "async.actions.doctor",
       "uses": "async/actions/doctor",
-      "sha": "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4",
-      "label": "v0.1.16",
-      "ref": "async/actions/doctor@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16"
+      "sha": "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b",
+      "label": "v0.1.17",
+      "ref": "async/actions/doctor@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17"
     },
     {
       "id": "async.actions.evidence",
       "uses": "async/actions/evidence",
-      "sha": "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4",
-      "label": "v0.1.16",
-      "ref": "async/actions/evidence@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16"
+      "sha": "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b",
+      "label": "v0.1.17",
+      "ref": "async/actions/evidence@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17"
     },
     {
       "id": "async.actions.hygiene",
       "uses": "async/actions/hygiene",
-      "sha": "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4",
-      "label": "v0.1.16",
-      "ref": "async/actions/hygiene@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16"
+      "sha": "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b",
+      "label": "v0.1.17",
+      "ref": "async/actions/hygiene@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17"
     },
     {
       "id": "async.actions.pages",
       "uses": "async/actions/pages",
-      "sha": "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4",
-      "label": "v0.1.16",
-      "ref": "async/actions/pages@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16"
+      "sha": "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b",
+      "label": "v0.1.17",
+      "ref": "async/actions/pages@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17"
     },
     {
       "id": "async.actions.preview",
       "uses": "async/actions/preview",
-      "sha": "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4",
-      "label": "v0.1.16",
-      "ref": "async/actions/preview@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16"
+      "sha": "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b",
+      "label": "v0.1.17",
+      "ref": "async/actions/preview@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17"
     },
     {
       "id": "async.actions.publish",
       "uses": "async/actions/publish",
-      "sha": "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4",
-      "label": "v0.1.16",
-      "ref": "async/actions/publish@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16"
+      "sha": "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b",
+      "label": "v0.1.17",
+      "ref": "async/actions/publish@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17"
     },
     {
       "id": "async.actions.run",
       "uses": "async/actions/run",
-      "sha": "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4",
-      "label": "v0.1.16",
-      "ref": "async/actions/run@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16"
+      "sha": "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b",
+      "label": "v0.1.17",
+      "ref": "async/actions/run@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17"
     },
     {
       "id": "async.actions.setup",
       "uses": "async/actions/setup",
-      "sha": "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4",
-      "label": "v0.1.16",
-      "ref": "async/actions/setup@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16"
+      "sha": "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b",
+      "label": "v0.1.17",
+      "ref": "async/actions/setup@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17"
     },
     {
       "id": "async.actions.source-impact",
       "uses": "async/actions/source-impact",
-      "sha": "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4",
-      "label": "v0.1.16",
-      "ref": "async/actions/source-impact@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16"
+      "sha": "3d8f86b960b16f4a61a22533ebcaca9a955a0f9b",
+      "label": "v0.1.17",
+      "ref": "async/actions/source-impact@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17"
     },
     {
       "id": "deno.setup",
@@ -148,19 +148,34 @@
     }
   ],
   "triggers": {
-    "pull_request": {},
+    "pull_request": {
+      "types": [
+        "opened",
+        "ready_for_review",
+        "reopened",
+        "synchronize"
+      ]
+    },
     "push": {
       "branches": [
         "main"
       ]
     },
-    "workflow_dispatch": {}
+    "workflow_dispatch": {},
+    "pull_request_target": {
+      "types": [
+        "opened",
+        "ready_for_review",
+        "reopened",
+        "synchronize"
+      ]
+    }
   },
   "jobs": [
     {
       "id": "verify",
       "target": [
-        "test"
+        "pack"
       ],
       "trigger": [
         "pr",
@@ -171,17 +186,18 @@
       "if": "(github.event_name == 'pull_request') || (github.event_name == 'push' && (github.ref == 'refs/heads/main')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'verify')"
     }
   ],
-  "packageManager": "deno",
-  "command": "deno run -A ../../packages/pipeline/dist/cli.js",
+  "packageManager": "pnpm",
+  "packageManagerVersion": "11.1.0",
+  "command": "pnpm async-pipeline",
   "setup": "pnpm",
   "nodeVersion": "24",
   "runtime": [
-    "deno@2"
+    "node@24"
   ],
   "taskCache": true,
   "dependencyCache": true,
   "dependabotAutoMerge": {
-    "enabled": false,
+    "enabled": true,
     "ecosystems": [
       "github-actions",
       "npm",
@@ -189,13 +205,15 @@
     ]
   },
   "packagePreviews": {
-    "enabled": false,
+    "enabled": true,
     "registry": "https://npm.pkg.github.com",
     "tokenEnv": "GITHUB_TOKEN",
-    "comment": true
+    "comment": true,
+    "package": ".",
+    "target": "pack"
   },
   "evidence": {
-    "enabled": false,
+    "enabled": true,
     "job": "evidence",
     "paths": [
       ".async/runs"

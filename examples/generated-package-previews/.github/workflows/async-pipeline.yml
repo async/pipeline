@@ -56,14 +56,14 @@ jobs:
 
       - name: Restore Async task cache
         id: async-cache-restore
-        uses: async/actions/cache@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16
+        uses: async/actions/cache@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
         with:
           mode: restore
           manifest: .async/actions/cache/verify-cache-manifest.json
           trust: read-only
 
       - name: Run pipeline job
-        uses: async/actions/run@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16
+        uses: async/actions/run@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run verify"
           check-generated: false
@@ -73,7 +73,7 @@ jobs:
 
       - name: Save Async task cache
         if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
-        uses: async/actions/cache@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16
+        uses: async/actions/cache@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
         with:
           mode: save
           manifest: .async/actions/cache/verify-cache-manifest.json
@@ -81,7 +81,7 @@ jobs:
 
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16
+        uses: async/actions/evidence@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
         with:
           mode: collect
           paths: |
@@ -110,7 +110,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Merge validated Dependabot PR
-        uses: async/actions/dependabot-merge@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16
+        uses: async/actions/dependabot-merge@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
         with:
           pull-request-number: ${{ github.event.pull_request.number }}
           actor: ${{ github.event.pull_request.user.login }}
@@ -153,14 +153,14 @@ jobs:
 
       - name: Restore Async task cache
         id: async-cache-restore
-        uses: async/actions/cache@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16
+        uses: async/actions/cache@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
         with:
           mode: restore
           manifest: .async/actions/cache/package-preview-cache-manifest.json
           trust: read-only
 
       - name: Run package preview target
-        uses: async/actions/run@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16
+        uses: async/actions/run@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"
           check-generated: false
@@ -170,28 +170,44 @@ jobs:
 
       - name: Save Async task cache
         if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
-        uses: async/actions/cache@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16
+        uses: async/actions/cache@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
         with:
           mode: save
           manifest: .async/actions/cache/package-preview-cache-manifest.json
           trust: read-write
 
+      - name: Plan PR package preview
+        run: pnpm dlx github:async/release#v0.1.3 preview plan --package . --mode pr --namespace "${{ github.repository_owner }}" --source-repository "${{ github.repository }}" --source-sha "${{ github.sha }}" --evidence-dir .async/release --json --pr-number "${{ github.event.pull_request.number }}" --head-sha "${{ github.event.pull_request.head.sha }}"
+
+      - name: Stage PR package preview
+        run: pnpm dlx github:async/release#v0.1.3 preview stage --package . --mode pr --namespace "${{ github.repository_owner }}" --source-repository "${{ github.repository }}" --source-sha "${{ github.sha }}" --evidence-dir .async/release --json --registry https://npm.pkg.github.com --pr-number "${{ github.event.pull_request.number }}" --head-sha "${{ github.event.pull_request.head.sha }}"
+
+      - name: Inspect PR package preview
+        run: pnpm dlx github:async/release#v0.1.3 preview inspect --package . --mode pr --namespace "${{ github.repository_owner }}" --source-repository "${{ github.repository }}" --source-sha "${{ github.sha }}" --evidence-dir .async/release --json --pr-number "${{ github.event.pull_request.number }}" --head-sha "${{ github.event.pull_request.head.sha }}"
+
       - name: Publish package preview
         id: async-package-preview
-        uses: async/actions/preview@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16
+        uses: async/actions/preview@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
         with:
           package-path: "."
           target-registry: "https://npm.pkg.github.com"
           mode: pr
           comment: true
           token-env-name: "GITHUB_TOKEN"
+          release-package: "github:async/release#v0.1.3"
         env:
           CI: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify PR package preview
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && steps.async-package-preview.outputs.package-spec != ''
+        run: pnpm dlx github:async/release#v0.1.3 preview doctor --package . --mode pr --namespace "${{ github.repository_owner }}" --source-repository "${{ github.repository }}" --source-sha "${{ github.sha }}" --evidence-dir .async/release --json --registry https://npm.pkg.github.com --network live --pr-number "${{ github.event.pull_request.number }}" --head-sha "${{ github.event.pull_request.head.sha }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Comment package preview
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && steps.async-package-preview.outputs.comment-body != ''
-        uses: async/actions/comment@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16
+        uses: async/actions/comment@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
         with:
           mode: pr-comment
           repository: ${{ github.repository }}
@@ -202,11 +218,12 @@ jobs:
 
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16
+        uses: async/actions/evidence@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
         with:
           mode: collect
           paths: |
             .async/runs
+            .async/release
           receipt-paths: |
             .async/actions/receipts/**/*.json
           manifest-path: ".async/evidence/${{ github.job }}/manifest.json"
@@ -225,7 +242,7 @@ jobs:
       contents: read
     steps:
       - name: Merge evidence manifests
-        uses: async/actions/evidence@f81b4ae15d6a8c512a94bc3a2e866f807ad398a4 # v0.1.16
+        uses: async/actions/evidence@3d8f86b960b16f4a61a22533ebcaca9a955a0f9b # v0.1.17
         with:
           mode: merge
           artifact-pattern: async-evidence-*

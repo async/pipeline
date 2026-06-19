@@ -45,7 +45,7 @@ GitHub Actions starts workflows from YAML, so TypeScript cannot dynamically regi
 
 ```txt
 .github/workflows/async-pipeline.yml
-.github/async-pipeline.lock.json
+.locks/pipeline/github-workflow.lock.json
 ```
 
 `async-pipeline github check` recomputes the same metadata hash and fails if the generated workflow or lock is stale.
