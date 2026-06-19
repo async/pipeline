@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 import { existsSync, realpathSync } from "node:fs";
-import { readFile, readdir, rm } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { DEFAULT_PIPELINE_CONFIG_FILES, buildGraph, composePipelines, tasksForJob, type ContainerProvider, type ExecutionRecord, type NormalizedPipeline, type TaskResult } from "@async/pipeline-core";
 import { runDoctor } from "./doctor.js";
 import { checkGitHubWorkflow, jobsForGitHubEvent, readGitHubEventContext, renderGitHubWorkflow, writeGitHubWorkflow } from "./github.js";
 import { loadPipeline } from "./loader.js";
-import { beginShutdown, commandProxy, planJob, runJob, runSingleTask, shutdownExitCode, type CommandResult, type PipelineCommands } from "./runner.js";
+import { beginShutdown, cacheManifestForJob, cacheManifestForTask, commandProxy, planJob, runJob, runSingleTask, shutdownExitCode, type CommandResult, type GitHubCacheManifestTrust, type PipelineCommands } from "./runner.js";
 import { runMcpServer } from "./mcp.js";
 import { ensureGitHubRelease, publishGitHubPackage, publishNpmPackage, runLifecycleCli, runReleaseDoctor, type GitHubPackagePublishMode } from "./package-lifecycle.js";
 import { computeTaskInputManifest, createStore, diffInputManifests, pruneCacheEntries, readCacheInputManifest, readContextPacks, readTaskBaseline, readTaskCacheReceipts, type TaskCacheReceipt, type TaskContextPack } from "./store.js";
@@ -412,7 +412,10 @@ async function dispatchCommand(commandName: string, args: string[], context: Pip
       context.stdout("Cleared task cache.\n");
       return 0;
     }
-    throw new Error(`Unknown cache command "${subcommand ?? ""}". Use: ${program} cache clear`);
+    if (subcommand === "manifest") {
+      return handleCacheManifestCommand(args.slice(1), context, program);
+    }
+    throw new Error(`Unknown cache command "${subcommand ?? ""}". Use: ${program} cache clear | cache manifest --job <id> --output <path>`);
   }
 
   if (commandName === "gc") {
@@ -431,6 +434,27 @@ async function dispatchCommand(commandName: string, args: string[], context: Pip
   }
 
   throw new Error(`Unknown command "${commandName}".`);
+}
+
+async function handleCacheManifestCommand(args: string[], context: PipelineCliContext, program: string): Promise<number> {
+  const jobId = optionalFlagValue(args, "--job");
+  const taskId = optionalFlagValue(args, "--task");
+  if ((jobId ? 1 : 0) + (taskId ? 1 : 0) !== 1) {
+    throw new Error(`Usage: ${program} cache manifest (--job <id> | --task <id>) --output <path> [--trust read-only|read-write]`);
+  }
+  const outputPath = requiredFlagValue(args, "--output", `Usage: ${program} cache manifest (--job <id> | --task <id>) --output <path> [--trust read-only|read-write]`);
+  const trust = (optionalFlagValue(args, "--trust") ?? "read-only") as GitHubCacheManifestTrust;
+  if (trust !== "read-only" && trust !== "read-write") {
+    throw new Error("--trust must be read-only or read-write.");
+  }
+  const manifest = jobId
+    ? await cacheManifestForJob(context.pipeline, { id: jobId, trust, cwd: context.cwd, env: context.env, commands: context.commands, sandbox: context.sandboxId, execution: context.executionId, provider: context.provider })
+    : await cacheManifestForTask(context.pipeline, taskId as string, { trust, cwd: context.cwd, env: context.env, commands: context.commands, sandbox: context.sandboxId, execution: context.executionId, provider: context.provider });
+  const target = resolveRepoOutputPath(context.cwd, outputPath);
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  context.stdout(`Generated ${relativePath(context.cwd, target)}\n`);
+  return 0;
 }
 
 async function handlePublishCommand(args: string[], context: PipelineCliContext, program: string): Promise<number> {
@@ -1114,6 +1138,25 @@ function githubGenerationPaths(args: string[]): { workflowPath?: string; lockPat
   if (workflowIndex >= 0 && !workflowPath) throw new Error("Usage: async-pipeline github <generate|check> --workflow <path>");
   if (lockIndex >= 0 && !lockPath) throw new Error("Usage: async-pipeline github <generate|check> --lock <path>");
   return { workflowPath, lockPath };
+}
+
+function resolveRepoOutputPath(cwd: string, path: string): string {
+  if (!path || path.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(path)) {
+    throw new Error(`Output path "${path}" must be repo-relative.`);
+  }
+  if (path.split(/[\\/]+/u).some((part) => part === "" || part === "..")) {
+    throw new Error(`Output path "${path}" cannot contain empty segments or ..`);
+  }
+  const target = resolve(cwd, path);
+  const relativeTarget = relative(cwd, target);
+  if (relativeTarget === ".." || relativeTarget.startsWith(`..${sep}`)) {
+    throw new Error(`Output path "${path}" resolves outside the repository.`);
+  }
+  return target;
+}
+
+function relativePath(cwd: string, path: string): string {
+  return relative(cwd, resolve(path)).split(/[\\/]+/u).join("/");
 }
 
 async function loadAvailableSourceGraph(pipeline: NormalizedPipeline, cwd: string, store: Awaited<ReturnType<typeof createStore>>) {

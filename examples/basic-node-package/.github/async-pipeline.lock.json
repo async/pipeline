@@ -1,18 +1,11 @@
 {
-  "version": 16,
+  "version": 17,
   "generator": "@async/pipeline",
   "config": "pipeline.ts",
   "workflow": ".github/workflows/async-pipeline.yml",
-  "hash": "sha256:dcbd2f3f4af077265d0c8a2c5495ee67ab52a25e584fac383dec60822e496bb4",
-  "generatedAt": "2026-06-19T01:05:53.016Z",
+  "hash": "sha256:d23a17513fec652ac72c67a3332098c74c805f13dc4b5f3924b6faf8542dbb52",
+  "generatedAt": "2026-06-19T01:31:18.829Z",
   "actions": [
-    {
-      "id": "actions.cache",
-      "uses": "actions/cache",
-      "sha": "0057852bfaa89a56745cba8c7296529d2fc39830",
-      "label": "v4",
-      "ref": "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4"
-    },
     {
       "id": "actions.checkout",
       "uses": "actions/checkout",
@@ -28,60 +21,67 @@
       "ref": "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6"
     },
     {
+      "id": "async.actions.cache",
+      "uses": "async/actions/cache",
+      "sha": "1b1a167072f242ed200f8f5ec7cdf10c8a9ae241",
+      "label": "v0.1.8",
+      "ref": "async/actions/cache@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8"
+    },
+    {
       "id": "async.actions.dependabot-merge",
       "uses": "async/actions/dependabot-merge",
-      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
-      "label": "v0.1.7",
-      "ref": "async/actions/dependabot-merge@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
+      "sha": "1b1a167072f242ed200f8f5ec7cdf10c8a9ae241",
+      "label": "v0.1.8",
+      "ref": "async/actions/dependabot-merge@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8"
     },
     {
       "id": "async.actions.evidence",
       "uses": "async/actions/evidence",
-      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
-      "label": "v0.1.7",
-      "ref": "async/actions/evidence@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
+      "sha": "1b1a167072f242ed200f8f5ec7cdf10c8a9ae241",
+      "label": "v0.1.8",
+      "ref": "async/actions/evidence@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8"
     },
     {
       "id": "async.actions.pages",
       "uses": "async/actions/pages",
-      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
-      "label": "v0.1.7",
-      "ref": "async/actions/pages@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
+      "sha": "1b1a167072f242ed200f8f5ec7cdf10c8a9ae241",
+      "label": "v0.1.8",
+      "ref": "async/actions/pages@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8"
     },
     {
       "id": "async.actions.preview",
       "uses": "async/actions/preview",
-      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
-      "label": "v0.1.7",
-      "ref": "async/actions/preview@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
+      "sha": "1b1a167072f242ed200f8f5ec7cdf10c8a9ae241",
+      "label": "v0.1.8",
+      "ref": "async/actions/preview@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8"
     },
     {
       "id": "async.actions.publish",
       "uses": "async/actions/publish",
-      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
-      "label": "v0.1.7",
-      "ref": "async/actions/publish@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
+      "sha": "1b1a167072f242ed200f8f5ec7cdf10c8a9ae241",
+      "label": "v0.1.8",
+      "ref": "async/actions/publish@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8"
     },
     {
       "id": "async.actions.run",
       "uses": "async/actions/run",
-      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
-      "label": "v0.1.7",
-      "ref": "async/actions/run@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
+      "sha": "1b1a167072f242ed200f8f5ec7cdf10c8a9ae241",
+      "label": "v0.1.8",
+      "ref": "async/actions/run@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8"
     },
     {
       "id": "async.actions.setup",
       "uses": "async/actions/setup",
-      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
-      "label": "v0.1.7",
-      "ref": "async/actions/setup@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
+      "sha": "1b1a167072f242ed200f8f5ec7cdf10c8a9ae241",
+      "label": "v0.1.8",
+      "ref": "async/actions/setup@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8"
     },
     {
       "id": "async.actions.source-impact",
       "uses": "async/actions/source-impact",
-      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
-      "label": "v0.1.7",
-      "ref": "async/actions/source-impact@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
+      "sha": "1b1a167072f242ed200f8f5ec7cdf10c8a9ae241",
+      "label": "v0.1.8",
+      "ref": "async/actions/source-impact@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8"
     },
     {
       "id": "deno.setup",

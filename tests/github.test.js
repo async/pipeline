@@ -13,8 +13,8 @@ import { checkGitHubWorkflow, jobsForGitHubEvent, renderGitHubWorkflow, writeGit
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
 const cliPath = join(repoRoot, "packages/pipeline-node/dist/cli.js");
-const asyncActionsSha = "cef0f1a3b7dd1300a16004e6d69b472261a3272f";
-const asyncActionsLabel = "v0.1.7";
+const asyncActionsSha = "1b1a167072f242ed200f8f5ec7cdf10c8a9ae241";
+const asyncActionsLabel = "v0.1.8";
 const asyncActionsRefPattern = `${asyncActionsSha} # ${asyncActionsLabel.replaceAll(".", "\\.")}`;
 const asyncActionUses = (name) => new RegExp(`uses: async/actions/${name}@${asyncActionsRefPattern}`);
 
@@ -49,7 +49,11 @@ test("renders github workflow triggers and bootloader steps", async () => {
     assert.match(rendered.workflow, /async-pipeline github check/);
     assertAllRemoteActionRefsPinned(rendered.workflow);
     assert.match(rendered.workflow, /async-pipeline run verify/);
-    assert.match(rendered.workflow, /actions\/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4/);
+    assert.match(rendered.workflow, /async-pipeline cache manifest --job verify --output \.async\/actions\/cache\/verify-cache-manifest\.json --trust read-only/);
+    assert.match(rendered.workflow, asyncActionUses("cache"));
+    assert.match(rendered.workflow, /mode: restore/);
+    assert.match(rendered.workflow, /mode: save/);
+    assert.match(rendered.workflow, /github\.event_name != 'pull_request'/);
     assert.match(rendered.workflow, /name: Setup pnpm runtime/);
     assert.match(rendered.workflow, /uses: pnpm\/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1\.0\.0/);
     assert.match(rendered.workflow, /version: 11\.1\.0/);
@@ -68,6 +72,7 @@ test("renders github workflow triggers and bootloader steps", async () => {
     assert.match(rendered.workflow, /artifact-name: async-pipeline-\$\{\{ github\.job \}\}-runs/);
     assert.equal(rendered.lock.workflow, ".github/workflows/async-pipeline.yml");
     assert.equal(rendered.lock.actions.find((entry) => entry.id === "async.actions.run")?.sha, asyncActionsSha);
+    assert.equal(rendered.lock.actions.find((entry) => entry.id === "async.actions.cache")?.sha, asyncActionsSha);
     assert.equal(rendered.lock.setup, "pnpm");
     assert.equal(rendered.lock.packageManagerVersion, "11.1.0");
     assert.equal(rendered.lock.dependencyCache, true);

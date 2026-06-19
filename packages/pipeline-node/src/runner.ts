@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { dirname, join, posix, relative } from "node:path";
@@ -598,6 +598,30 @@ export interface JobPlan {
   entries: TaskPlanEntry[];
 }
 
+export type GitHubCacheManifestTrust = "read-only" | "read-write";
+
+export interface GitHubTaskCacheManifestEntry {
+  id: string;
+  task: string;
+  key: string;
+  restoreKeys: string[];
+  paths: string[];
+  writeAllowed: boolean;
+  predicted?: TaskPlanEntry["predicted"];
+  reason?: string;
+}
+
+export interface GitHubTaskCacheManifest {
+  version: 1;
+  generatedBy: "@async/pipeline";
+  generatedAt: string;
+  job: string;
+  trust: GitHubCacheManifestTrust;
+  primaryKey: string;
+  restoreKeys: string[];
+  entries: GitHubTaskCacheManifestEntry[];
+}
+
 /**
  * Computes the execution order and predicted cache behavior for a job without running it.
  * Predictions reuse the real cache-key chain but do not validate cached output files.
@@ -680,6 +704,67 @@ export async function planJob(pipeline: NormalizedPipeline, options: { id: strin
   }
 
   return { jobId: options.id, executionOrder: schedule.executionOrder, entries };
+}
+
+export async function cacheManifestForJob(
+  pipeline: NormalizedPipeline,
+  options: { id: string; trust?: GitHubCacheManifestTrust } & RunTarget
+): Promise<GitHubTaskCacheManifest> {
+  const plan = await planJob(pipeline, options);
+  return cacheManifestFromPlan(plan, options.env ?? process.env, options.trust ?? "read-only");
+}
+
+export async function cacheManifestForTask(
+  pipeline: NormalizedPipeline,
+  taskId: string,
+  options: { trust?: GitHubCacheManifestTrust } & RunTarget = {}
+): Promise<GitHubTaskCacheManifest> {
+  const syntheticJobId = `task:${taskId}`;
+  const syntheticPipeline: NormalizedPipeline = {
+    ...pipeline,
+    jobs: {
+      ...pipeline.jobs,
+      [syntheticJobId]: { id: syntheticJobId, target: [taskId], trigger: [] }
+    }
+  };
+  const plan = await planJob(syntheticPipeline, { ...options, id: syntheticJobId });
+  return cacheManifestFromPlan(plan, options.env ?? process.env, options.trust ?? "read-only");
+}
+
+function cacheManifestFromPlan(plan: JobPlan, env: NodeJS.ProcessEnv, trust: GitHubCacheManifestTrust): GitHubTaskCacheManifest {
+  const runner = cacheRunnerScope(env);
+  const entries: GitHubTaskCacheManifestEntry[] = plan.entries
+    .filter((entry) => entry.cacheEnabled && entry.cacheKey)
+    .map((entry) => ({
+      id: `task:${entry.id}`,
+      task: entry.id,
+      key: `async-pipeline-${runner}-${safeCachePart(entry.id)}-${entry.cacheKey}`,
+      restoreKeys: [],
+      paths: [`.async/cache/tasks/${entry.cacheKey}`],
+      writeAllowed: true,
+      predicted: entry.predicted,
+      ...(entry.reason ? { reason: entry.reason } : {})
+    }));
+  const entryKeys = entries.map((entry) => entry.key).sort();
+  const manifestHash = createHash("sha256").update(JSON.stringify(entryKeys)).digest("hex").slice(0, 32);
+  return {
+    version: 1,
+    generatedBy: "@async/pipeline",
+    generatedAt: new Date().toISOString(),
+    job: plan.jobId,
+    trust,
+    primaryKey: `async-pipeline-${runner}-${safeCachePart(plan.jobId)}-${manifestHash}`,
+    restoreKeys: [],
+    entries
+  };
+}
+
+function cacheRunnerScope(env: NodeJS.ProcessEnv): string {
+  return (env.RUNNER_OS || process.platform || "unknown").toLowerCase().replaceAll(/[^a-z0-9_-]/g, "-");
+}
+
+function safeCachePart(value: string): string {
+  return value.toLowerCase().replaceAll(/[^a-z0-9_-]/g, "-").replace(/^-+|-+$/gu, "") || "task";
 }
 
 function executionScheduleForJob(pipeline: NormalizedPipeline, jobId: string): ExecutionSchedule {

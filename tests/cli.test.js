@@ -460,6 +460,60 @@ test("cache clear and gc maintain local pipeline state", async () => {
   }
 });
 
+test("cache manifest writes generated task-cache metadata", async () => {
+  const { mkdtemp, readFile, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { runPipelineCli } = await import("../packages/pipeline-node/dist/cli.js");
+
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-cli-cache-manifest-"));
+  try {
+    await writeFile(join(dir, "input.txt"), "hello\n", "utf8");
+    await writeFile(join(dir, "pipeline.mjs"), [
+      `import { definePipeline, job, sh, task } from ${JSON.stringify(new URL("../packages/pipeline-core/dist/index.js", import.meta.url).href)};`,
+      "export default definePipeline({",
+      '  name: "cache-manifest-test",',
+      "  tasks: { verify: task({ inputs: [\"input.txt\"], cache: \"file:local\", run: sh`node -e \"process.exit(0)\"` }) },",
+      "  jobs: { verify: job({ target: \"verify\" }) }",
+      "});",
+      ""
+    ].join("\n"), "utf8");
+    const target = ({ cwd: dir, env: { PATH: process.env.PATH, RUNNER_OS: "Linux" } });
+
+    let stdout = "";
+    const result = await runPipelineCli({
+      args: ["cache", "manifest", "--job", "verify", "--output", ".async/actions/cache/verify.json", "--trust", "read-write"],
+      ...target,
+      stdout: (text) => { stdout += text; },
+      stderr: () => {}
+    });
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(stdout, /Generated \.async\/actions\/cache\/verify\.json/);
+
+    const manifest = JSON.parse(await readFile(join(dir, ".async/actions/cache/verify.json"), "utf8"));
+    assert.equal(manifest.generatedBy, "@async/pipeline");
+    assert.equal(manifest.job, "verify");
+    assert.equal(manifest.trust, "read-write");
+    assert.match(manifest.primaryKey, /^async-pipeline-linux-verify-/u);
+    assert.equal(manifest.entries.length, 1);
+    assert.equal(manifest.entries[0].task, "verify");
+    assert.match(manifest.entries[0].key, /^async-pipeline-linux-verify-/u);
+    assert.match(manifest.entries[0].paths[0], /^\.async\/cache\/tasks\/[a-f0-9]+$/u);
+    assert.equal(manifest.entries[0].writeAllowed, true);
+
+    stdout = "";
+    const unsafe = await runPipelineCli({
+      args: ["cache", "manifest", "--job", "verify", "--output", "../outside.json"],
+      ...target,
+      stdout: (text) => { stdout += text; },
+      stderr: () => {}
+    });
+    assert.equal(unsafe.code, 1);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test("doctor warns about stale running run records", async () => {
   const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");

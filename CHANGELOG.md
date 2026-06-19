@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.6 - 2026-06-19
+
+### Features
+
+- Add generated task-cache manifests and `async/actions/cache` restore/save steps so GitHub task-cache keys come from pipeline-declared task inputs while saves stay disabled on pull requests.
+
 ## 0.9.5 - 2026-06-19
 
 ### Features

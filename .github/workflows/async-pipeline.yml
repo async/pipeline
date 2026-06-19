@@ -51,16 +51,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Restore task cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: .async/cache
-          key: async-pipeline-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            async-pipeline-${{ runner.os }}-
-
       - name: Setup Async runtimes
-        uses: async/actions/setup@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/setup@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           node-version: 24
           pnpm-version: 11.1.0
@@ -82,8 +74,19 @@ jobs:
       - name: Build pipeline CLI
         run: pnpm build
 
+      - name: Write task cache manifest
+        run: pnpm async-pipeline cache manifest --job publish --output .async/actions/cache/publish-cache-manifest.json --trust read-only
+
+      - name: Restore Async task cache
+        id: async-cache-restore
+        uses: async/actions/cache@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
+        with:
+          mode: restore
+          manifest: .async/actions/cache/publish-cache-manifest.json
+          trust: read-only
+
       - name: Run pipeline task pack
-        uses: async/actions/run@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/run@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"
           check-generated: false
@@ -92,7 +95,7 @@ jobs:
           CI: true
 
       - name: Create or update GitHub Release
-        uses: async/actions/publish@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/publish@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           package-path: "packages/pipeline"
           mode: github-release
@@ -103,7 +106,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish GitHub Packages mirror
-        uses: async/actions/publish@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/publish@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           package-path: "packages/pipeline"
           mode: github-packages
@@ -115,7 +118,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish npm package
-        uses: async/actions/publish@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/publish@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           package-path: "packages/pipeline"
           mode: npm
@@ -128,7 +131,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Run release doctor
-        uses: async/actions/publish@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/publish@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           package-path: "packages/pipeline"
           mode: doctor
@@ -138,9 +141,17 @@ jobs:
           CI: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Save Async task cache
+        if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
+        uses: async/actions/cache@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
+        with:
+          mode: save
+          manifest: .async/actions/cache/publish-cache-manifest.json
+          trust: read-write
+
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/evidence@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           mode: collect
           paths: |
@@ -165,16 +176,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Restore task cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: .async/cache
-          key: async-pipeline-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            async-pipeline-${{ runner.os }}-
-
       - name: Setup Async runtimes
-        uses: async/actions/setup@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/setup@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           node-version: 24
           pnpm-version: 11.1.0
@@ -193,8 +196,19 @@ jobs:
       - name: Build pipeline CLI
         run: pnpm build
 
+      - name: Write task cache manifest
+        run: pnpm async-pipeline cache manifest --job snapshot --output .async/actions/cache/snapshot-cache-manifest.json --trust read-only
+
+      - name: Restore Async task cache
+        id: async-cache-restore
+        uses: async/actions/cache@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
+        with:
+          mode: restore
+          manifest: .async/actions/cache/snapshot-cache-manifest.json
+          trust: read-only
+
       - name: Run pipeline task pack
-        uses: async/actions/run@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/run@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"
           check-generated: false
@@ -203,7 +217,7 @@ jobs:
           CI: true
 
       - name: Publish main package preview
-        uses: async/actions/preview@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/preview@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           package-path: "packages/pipeline"
           target-registry: "https://npm.pkg.github.com"
@@ -214,9 +228,17 @@ jobs:
           CI: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Save Async task cache
+        if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
+        uses: async/actions/cache@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
+        with:
+          mode: save
+          manifest: .async/actions/cache/snapshot-cache-manifest.json
+          trust: read-write
+
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/evidence@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           mode: collect
           paths: |
@@ -244,16 +266,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Restore task cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: .async/cache
-          key: async-pipeline-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            async-pipeline-${{ runner.os }}-
-
       - name: Setup Async runtimes
-        uses: async/actions/setup@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/setup@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           node-version: 24
           pnpm-version: 11.1.0
@@ -272,8 +286,19 @@ jobs:
       - name: Build pipeline CLI
         run: pnpm build
 
+      - name: Write task cache manifest
+        run: pnpm async-pipeline cache manifest --job verify --output .async/actions/cache/verify-cache-manifest.json --trust read-only
+
+      - name: Restore Async task cache
+        id: async-cache-restore
+        uses: async/actions/cache@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
+        with:
+          mode: restore
+          manifest: .async/actions/cache/verify-cache-manifest.json
+          trust: read-only
+
       - name: Run pipeline job
-        uses: async/actions/run@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/run@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run verify"
           check-generated: false
@@ -281,9 +306,17 @@ jobs:
         env:
           CI: true
 
+      - name: Save Async task cache
+        if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
+        uses: async/actions/cache@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
+        with:
+          mode: save
+          manifest: .async/actions/cache/verify-cache-manifest.json
+          trust: read-write
+
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/evidence@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           mode: collect
           paths: |
@@ -305,16 +338,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Restore task cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: .async/cache
-          key: async-pipeline-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            async-pipeline-${{ runner.os }}-
-
       - name: Setup Async runtimes
-        uses: async/actions/setup@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/setup@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           node-version: 24
           pnpm-version: 11.1.0
@@ -333,8 +358,19 @@ jobs:
       - name: Build pipeline CLI
         run: pnpm build
 
+      - name: Write task cache manifest
+        run: pnpm async-pipeline cache manifest --task docs.site --output .async/actions/cache/docs.site-cache-manifest.json --trust read-only
+
+      - name: Restore Async task cache
+        id: async-cache-restore
+        uses: async/actions/cache@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
+        with:
+          mode: restore
+          manifest: .async/actions/cache/docs.site-cache-manifest.json
+          trust: read-only
+
       - name: Run Pages target
-        uses: async/actions/run@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/run@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run-task docs.site"
           check-generated: false
@@ -342,15 +378,23 @@ jobs:
         env:
           CI: true
 
+      - name: Save Async task cache
+        if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
+        uses: async/actions/cache@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
+        with:
+          mode: save
+          manifest: .async/actions/cache/docs.site-cache-manifest.json
+          trust: read-write
+
       - name: Upload Pages artifact
-        uses: async/actions/pages@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/pages@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           mode: static
           path: ".async/pages"
 
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/evidence@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           mode: collect
           paths: |
@@ -378,7 +422,7 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: async/actions/pages@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/pages@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           upload: false
           deploy: true
@@ -398,7 +442,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Merge validated Dependabot PR
-        uses: async/actions/dependabot-merge@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/dependabot-merge@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           pull-request-number: ${{ github.event.pull_request.number }}
           actor: ${{ github.event.pull_request.user.login }}
@@ -425,16 +469,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Restore task cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: .async/cache
-          key: async-pipeline-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            async-pipeline-${{ runner.os }}-
-
       - name: Setup Async runtimes
-        uses: async/actions/setup@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/setup@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           node-version: 24
           pnpm-version: 11.1.0
@@ -453,8 +489,19 @@ jobs:
       - name: Build pipeline CLI
         run: pnpm build
 
+      - name: Write task cache manifest
+        run: pnpm async-pipeline cache manifest --task pack --output .async/actions/cache/package-preview-cache-manifest.json --trust read-only
+
+      - name: Restore Async task cache
+        id: async-cache-restore
+        uses: async/actions/cache@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
+        with:
+          mode: restore
+          manifest: .async/actions/cache/package-preview-cache-manifest.json
+          trust: read-only
+
       - name: Run package preview target
-        uses: async/actions/run@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/run@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"
           check-generated: false
@@ -462,8 +509,16 @@ jobs:
         env:
           CI: true
 
+      - name: Save Async task cache
+        if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
+        uses: async/actions/cache@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
+        with:
+          mode: save
+          manifest: .async/actions/cache/package-preview-cache-manifest.json
+          trust: read-write
+
       - name: Publish package preview
-        uses: async/actions/preview@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/preview@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           package-path: "packages/pipeline"
           target-registry: "https://npm.pkg.github.com"
@@ -476,7 +531,7 @@ jobs:
 
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/evidence@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           mode: collect
           paths: |
@@ -499,7 +554,7 @@ jobs:
       contents: read
     steps:
       - name: Merge evidence manifests
-        uses: async/actions/evidence@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/evidence@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           mode: merge
           artifact-pattern: async-evidence-*

@@ -8,7 +8,7 @@ import { sourceImpactPlanForJob, type SourceImpactPlan } from "./sources.js";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 16;
+const GENERATOR_VERSION = 17;
 const DEFAULT_NODE_VERSION = "24";
 const DEFAULT_DENO_VERSION = "2";
 const DEFAULT_PNPM_VERSION = "11.1.0";
@@ -32,8 +32,8 @@ function defineActionRef(id: string, uses: string, sha: string, label: string): 
   };
 }
 
-const ASYNC_ACTIONS_SHA = "cef0f1a3b7dd1300a16004e6d69b472261a3272f";
-const ASYNC_ACTIONS_LABEL = "v0.1.7";
+const ASYNC_ACTIONS_SHA = "1b1a167072f242ed200f8f5ec7cdf10c8a9ae241";
+const ASYNC_ACTIONS_LABEL = "v0.1.8";
 
 const GENERATED_ACTIONS = [
   defineActionRef("async.actions.setup", "async/actions/setup", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
@@ -44,8 +44,8 @@ const GENERATED_ACTIONS = [
   defineActionRef("async.actions.dependabot-merge", "async/actions/dependabot-merge", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.evidence", "async/actions/evidence", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.source-impact", "async/actions/source-impact", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("async.actions.cache", "async/actions/cache", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("actions.checkout", "actions/checkout", "de0fac2e4500dabe0009e67214ff5f5447ce83dd", "v6.0.2"),
-  defineActionRef("actions.cache", "actions/cache", "0057852bfaa89a56745cba8c7296529d2fc39830", "v4"),
   defineActionRef("pnpm.setup", "pnpm/setup", "cf03a9b516e09bc5a90f041fc26fc930c9dc631b", "v1.0.0"),
   defineActionRef("deno.setup", "denoland/setup-deno", "667a34cdef165d8d2b2e98dde39547c9daac7282", "v2.0.4"),
   defineActionRef("actions.setup-node", "actions/setup-node", "48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e", "v6"),
@@ -63,8 +63,8 @@ const ASYNC_PUBLISH_ACTION = actionRef("async.actions.publish");
 const ASYNC_DEPENDABOT_MERGE_ACTION = actionRef("async.actions.dependabot-merge");
 const ASYNC_EVIDENCE_ACTION = actionRef("async.actions.evidence");
 const ASYNC_SOURCE_IMPACT_ACTION = actionRef("async.actions.source-impact");
+const ASYNC_CACHE_ACTION = actionRef("async.actions.cache");
 const CHECKOUT_ACTION = actionRef("actions.checkout");
-const CACHE_ACTION = actionRef("actions.cache");
 const PNPM_SETUP_ACTION = actionRef("pnpm.setup");
 const DENO_SETUP_ACTION = actionRef("deno.setup");
 const SETUP_NODE_ACTION = actionRef("actions.setup-node");
@@ -818,18 +818,6 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
     "      - name: Checkout",
     `        uses: ${CHECKOUT_ACTION}`,
     "",
-    ...(model.taskCache
-      ? [
-          "      - name: Restore task cache",
-          `        uses: ${CACHE_ACTION}`,
-          "        with:",
-          "          path: .async/cache",
-          "          key: async-pipeline-${{ runner.os }}-${{ github.sha }}",
-          "          restore-keys: |",
-          "            async-pipeline-${{ runner.os }}-",
-          ""
-        ]
-      : []),
     ...renderSetupSteps(model),
     ...(idToken === "write"
       ? [
@@ -847,12 +835,14 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
       `        run: ${model.buildCommand}`
     );
   }
+  renderTaskCacheRestoreSteps(lines, model, { kind: "job", id: job.id });
   const lifecyclePlan = resolveLifecycleJobPlan(model, job);
   if (lifecyclePlan) {
     renderLifecycleJobPlan(lines, model, job, lifecyclePlan);
   } else {
     renderRunActionStep(lines, "Run pipeline job", `${model.command} github check && ${model.command} run ${shellWord(job.id)}${job.execution ? ` --execution ${shellWord(job.execution)}` : ""}`, job.env);
   }
+  renderTaskCacheSaveSteps(lines, model, { kind: "job", id: job.id });
   if (job.github?.pages) {
     lines.push("");
     renderPagesBuildSteps(lines, job.github.pages);
@@ -914,18 +904,6 @@ function renderSourceImpactMatrixJob(lines: string[], model: ReturnType<typeof b
     "      - name: Checkout",
     `        uses: ${CHECKOUT_ACTION}`,
     "",
-    ...(model.taskCache
-      ? [
-          "      - name: Restore task cache",
-          `        uses: ${CACHE_ACTION}`,
-          "        with:",
-          "          path: .async/cache",
-          "          key: async-pipeline-${{ runner.os }}-${{ github.sha }}",
-          "          restore-keys: |",
-          "            async-pipeline-${{ runner.os }}-",
-          ""
-        ]
-      : []),
     ...renderSetupSteps(model),
     ...renderDependencyInstallSteps(model)
   );
@@ -956,6 +934,11 @@ function renderSourceImpactMatrixJob(lines: string[], model: ReturnType<typeof b
     "          source-id: ${{ matrix.source }}",
     "          path: ${{ matrix.path }}"
   );
+  renderTaskCacheRestoreSteps(lines, model, {
+    kind: "task",
+    id: "\"${{ matrix.task }}\"",
+    manifestPath: ".async/actions/cache/${{ matrix.source }}-${{ matrix.taskId }}-cache-manifest.json"
+  });
   renderRunActionStep(
     lines,
     "Run source task",
@@ -963,8 +946,53 @@ function renderSourceImpactMatrixJob(lines: string[], model: ReturnType<typeof b
     scopeActionEnv(sourceJob.env, new Set()),
     { artifactName: "async-pipeline-${{ github.job }}-${{ matrix.source }}-${{ matrix.taskId }}-runs" }
   );
+  renderTaskCacheSaveSteps(lines, model, {
+    kind: "task",
+    id: "\"${{ matrix.task }}\"",
+    manifestPath: ".async/actions/cache/${{ matrix.source }}-${{ matrix.taskId }}-cache-manifest.json"
+  });
   renderEvidenceCollectStep(lines, model, { matrix: true });
   lines.push("");
+}
+
+type TaskCacheTarget = { kind: "job" | "task"; id: string; manifestPath?: string };
+
+function renderTaskCacheRestoreSteps(lines: string[], model: ReturnType<typeof buildRenderModel>, target: TaskCacheTarget): void {
+  if (!model.taskCache) return;
+  const manifestPath = target.manifestPath ?? `.async/actions/cache/${safeArtifactPart(target.id)}-cache-manifest.json`;
+  lines.push(
+    "",
+    "      - name: Write task cache manifest",
+    `        run: ${renderCacheManifestCommand(model, target, manifestPath, "read-only")}`,
+    "",
+    "      - name: Restore Async task cache",
+    "        id: async-cache-restore",
+    `        uses: ${ASYNC_CACHE_ACTION}`,
+    "        with:",
+    "          mode: restore",
+    `          manifest: ${manifestPath}`,
+    "          trust: read-only"
+  );
+}
+
+function renderTaskCacheSaveSteps(lines: string[], model: ReturnType<typeof buildRenderModel>, target: TaskCacheTarget): void {
+  if (!model.taskCache) return;
+  const manifestPath = target.manifestPath ?? `.async/actions/cache/${safeArtifactPart(target.id)}-cache-manifest.json`;
+  lines.push(
+    "",
+    "      - name: Save Async task cache",
+    "        if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}",
+    `        uses: ${ASYNC_CACHE_ACTION}`,
+    "        with:",
+    "          mode: save",
+    `          manifest: ${manifestPath}`,
+    "          trust: read-write"
+  );
+}
+
+function renderCacheManifestCommand(model: ReturnType<typeof buildRenderModel>, target: TaskCacheTarget, manifestPath: string, trust: "read-only" | "read-write"): string {
+  const targetFlag = target.kind === "job" ? "--job" : "--task";
+  return `${model.command} cache manifest ${targetFlag} ${target.id.startsWith("\"") ? target.id : shellWord(target.id)} --output ${shellWord(manifestPath)} --trust ${trust}`;
 }
 
 function renderWriteSourceImpactPlanStep(lines: string[], sourceJob: SourceImpactRenderJob): void {
@@ -992,18 +1020,6 @@ function renderGeneratedPagesJob(lines: string[], model: ReturnType<typeof build
     "      - name: Checkout",
     `        uses: ${CHECKOUT_ACTION}`,
     "",
-    ...(model.taskCache
-      ? [
-          "      - name: Restore task cache",
-          `        uses: ${CACHE_ACTION}`,
-          "        with:",
-          "          path: .async/cache",
-          "          key: async-pipeline-${{ runner.os }}-${{ github.sha }}",
-          "          restore-keys: |",
-          "            async-pipeline-${{ runner.os }}-",
-          ""
-        ]
-      : []),
     ...renderSetupSteps(model),
     ...renderDependencyInstallSteps(model)
   );
@@ -1014,7 +1030,9 @@ function renderGeneratedPagesJob(lines: string[], model: ReturnType<typeof build
       `        run: ${model.buildCommand}`
     );
   }
+  renderTaskCacheRestoreSteps(lines, model, { kind: "task", id: pages.target });
   renderRunActionStep(lines, "Run Pages target", `${model.command} github check && ${model.command} run-task ${shellWord(pages.target)}`, {});
+  renderTaskCacheSaveSteps(lines, model, { kind: "task", id: pages.target });
   lines.push("");
   renderPagesBuildSteps(lines, pages);
   renderEvidenceCollectStep(lines, model);
@@ -1410,18 +1428,6 @@ function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof build
     "        with:",
     "          persist-credentials: false",
     "",
-    ...(model.taskCache
-      ? [
-          "      - name: Restore task cache",
-          `        uses: ${CACHE_ACTION}`,
-          "        with:",
-          "          path: .async/cache",
-          "          key: async-pipeline-${{ runner.os }}-${{ github.sha }}",
-          "          restore-keys: |",
-          "            async-pipeline-${{ runner.os }}-",
-          ""
-        ]
-      : []),
     ...renderSetupSteps(model),
     ...renderDependencyInstallSteps(model)
   );
@@ -1432,7 +1438,9 @@ function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof build
       `        run: ${model.buildCommand}`
     );
   }
+  renderTaskCacheRestoreSteps(lines, model, { kind: "task", id: preview.target, manifestPath: ".async/actions/cache/package-preview-cache-manifest.json" });
   renderRunActionStep(lines, "Run package preview target", `${model.command} github check && ${model.command} run-task ${shellWord(preview.target)}`, {});
+  renderTaskCacheSaveSteps(lines, model, { kind: "task", id: preview.target, manifestPath: ".async/actions/cache/package-preview-cache-manifest.json" });
   lines.push(
     "",
     "      - name: Publish package preview",
@@ -1471,18 +1479,6 @@ function renderBridgeJob(lines: string[], model: ReturnType<typeof buildRenderMo
     "        with:",
     "          persist-credentials: false",
     "",
-    ...(model.taskCache
-      ? [
-          "      - name: Restore task cache",
-          `        uses: ${CACHE_ACTION}`,
-          "        with:",
-          "          path: .async/cache",
-          "          key: async-pipeline-${{ runner.os }}-${{ github.sha }}",
-          "          restore-keys: |",
-          "            async-pipeline-${{ runner.os }}-",
-          ""
-        ]
-      : []),
     ...renderSetupSteps(model),
     ...renderDependencyInstallSteps(model)
   );

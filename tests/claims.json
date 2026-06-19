@@ -196,9 +196,10 @@
     {
       "id": "github-actions.task-cache-step",
       "source": "docs/github-actions.md",
-      "anchor": "The generated workflow persists `.async/cache` through the generated `actions/cache` step when `sync.github.cache` is true.",
+      "anchor": "The generated workflow writes an Async task-cache manifest and calls `async/actions/cache` to restore declared `.async/cache/tasks/<key>` paths when `sync.github.cache` is true.",
       "tests": [
-        "renders github workflow triggers and bootloader steps"
+        "renders github workflow triggers and bootloader steps",
+        "cache manifest writes generated task-cache metadata"
       ]
     },
     {
@@ -254,6 +255,15 @@
         "renders github workflow triggers and bootloader steps",
         "renders github workflow with dependency cache disabled",
         "renders deno-only github workflow without package-manager install"
+      ]
+    },
+    {
+      "id": "api.github-task-cache-manifest",
+      "source": "docs/api.md",
+      "anchor": "`cache: true` (the default) writes a generated task-cache manifest and calls `async/actions/cache` to restore matching `.async/cache/tasks/<key>` paths; trusted non-PR jobs save with the same manifest after success.",
+      "tests": [
+        "renders github workflow triggers and bootloader steps",
+        "cache manifest writes generated task-cache metadata"
       ]
     },
     {
@@ -958,6 +968,15 @@
         "normalizes explicit sync task config and validates selected ids",
         "source impact plans serialize repo-local sources, matrix rows, and prepare fallback reasons",
         "renders source impact planning and matrix jobs from sync github sourceImpact"
+      ]
+    },
+    {
+      "id": "changelog.generated-task-cache-manifest",
+      "source": "CHANGELOG.md",
+      "anchor": "Add generated task-cache manifests and `async/actions/cache` restore/save steps so GitHub task-cache keys come from pipeline-declared task inputs while saves stay disabled on pull requests.",
+      "tests": [
+        "renders github workflow triggers and bootloader steps",
+        "cache manifest writes generated task-cache metadata"
       ]
     },
     {

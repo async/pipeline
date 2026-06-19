@@ -26,6 +26,7 @@ Contract: `@async/pipeline.declaration`
 | `config.source` | Source pipeline declaration | public | stable | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#source) |
 | `config.sync.github` | Generated GitHub Actions sync declaration | public | stable | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/sync.md) |
 | `config.sync.github.bridge` | Generated GitHub Actions storage bridge declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
+| `config.sync.github.cache` | Generated GitHub Actions task-cache manifest declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
 | `config.sync.github.evidence` | Generated GitHub Actions evidence fan-in declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
 | `config.sync.github.pages` | Generated GitHub Pages sync declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
 | `config.sync.github.sourceImpact` | Generated source impact matrix job declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
@@ -116,7 +117,7 @@ Contract: `@async/pipeline.runtime`
 | Contract | Hash | Features |
 | --- | --- | --- |
 | `@async/pipeline.cli` | `sha256:b2c8e70d98df0154ebaf48b36dfae473f9b06887c5ad2ddfcc8d0f35c071ebf7` | `cli.github.check`, `cli.github.generate`, `cli.mcp`, `cli.publish.github`, `cli.publish.npm`, `cli.release.doctor`, `cli.run`, `cli.run-task`, `cli.sync.check`, `cli.sync.generate` |
-| `@async/pipeline.declaration` | `sha256:13cacdcc9df03ec55b8786bcfa0e66068fd52bec4048a7cc610b2c52f23aca9e` | `agent.stdoutTo`, `agent.step`, `config.definePipeline`, `config.env`, `config.github.pages`, `config.job`, `config.source`, `config.sync.github`, `config.sync.github.bridge`, `config.sync.github.pages`, `config.sync.github.sourceImpact`, `config.sync.tasks`, `config.task`, `config.trigger.github`, `config.trigger.manual`, `step.shell` |
+| `@async/pipeline.declaration` | `sha256:c0b639e1688a0c8a2b57d6833bb6d1216bbd8c0c19718e3b45c20b986b5058ff` | `agent.stdoutTo`, `agent.step`, `config.definePipeline`, `config.env`, `config.github.pages`, `config.job`, `config.source`, `config.sync.github`, `config.sync.github.bridge`, `config.sync.github.cache`, `config.sync.github.pages`, `config.sync.github.sourceImpact`, `config.sync.tasks`, `config.task`, `config.trigger.github`, `config.trigger.manual`, `step.shell` |
 | `@async/pipeline.runtime` | `sha256:71c3e018e8def16f9fd73fe9551169dff6672b21a082fea776a7d101a2932a30` | `runtime.cache.adapter`, `runtime.cache.file`, `runtime.cache.redis`, `runtime.context-packs`, `runtime.execution-records`, `runtime.run-lock`, `runtime.sandbox.container` |
 
 ## Required Surfaces

@@ -30,14 +30,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Restore task cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: .async/cache
-          key: async-pipeline-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            async-pipeline-${{ runner.os }}-
-
       - name: Setup pnpm runtime
         uses: pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0
         with:
@@ -49,14 +41,33 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Write task cache manifest
+        run: pnpm async-pipeline cache manifest --job verify --output .async/actions/cache/verify-cache-manifest.json --trust read-only
+
+      - name: Restore Async task cache
+        id: async-cache-restore
+        uses: async/actions/cache@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
+        with:
+          mode: restore
+          manifest: .async/actions/cache/verify-cache-manifest.json
+          trust: read-only
+
       - name: Run pipeline job
-        uses: async/actions/run@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/run@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run verify"
           check-generated: false
           artifact-name: async-pipeline-${{ github.job }}-runs
         env:
           CI: true
+
+      - name: Save Async task cache
+        if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
+        uses: async/actions/cache@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
+        with:
+          mode: save
+          manifest: .async/actions/cache/verify-cache-manifest.json
+          trust: read-write
 
   workerCheck:
     name: workerCheck
@@ -66,14 +77,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Restore task cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: .async/cache
-          key: async-pipeline-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            async-pipeline-${{ runner.os }}-
-
       - name: Setup pnpm runtime
         uses: pnpm/setup@cf03a9b516e09bc5a90f041fc26fc930c9dc631b # v1.0.0
         with:
@@ -85,11 +88,30 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Write task cache manifest
+        run: pnpm async-pipeline cache manifest --job workerCheck --output .async/actions/cache/workerCheck-cache-manifest.json --trust read-only
+
+      - name: Restore Async task cache
+        id: async-cache-restore
+        uses: async/actions/cache@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
+        with:
+          mode: restore
+          manifest: .async/actions/cache/workerCheck-cache-manifest.json
+          trust: read-only
+
       - name: Run pipeline job
-        uses: async/actions/run@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
+        uses: async/actions/run@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run workerCheck"
           check-generated: false
           artifact-name: async-pipeline-${{ github.job }}-runs
         env:
           CI: true
+
+      - name: Save Async task cache
+        if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
+        uses: async/actions/cache@1b1a167072f242ed200f8f5ec7cdf10c8a9ae241 # v0.1.8
+        with:
+          mode: save
+          manifest: .async/actions/cache/workerCheck-cache-manifest.json
+          trust: read-write

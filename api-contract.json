@@ -80,6 +80,15 @@
           "docsUrl": "https://github.com/async/pipeline/blob/main/docs/github-actions.md"
         },
         {
+          "id": "config.sync.github.cache",
+          "title": "Generated GitHub Actions task-cache manifest declaration",
+          "releaseTag": "beta",
+          "stability": "preview",
+          "lifecycle": "active",
+          "group": "config",
+          "docsUrl": "https://github.com/async/pipeline/blob/main/docs/github-actions.md"
+        },
+        {
           "id": "config.sync.github.sourceImpact",
           "title": "Generated source impact matrix job declaration",
           "releaseTag": "beta",
@@ -374,6 +383,7 @@
         "config.env",
         "config.github.pages",
         "config.sync.github.bridge",
+        "config.sync.github.cache",
         "config.sync.github.sourceImpact",
         "config.sync.github.pages",
         "config.job",

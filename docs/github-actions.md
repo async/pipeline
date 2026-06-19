@@ -33,7 +33,7 @@ export default definePipeline({
 
 ## Workflow Options
 
-The generated workflow uses the pinned `pnpm/setup` provider by default to install pnpm plus the requested runtime for the current pipeline CLI. Repos can opt into the shared Async setup action with `setup: "async"` when they want one generated setup step for Node, pnpm, npm, optional Deno/Bun runtimes, registry auth, dependency cache, and dependency install. The workflow restores the local task cache (`.async/cache`) through a pinned `actions/cache` step keyed by commit with an OS-prefixed fallback. These knobs live in `sync.github`:
+The generated workflow uses the pinned `pnpm/setup` provider by default to install pnpm plus the requested runtime for the current pipeline CLI. Repos can opt into the shared Async setup action with `setup: "async"` when they want one generated setup step for Node, pnpm, npm, optional Deno/Bun runtimes, registry auth, dependency cache, and dependency install. When task caching is enabled, the workflow writes a pipeline-owned cache manifest and delegates restore/save receipts to `async/actions/cache`. These knobs live in `sync.github`:
 
 ```ts
 sync: {
@@ -58,7 +58,7 @@ sync: {
 }
 ```
 
-`setup: "auto"` currently resolves to the default pinned `pnpm/setup` provider. Explicit `setup: "async"` selects `async/actions/setup`. Package projects default to `node@<nodeVersion>`; Deno-only projects with `deno.json` or `deno.jsonc` and no `package.json` default to `deno@2`; explicit `runtime` accepts a string or array such as `["node@24", "deno@2"]`. Use `setup: "node"` when you explicitly want the older `actions/setup-node` + Corepack bootloader for a single Node runtime. `cache` controls the task cache. `dependencyCache` controls dependency-store cache settings: with the default pnpm setup, the generated workflow passes the recognized lockfile to `pnpm/setup`; with `setup: "async"`, it passes the recognized lockfile to `async/actions/setup`. Set it to `false` when you need a fully cold dependency install.
+`setup: "auto"` currently resolves to the default pinned `pnpm/setup` provider. Explicit `setup: "async"` selects `async/actions/setup`. Package projects default to `node@<nodeVersion>`; Deno-only projects with `deno.json` or `deno.jsonc` and no `package.json` default to `deno@2`; explicit `runtime` accepts a string or array such as `["node@24", "deno@2"]`. Use `setup: "node"` when you explicitly want the older `actions/setup-node` + Corepack bootloader for a single Node runtime. `cache` controls the task cache manifest and generated `async/actions/cache` steps. `dependencyCache` controls dependency-store cache settings: with the default pnpm setup, the generated workflow passes the recognized lockfile to `pnpm/setup`; with `setup: "async"`, it passes the recognized lockfile to `async/actions/setup`. Set it to `false` when you need a fully cold dependency install.
 
 All generated remote `uses:` references, including `async/actions/*`, are resolved from the central action manifest and emitted as full 40-character SHAs with a trailing human label. Tags such as `v0` remain compatibility labels for readers and hand-written consumers, but generated privileged workflows execute the reviewed SHA recorded by `@async/pipeline`.
 
@@ -438,7 +438,7 @@ Generated GitHub Actions do not install PATH shims yet. Future GitHub workspace/
 
 ## Cache
 
-The generated workflow persists `.async/cache` through the generated `actions/cache` step when `sync.github.cache` is true. The generated workflow also enables dependency-store caching through `pnpm/setup` when `sync.github.dependencyCache` is true and the package manager has a recognized lockfile. Deno-only generated workflows run `deno install` instead of package-manager install. The run evidence artifact uploads `.async/runs`; it is diagnostic evidence, not a remote task-cache adapter.
+The generated workflow writes an Async task-cache manifest and calls `async/actions/cache` to restore declared `.async/cache/tasks/<key>` paths when `sync.github.cache` is true. Cache saves run only after a successful trusted non-PR job and use the same generated manifest with read-write trust. The generated workflow also enables dependency-store caching through `pnpm/setup` when `sync.github.dependencyCache` is true and the package manager has a recognized lockfile. Deno-only generated workflows run `deno install` instead of package-manager install. The run evidence artifact uploads `.async/runs`; it is diagnostic evidence, not a remote task-cache adapter.
 
 Keep package-manager caching separate from `@async/pipeline` task caching.
 
