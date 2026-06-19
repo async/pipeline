@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.7 - 2026-06-19
+
+### Features
+
+- Add `sync.github.attest` so generated release lifecycle jobs can create subject digest manifests, SBOM evidence, tarball-scan receipts, and optional GitHub attestation intent through `async/actions/attest` while keeping publish ownership in `async/actions/publish`.
+
 ## 0.9.6 - 2026-06-19
 
 ### Features

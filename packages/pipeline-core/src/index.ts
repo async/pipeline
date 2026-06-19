@@ -343,6 +343,19 @@ export interface GitHubSourceImpactConfig {
 
 export type GitHubSourceImpactInput = boolean | GitHubSourceImpactConfig;
 
+export interface GitHubAttestConfig {
+  packagePath?: string;
+  artifacts?: string[];
+  subjectManifest?: string;
+  sbomPath?: string;
+  evidencePath?: string;
+  requireNpmProvenance?: boolean;
+  tarballScan?: boolean;
+  githubAttestation?: boolean;
+}
+
+export type GitHubAttestInput = boolean | GitHubAttestConfig;
+
 export interface GitHubSyncConfig {
   workflow?: string;
   lock?: string;
@@ -357,6 +370,7 @@ export interface GitHubSyncConfig {
   bridge?: GitHubBridgeSyncInput;
   pages?: GitHubPagesSyncInput;
   sourceImpact?: GitHubSourceImpactInput;
+  attest?: GitHubAttestInput;
 }
 
 export type GitHubSyncInput = boolean | GitHubSyncConfig;
@@ -393,6 +407,7 @@ export interface NormalizedGitHubSyncConfig {
   bridge: NormalizedGitHubBridgeSyncConfig;
   pages: NormalizedGitHubPagesSyncConfig;
   sourceImpact: NormalizedGitHubSourceImpactConfig;
+  attest: NormalizedGitHubAttestConfig;
 }
 
 export interface NormalizedDependabotAutoMergeConfig {
@@ -451,6 +466,18 @@ export interface NormalizedGitHubPagesSyncConfig extends GitHubPagesConfig {
 export interface NormalizedGitHubSourceImpactConfig {
   enabled: boolean;
   jobs: JobId[];
+}
+
+export interface NormalizedGitHubAttestConfig {
+  enabled: boolean;
+  packagePath?: string;
+  artifacts: string[];
+  subjectManifest: string;
+  sbomPath: string;
+  evidencePath: string;
+  requireNpmProvenance: boolean;
+  tarballScan: boolean;
+  githubAttestation: boolean;
 }
 
 export interface NormalizedTaskSyncConfig {
@@ -958,7 +985,7 @@ const GITHUB_PAGES_STATIC_BUILD_FIELDS = new Set(["kind", "path"]);
 const GITHUB_PAGES_PRERENDER_BUILD_FIELDS = new Set(["kind", "path", "spaFallback", "validateIndex"]);
 const GITHUB_PERMISSION_FIELDS = new Set(["contents", "idToken", "issues", "packages", "pullRequests"]);
 const SYNC_FIELDS = new Set(["command", "github", "tasks"]);
-const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "packagePreviews", "dependabotAutoMerge", "evidence", "bridge", "pages", "sourceImpact"]);
+const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "packagePreviews", "dependabotAutoMerge", "evidence", "bridge", "pages", "sourceImpact", "attest"]);
 const GITHUB_SETUP_PROVIDERS = new Set<GitHubSetupProvider>(["auto", "async", "pnpm", "node"]);
 const DEPENDABOT_AUTO_MERGE_FIELDS = new Set(["ecosystems"]);
 const DEPENDABOT_AUTO_MERGE_ECOSYSTEMS = new Set<DependabotAutoMergeEcosystem>(["github-actions", "npm", "deno"]);
@@ -967,6 +994,7 @@ const GITHUB_EVIDENCE_FIELDS = new Set(["job", "paths", "receiptPaths", "artifac
 const GITHUB_BRIDGE_FIELDS = new Set(["mode", "schedule", "pullRequest", "branchPrefix", "allowedPaths", "endpointVar", "tokenEnv", "packageVersion"]);
 const GITHUB_SYNC_PAGES_FIELDS = new Set(["artifactName", "build", "environment", "job", "target", "triggers"]);
 const GITHUB_SOURCE_IMPACT_FIELDS = new Set(["jobs"]);
+const GITHUB_ATTEST_FIELDS = new Set(["packagePath", "artifacts", "subjectManifest", "sbomPath", "evidencePath", "requireNpmProvenance", "tarballScan", "githubAttestation"]);
 const GITHUB_SYNC_PAGES_TRIGGERS_FIELDS = new Set(["manual", "main", "pullRequest"]);
 const GITHUB_SYNC_PAGES_MAIN_TRIGGER_FIELDS = new Set(["branch"]);
 const CONTAINER_PROVIDERS = new Set(["auto", "docker", "apple-container", "lima"]);
@@ -1023,6 +1051,9 @@ function validateDefinitionShape(definition: PipelineDefinition): void {
     }
     if (definition.sync.github.sourceImpact && typeof definition.sync.github.sourceImpact === "object") {
       rejectUnknownFields(GITHUB_SOURCE_IMPACT_FIELDS, definition.sync.github.sourceImpact, "sync.github.sourceImpact");
+    }
+    if (definition.sync.github.attest && typeof definition.sync.github.attest === "object") {
+      rejectUnknownFields(GITHUB_ATTEST_FIELDS, definition.sync.github.attest, "sync.github.attest");
     }
     if (definition.sync.github.pages && typeof definition.sync.github.pages === "object") {
       rejectUnknownFields(GITHUB_SYNC_PAGES_FIELDS, definition.sync.github.pages, "sync.github.pages");
@@ -1863,7 +1894,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       evidence: normalizeGitHubEvidence(undefined),
       bridge: normalizeGitHubBridge(undefined),
       pages: normalizeGitHubPagesSync(undefined),
-      sourceImpact: normalizeGitHubSourceImpact(undefined)
+      sourceImpact: normalizeGitHubSourceImpact(undefined),
+      attest: normalizeGitHubAttest(undefined)
     };
   }
   if (github === true) {
@@ -1881,7 +1913,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       evidence: normalizeGitHubEvidence(undefined),
       bridge: normalizeGitHubBridge(undefined),
       pages: normalizeGitHubPagesSync(undefined),
-      sourceImpact: normalizeGitHubSourceImpact(undefined)
+      sourceImpact: normalizeGitHubSourceImpact(undefined),
+      attest: normalizeGitHubAttest(undefined)
     };
   }
   return {
@@ -1898,7 +1931,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
     evidence: normalizeGitHubEvidence(github.evidence),
     bridge: normalizeGitHubBridge(github.bridge),
     pages: normalizeGitHubPagesSync(github.pages),
-    sourceImpact: normalizeGitHubSourceImpact(github.sourceImpact)
+    sourceImpact: normalizeGitHubSourceImpact(github.sourceImpact),
+    attest: normalizeGitHubAttest(github.attest)
   };
 }
 
@@ -2100,6 +2134,81 @@ function normalizeGitHubSourceImpact(input: GitHubSourceImpactInput | undefined)
     return value;
   });
   return { enabled: true, jobs: [...new Set(normalized)] };
+}
+
+function normalizeGitHubAttest(input: GitHubAttestInput | undefined): NormalizedGitHubAttestConfig {
+  const disabled: NormalizedGitHubAttestConfig = {
+    enabled: false,
+    artifacts: [],
+    subjectManifest: ".async/attest/subjects.json",
+    sbomPath: ".async/attest/sbom.json",
+    evidencePath: ".async/actions/receipts/attest.json",
+    requireNpmProvenance: false,
+    tarballScan: false,
+    githubAttestation: false
+  };
+  if (!input) return disabled;
+  if (input === true) {
+    return {
+      ...disabled,
+      enabled: true,
+      requireNpmProvenance: true,
+      tarballScan: true
+    };
+  }
+  const output: NormalizedGitHubAttestConfig = {
+    enabled: true,
+    packagePath: normalizeOptionalNonEmptyString(input.packagePath, "sync.github.attest.packagePath", "ASYNC_PIPELINE_GITHUB_ATTEST_INVALID"),
+    artifacts: normalizeGitHubAttestPaths(input.artifacts, "sync.github.attest.artifacts", []),
+    subjectManifest: normalizeGitHubAttestPath(input.subjectManifest, "sync.github.attest.subjectManifest", ".async/attest/subjects.json"),
+    sbomPath: normalizeGitHubAttestPath(input.sbomPath, "sync.github.attest.sbomPath", ".async/attest/sbom.json"),
+    evidencePath: normalizeGitHubAttestPath(input.evidencePath, "sync.github.attest.evidencePath", ".async/actions/receipts/attest.json"),
+    requireNpmProvenance: input.requireNpmProvenance ?? false,
+    tarballScan: input.tarballScan ?? false,
+    githubAttestation: input.githubAttestation ?? false
+  };
+  if (output.packagePath) validateSafeAttestPathLike(output.packagePath, "sync.github.attest.packagePath");
+  for (const [field, value] of [
+    ["requireNpmProvenance", output.requireNpmProvenance],
+    ["tarballScan", output.tarballScan],
+    ["githubAttestation", output.githubAttestation]
+  ] as const) {
+    if (typeof value !== "boolean") {
+      throw pipelineError("ASYNC_PIPELINE_GITHUB_ATTEST_INVALID", `sync.github.attest.${field} must be a boolean.`);
+    }
+  }
+  return output;
+}
+
+function normalizeGitHubAttestPaths(paths: string[] | undefined, field: string, fallback: string[]): string[] {
+  if (paths === undefined) return fallback;
+  if (!Array.isArray(paths)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_ATTEST_INVALID", `${field} must be an array of repo-relative paths or globs.`);
+  }
+  const normalized = paths.map((path, index) => normalizeGitHubAttestPath(path, `${field}[${index}]`));
+  return [...new Set(normalized)];
+}
+
+function normalizeGitHubAttestPath(input: unknown, field: string, fallback?: string): string {
+  const value = normalizeOptionalNonEmptyString(input, field, "ASYNC_PIPELINE_GITHUB_ATTEST_INVALID") ?? fallback;
+  if (!value) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_ATTEST_INVALID", `${field} cannot be empty.`);
+  }
+  validateSafeAttestPathLike(value, field);
+  return value;
+}
+
+function validateSafeAttestPathLike(value: string, field: string): void {
+  if (value.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(value)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_ATTEST_INVALID", `${field} must be repo-relative.`);
+  }
+  const parts = value.split("/");
+  if (parts.some((part) => part === "" || part === "..")) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_ATTEST_INVALID", `${field} cannot contain empty segments or parent-directory segments.`);
+  }
+  if (value.startsWith(".github/workflows/")) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_ATTEST_INVALID", `${field} cannot include .github/workflows/**.`);
+  }
 }
 
 function normalizeGitHubBridge(input: GitHubBridgeSyncInput | undefined): NormalizedGitHubBridgeSyncConfig {

@@ -13,8 +13,8 @@ import { checkGitHubWorkflow, jobsForGitHubEvent, renderGitHubWorkflow, writeGit
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
 const cliPath = join(repoRoot, "packages/pipeline-node/dist/cli.js");
-const asyncActionsSha = "1b1a167072f242ed200f8f5ec7cdf10c8a9ae241";
-const asyncActionsLabel = "v0.1.8";
+const asyncActionsSha = "c143729ab861e8794535c1d73630a2f2e613f11d";
+const asyncActionsLabel = "v0.1.9";
 const asyncActionsRefPattern = `${asyncActionsSha} # ${asyncActionsLabel.replaceAll(".", "\\.")}`;
 const asyncActionUses = (name) => new RegExp(`uses: async/actions/${name}@${asyncActionsRefPattern}`);
 
@@ -573,6 +573,19 @@ test("renders lifecycle publish tasks as async action steps", async () => {
     writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
     const pipeline = definePipeline({
       name: "test",
+      sync: {
+        github: {
+          attest: {
+            artifacts: ["dist/*.tgz"],
+            subjectManifest: ".async/attest/release-subjects.json",
+            sbomPath: ".async/attest/release-sbom.json",
+            evidencePath: ".async/actions/receipts/release-attest.json",
+            requireNpmProvenance: true,
+            tarballScan: true,
+            githubAttestation: true
+          }
+        }
+      },
       triggers: {
         main: trigger.github({ events: ["push"], branches: ["main"] }),
         release: trigger.github({ events: ["release"], types: ["published"] })
@@ -638,6 +651,23 @@ test("renders lifecycle publish tasks as async action steps", async () => {
     assert.match(rendered.workflow, /provenance: true/);
     assert.match(rendered.workflow, /mode: doctor/);
     assert.match(rendered.workflow, /NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/);
+    assert.match(rendered.workflow, /publish:\n    name: publish[\s\S]+permissions:\n      contents: write\n      id-token: write\n      packages: write/);
+    assert.match(rendered.workflow, asyncActionUses("attest"));
+    assert.match(rendered.workflow, /name: Create attestation subject manifest[\s\S]+mode: digest[\s\S]+artifacts: \|\n            dist\/\*\.tgz[\s\S]+subject-manifest: \.async\/attest\/release-subjects\.json[\s\S]+tarball-scan: true/);
+    assert.match(rendered.workflow, /name: Write attestation SBOM evidence[\s\S]+mode: sbom[\s\S]+sbom-path: \.async\/attest\/release-sbom\.json/);
+    assert.match(rendered.workflow, /name: Record GitHub attestation intent[\s\S]+mode: attest[\s\S]+github-attestation: true/);
+    assert.deepEqual(rendered.lock.attest, {
+      enabled: true,
+      packagePath: undefined,
+      artifacts: ["dist/*.tgz"],
+      subjectManifest: ".async/attest/release-subjects.json",
+      sbomPath: ".async/attest/release-sbom.json",
+      evidencePath: ".async/actions/receipts/release-attest.json",
+      requireNpmProvenance: true,
+      tarballScan: true,
+      githubAttestation: true
+    });
+    assert.equal(rendered.lock.actions.find((entry) => entry.id === "async.actions.attest")?.sha, asyncActionsSha);
 
     const packBlock = stepBlock(rendered.workflow, "Run pipeline task pack");
     assert.doesNotMatch(packBlock, /GITHUB_TOKEN/);
@@ -664,6 +694,44 @@ test("renders lifecycle publish tasks as async action steps", async () => {
     const doctorBlock = stepBlock(rendered.workflow, "Run release doctor");
     assert.match(doctorBlock, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
     assert.doesNotMatch(doctorBlock, /NODE_AUTH_TOKEN/);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("renders attestation digest steps without id-token when GitHub attestation is not requested", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-attest-no-oidc-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "@async/example", version: "1.2.3", packageManager: "pnpm@11.1.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          attest: {
+            artifacts: ["package.json"],
+            tarballScan: true
+          }
+        }
+      },
+      tasks: {
+        publish: task({ run: sh`pnpm async-pipeline publish npm --package .` })
+      },
+      jobs: {
+        publish: job({
+          target: "publish",
+          env: { NODE_AUTH_TOKEN: env.secret("NPM_TOKEN") }
+        })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, asyncActionUses("attest"));
+    const publishJob = jobBlock(rendered.workflow, "publish");
+    assert.doesNotMatch(publishJob, /id-token: write/);
+    assert.match(publishJob, /name: Create attestation subject manifest/);
+    assert.doesNotMatch(publishJob, /name: Record GitHub attestation intent/);
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
@@ -1375,6 +1443,15 @@ function stepBlock(workflow, name) {
   const start = workflow.indexOf(`      - name: ${name}`);
   assert.notEqual(start, -1, `missing step ${name}`);
   const next = workflow.indexOf("\n      - name:", start + 1);
+  return workflow.slice(start, next < 0 ? undefined : next);
+}
+
+function jobBlock(workflow, name) {
+  const start = workflow.indexOf(`  ${name}:`);
+  assert.notEqual(start, -1, `missing job ${name}`);
+  const searchStart = workflow.indexOf("\n", start) + 1;
+  const nextMatch = /\n  [A-Za-z0-9_-]+:\n    name:/u.exec(workflow.slice(searchStart));
+  const next = nextMatch ? searchStart + nextMatch.index : -1;
   return workflow.slice(start, next < 0 ? undefined : next);
 }
 

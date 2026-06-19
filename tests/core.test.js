@@ -786,6 +786,16 @@ test("normalizes sync github and task defaults independently from triggers", () 
     enabled: false,
     jobs: []
   });
+  assert.deepEqual(pipeline.sync.github.attest, {
+    enabled: false,
+    artifacts: [],
+    subjectManifest: ".async/attest/subjects.json",
+    sbomPath: ".async/attest/sbom.json",
+    evidencePath: ".async/actions/receipts/attest.json",
+    requireNpmProvenance: false,
+    tarballScan: false,
+    githubAttestation: false
+  });
   assert.equal(pipeline.sync.tasks.enabled, true);
   assert.equal(pipeline.sync.tasks.prefix, "pipeline");
   assert.equal(pipeline.sync.tasks.runners, "all");
@@ -844,6 +854,16 @@ test("normalizes explicit sync task config and validates selected ids", () => {
         },
         sourceImpact: {
           jobs: ["verify"]
+        },
+        attest: {
+          packagePath: "packages/example",
+          artifacts: ["dist/*.tgz", ".async/evidence/index.json", "dist/*.tgz"],
+          subjectManifest: ".async/attest/release-subjects.json",
+          sbomPath: ".async/attest/release-sbom.json",
+          evidencePath: ".async/actions/receipts/release-attest.json",
+          requireNpmProvenance: true,
+          tarballScan: true,
+          githubAttestation: true
         }
       },
       tasks: {
@@ -918,6 +938,17 @@ test("normalizes explicit sync task config and validates selected ids", () => {
   assert.deepEqual(pipeline.sync.github.sourceImpact, {
     enabled: true,
     jobs: ["verify"]
+  });
+  assert.deepEqual(pipeline.sync.github.attest, {
+    enabled: true,
+    packagePath: "packages/example",
+    artifacts: ["dist/*.tgz", ".async/evidence/index.json"],
+    subjectManifest: ".async/attest/release-subjects.json",
+    sbomPath: ".async/attest/release-sbom.json",
+    evidencePath: ".async/actions/receipts/release-attest.json",
+    requireNpmProvenance: true,
+    tarballScan: true,
+    githubAttestation: true
   });
   assert.deepEqual(pipeline.sync.tasks.runners, ["package"]);
   assert.deepEqual(pipeline.sync.tasks.jobs, ["verify"]);
@@ -1212,6 +1243,11 @@ test("rejects unknown config fields with the field name", () => {
     ...base,
     sync: { github: { sourceImpact: { jobz: ["j"] } } }
   }), /sync\.github\.sourceImpact has unknown field "jobz"/);
+
+  assert.throws(() => definePipeline({
+    ...base,
+    sync: { github: { attest: { subjectManifestt: ".async/attest/subjects.json" } } }
+  }), /sync\.github\.attest has unknown field "subjectManifestt"/);
 
   assert.throws(() => definePipeline({
     ...base,

@@ -47,6 +47,7 @@ sync: {
     packagePreviews: true,
     evidence: true,
     sourceImpact: true,
+    attest: true,
     bridge: {
       mode: "actions",
       schedule: "*/15 * * * *",
@@ -73,6 +74,8 @@ Each generated job calls `async/actions/run` to run the pipeline command, explai
 `sync.github.evidence: true` adds a `Collect evidence manifest` step to generated jobs and an `evidence` fan-in job that downloads `async-evidence-*` artifacts, merges their manifests through `async/actions/evidence`, and uploads a bounded index artifact. Manifest entries record paths, kinds, byte counts, and SHA-256 digests; receipt metadata is sanitized before inclusion and raw file contents are not copied into the manifest.
 
 `sync.github.sourceImpact: true` adds generated `<job>-source-plan` and `<job>-sources` jobs for source-backed pipeline jobs while leaving the original job in place. The plan job writes reviewed source metadata into the workflow, `async/actions/source-impact` emits the source matrix, and each matrix row validates checkout and representable prepare commands before running the namespaced source task. Prepare callbacks or unrepresentable steps stay out of the lowered path and are recorded as skip reasons; the normal job still runs through `async/actions/run`.
+
+`sync.github.attest: true` adds attestation evidence steps to generated release lifecycle jobs. Pipeline still owns the release job graph, package subjects, OIDC grants, trusted-publishing setting, and release ordering; `async/actions/attest` only computes subject digests, writes SBOM evidence, scans explicit npm tarball subjects, and records bounded provenance or attestation receipts. Digest and SBOM evidence does not grant OIDC by itself. `id-token: write` is rendered only when the job declares `requires.provenance: true` or `sync.github.attest.githubAttestation: true`.
 
 Lifecycle lowering only happens for exact, whole-command publish, preview, release, or doctor lifecycle steps with representable semantics. Compound shell syntax, unmodeled flags, retries, and timeouts stay in the normal `async/actions/run` path so the pipeline runtime keeps ownership of task semantics. Generated lifecycle publish and preview steps pass secret env only to the exact Async action step that needs it.
 
@@ -370,6 +373,27 @@ It renders runtime env on the pipeline step:
 `env.secret("NPM_TOKEN")` means "source this value from the platform secret named `NPM_TOKEN`." The runtime destination is the env key you assign it to, such as `NODE_AUTH_TOKEN`.
 
 For npm releases, pair `requires.provenance: true` with either npm trusted publishing on the package or an `NPM_TOKEN` secret. Generated release workflows should call `async/actions/publish`, which creates temporary npm auth only when a token is present; tokenless runs stay clean so npm can use trusted publishing/OIDC.
+
+Release evidence can opt into attestation receipts without changing publish ownership:
+
+```ts
+sync: {
+  github: {
+    attest: {
+      artifacts: ["dist/*.tgz", ".async/evidence/index.json"],
+      subjectManifest: ".async/attest/release-subjects.json",
+      sbomPath: ".async/attest/release-sbom.json",
+      requireNpmProvenance: true,
+      tarballScan: true,
+      githubAttestation: true
+    }
+  }
+}
+```
+
+Generated attestation receipts land under `.async/actions/receipts/` by default,
+so `sync.github.evidence` fan-in includes the digest, SBOM, and attestation
+status without copying package bytes or raw logs into the manifest.
 
 `env.var("NAME")` maps to `${{ vars.NAME }}` in generated GitHub Actions. `env.var("NODE_ENV", { prod, dev }, { default: "dev" })` is resolved by `async-pipeline run` before the task command runs.
 

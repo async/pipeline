@@ -2,13 +2,13 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubBridgeSyncConfig, NormalizedGitHubEvidenceConfig, NormalizedGitHubPagesSyncConfig, NormalizedGitHubSourceImpactConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, TriggerDefinition, TriggerId } from "@async/pipeline-core";
+import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubAttestConfig, NormalizedGitHubBridgeSyncConfig, NormalizedGitHubEvidenceConfig, NormalizedGitHubPagesSyncConfig, NormalizedGitHubSourceImpactConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, TriggerDefinition, TriggerId } from "@async/pipeline-core";
 import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 import { sourceImpactPlanForJob, type SourceImpactPlan } from "./sources.js";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 17;
+const GENERATOR_VERSION = 18;
 const DEFAULT_NODE_VERSION = "24";
 const DEFAULT_DENO_VERSION = "2";
 const DEFAULT_PNPM_VERSION = "11.1.0";
@@ -32,8 +32,8 @@ function defineActionRef(id: string, uses: string, sha: string, label: string): 
   };
 }
 
-const ASYNC_ACTIONS_SHA = "1b1a167072f242ed200f8f5ec7cdf10c8a9ae241";
-const ASYNC_ACTIONS_LABEL = "v0.1.8";
+const ASYNC_ACTIONS_SHA = "c143729ab861e8794535c1d73630a2f2e613f11d";
+const ASYNC_ACTIONS_LABEL = "v0.1.9";
 
 const GENERATED_ACTIONS = [
   defineActionRef("async.actions.setup", "async/actions/setup", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
@@ -45,6 +45,7 @@ const GENERATED_ACTIONS = [
   defineActionRef("async.actions.evidence", "async/actions/evidence", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.source-impact", "async/actions/source-impact", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.cache", "async/actions/cache", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("async.actions.attest", "async/actions/attest", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("actions.checkout", "actions/checkout", "de0fac2e4500dabe0009e67214ff5f5447ce83dd", "v6.0.2"),
   defineActionRef("pnpm.setup", "pnpm/setup", "cf03a9b516e09bc5a90f041fc26fc930c9dc631b", "v1.0.0"),
   defineActionRef("deno.setup", "denoland/setup-deno", "667a34cdef165d8d2b2e98dde39547c9daac7282", "v2.0.4"),
@@ -64,6 +65,7 @@ const ASYNC_DEPENDABOT_MERGE_ACTION = actionRef("async.actions.dependabot-merge"
 const ASYNC_EVIDENCE_ACTION = actionRef("async.actions.evidence");
 const ASYNC_SOURCE_IMPACT_ACTION = actionRef("async.actions.source-impact");
 const ASYNC_CACHE_ACTION = actionRef("async.actions.cache");
+const ASYNC_ATTEST_ACTION = actionRef("async.actions.attest");
 const CHECKOUT_ACTION = actionRef("actions.checkout");
 const PNPM_SETUP_ACTION = actionRef("pnpm.setup");
 const DENO_SETUP_ACTION = actionRef("deno.setup");
@@ -122,6 +124,7 @@ export interface GitHubLock {
   sourceImpact: NormalizedGitHubSourceImpactConfig & {
     generatedJobs: Array<{ job: string; planJob: string; matrixJob: string; matrixRows: number; sources: string[] }>;
   };
+  attest: NormalizedGitHubAttestConfig;
   bridge: NormalizedGitHubBridgeSyncConfig & {
     job: "async-bridge";
     actionsJob: {
@@ -226,6 +229,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     packagePreviews: renderModel.packagePreviews,
     evidence: renderModel.evidence,
     sourceImpact: renderModel.sourceImpact,
+    attest: renderModel.attest,
     bridge: renderModel.bridge,
     pages: renderModel.pages,
     manualDispatchJobs: renderModel.manualDispatchJobs,
@@ -255,6 +259,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     packagePreviews: renderModel.packagePreviews,
     evidence: renderModel.evidence,
     sourceImpact: renderModel.sourceImpact,
+    attest: renderModel.attest,
     bridge: renderModel.bridge,
     pages: renderModel.pages,
     manualDispatchJobs: renderModel.manualDispatchJobs
@@ -457,6 +462,7 @@ function buildRenderModel(
     packagePreviews,
     evidence,
     sourceImpact,
+    attest: pipeline.sync.github.attest,
     bridge,
     pages,
     manualDispatchJobs
@@ -797,8 +803,9 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
   if (environment) {
     renderGitHubEnvironment(lines, environment);
   }
+  const lifecyclePlan = resolveLifecycleJobPlan(model, job);
   const grants = job.github?.permissions;
-  const idToken = grants?.idToken ?? (job.requires?.provenance ? "write" as const : undefined);
+  const idToken = grants?.idToken ?? (job.requires?.provenance || attestRequiresOidc(model, lifecyclePlan) ? "write" as const : undefined);
   const issues = grants?.issues;
   const packages = grants?.packages;
   const pullRequests = grants?.pullRequests;
@@ -836,12 +843,12 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
     );
   }
   renderTaskCacheRestoreSteps(lines, model, { kind: "job", id: job.id });
-  const lifecyclePlan = resolveLifecycleJobPlan(model, job);
   if (lifecyclePlan) {
     renderLifecycleJobPlan(lines, model, job, lifecyclePlan);
   } else {
     renderRunActionStep(lines, "Run pipeline job", `${model.command} github check && ${model.command} run ${shellWord(job.id)}${job.execution ? ` --execution ${shellWord(job.execution)}` : ""}`, job.env);
   }
+  renderAttestSteps(lines, model, lifecyclePlan);
   renderTaskCacheSaveSteps(lines, model, { kind: "job", id: job.id });
   if (job.github?.pages) {
     lines.push("");
@@ -1282,6 +1289,80 @@ function renderPublishActionStep(
     ...(publish.mode === "npm" ? [`          provenance: ${provenance ? "true" : "false"}`] : [])
   );
   renderActionEnv(lines, scopeActionEnv(env, publish.mode === "npm" ? new Set(["NODE_AUTH_TOKEN"]) : new Set(["GITHUB_TOKEN"])));
+}
+
+function attestRequiresOidc(model: ReturnType<typeof buildRenderModel>, lifecyclePlan: LifecyclePlanItem[] | undefined): boolean {
+  return model.attest.enabled && model.attest.githubAttestation && hasReleaseLifecycle(lifecyclePlan);
+}
+
+function renderAttestSteps(lines: string[], model: ReturnType<typeof buildRenderModel>, lifecyclePlan: LifecyclePlanItem[] | undefined): void {
+  const attest = model.attest;
+  if (!attest.enabled || !hasReleaseLifecycle(lifecyclePlan)) return;
+
+  const packagePath = attest.packagePath ?? lifecyclePackagePath(lifecyclePlan) ?? ".";
+  const artifacts = attest.artifacts.length > 0
+    ? attest.artifacts
+    : [packagePath === "." ? "package.json" : `${packagePath}/package.json`];
+  const subjectManifest = attest.subjectManifest;
+  const sbomPath = attest.sbomPath;
+
+  lines.push(
+    "",
+    "      - name: Create attestation subject manifest",
+    `        uses: ${ASYNC_ATTEST_ACTION}`,
+    "        with:",
+    "          mode: digest",
+    `          package-path: ${JSON.stringify(packagePath)}`,
+    "          artifacts: |",
+    ...artifacts.map((artifact) => `            ${artifact}`),
+    `          subject-manifest: ${subjectManifest}`,
+    `          sbom-path: ${sbomPath}`,
+    `          evidence-path: ${attestReceiptPath(attest.evidencePath, "digest")}`,
+    `          require-npm-provenance: ${attest.requireNpmProvenance ? "true" : "false"}`,
+    `          tarball-scan: ${attest.tarballScan ? "true" : "false"}`,
+    "",
+    "      - name: Write attestation SBOM evidence",
+    `        uses: ${ASYNC_ATTEST_ACTION}`,
+    "        with:",
+    "          mode: sbom",
+    `          package-path: ${JSON.stringify(packagePath)}`,
+    "          artifacts: |",
+    ...artifacts.map((artifact) => `            ${artifact}`),
+    `          subject-manifest: ${subjectManifest}`,
+    `          sbom-path: ${sbomPath}`,
+    `          evidence-path: ${attestReceiptPath(attest.evidencePath, "sbom")}`
+  );
+
+  if (attest.githubAttestation) {
+    lines.push(
+      "",
+      "      - name: Record GitHub attestation intent",
+      `        uses: ${ASYNC_ATTEST_ACTION}`,
+      "        with:",
+      "          mode: attest",
+      `          package-path: ${JSON.stringify(packagePath)}`,
+      `          subject-manifest: ${subjectManifest}`,
+      `          evidence-path: ${attestReceiptPath(attest.evidencePath, "github")}`,
+      "          github-attestation: true"
+    );
+  }
+}
+
+function hasReleaseLifecycle(lifecyclePlan: LifecyclePlanItem[] | undefined): boolean {
+  return Boolean(lifecyclePlan?.some((item) => item.kind === "publish"));
+}
+
+function lifecyclePackagePath(lifecyclePlan: LifecyclePlanItem[] | undefined): string | undefined {
+  const item = lifecyclePlan?.find((entry): entry is Extract<LifecyclePlanItem, { kind: "publish" }> => entry.kind === "publish");
+  return item?.packagePath;
+}
+
+function attestReceiptPath(path: string, suffix: string): string {
+  const extensionIndex = path.endsWith(".json") ? path.length - ".json".length : -1;
+  if (extensionIndex >= 0) {
+    return `${path.slice(0, extensionIndex)}-${suffix}.json`;
+  }
+  return `${path}-${suffix}`;
 }
 
 function scopeActionEnv(env: Record<string, EnvValue>, allowedSecretNames: Set<string>): Record<string, EnvValue> {
