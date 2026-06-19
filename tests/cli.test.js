@@ -450,6 +450,127 @@ export default definePipeline({
   }
 });
 
+test("lifecycle audit reports custom release surfaces without a pipeline config", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "async-pipeline-lifecycle-audit-custom-"));
+  try {
+    mkdirSync(join(dir, ".github", "workflows"), { recursive: true });
+    mkdirSync(join(dir, "scripts"), { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({
+      name: "@async/example",
+      version: "1.2.3",
+      type: "module",
+      scripts: {
+        "release:check": "npm test && npm pack --dry-run",
+        "release": "node scripts/release.mjs",
+        "publish:npm": "npm publish --provenance"
+      }
+    }, null, 2), "utf8");
+    writeFileSync(join(dir, ".github", "workflows", "release.yml"), [
+      "name: release",
+      "on:",
+      "  release:",
+      "    types: [published]",
+      "jobs:",
+      "  publish:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: npm publish --provenance",
+      ""
+    ].join("\n"), "utf8");
+    writeFileSync(join(dir, "scripts", "release.mjs"), "export {};\n", "utf8");
+
+    let stdout = "";
+    let stderr = "";
+    const result = await runPipelineCli({
+      args: ["lifecycle", "audit", "--format", "json"],
+      ...({ cwd: dir }),
+      stdout(text) {
+        stdout += text;
+      },
+      stderr(text) {
+        stderr += text;
+      }
+    });
+
+    assert.equal(result.code, 0, stderr);
+    const report = JSON.parse(stdout);
+    assert.equal(report.package.name, "@async/example");
+    assert.equal(report.pipeline.configPath, undefined);
+    assert.ok(report.findings.some((finding) => finding.id === "pipeline.config.missing"));
+    assert.ok(report.findings.some((finding) => finding.id === "workflows.lifecycle.custom"));
+    assert.ok(report.findings.some((finding) => finding.id === "scripts.lifecycle.unmanaged"));
+    assert.ok(report.files.some((file) => file.path === "scripts/release.mjs"));
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("lifecycle audit recognizes pipeline-owned scripts and nested package paths", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "async-pipeline-lifecycle-audit-managed-"));
+  try {
+    mkdirSync(join(dir, "packages", "tool"), { recursive: true });
+    mkdirSync(join(dir, ".github", "workflows"), { recursive: true });
+    mkdirSync(join(dir, ".async-pipeline"), { recursive: true });
+    writeFileSync(join(dir, "pipeline.js"), "export default {};\n", "utf8");
+    writeFileSync(join(dir, ".github", "async-pipeline.lock.json"), "{}\n", "utf8");
+    writeFileSync(join(dir, ".async-pipeline", "tasks.lock.json"), "{}\n", "utf8");
+    writeFileSync(join(dir, ".github", "workflows", "async-pipeline.yml"), "name: async-pipeline\n", "utf8");
+    writeFileSync(join(dir, "packages", "tool", "package.json"), JSON.stringify({
+      name: "@async/tool",
+      version: "0.1.0",
+      type: "module",
+      devDependencies: {
+        "@async/pipeline": "0.9.17"
+      },
+      scripts: {
+        "pipeline:publish": "async-pipeline run publish",
+        "release:evidence:check": "node scripts/evidence.js --check"
+      }
+    }, null, 2), "utf8");
+
+    let stdout = "";
+    let stderr = "";
+    const result = await runPipelineCli({
+      args: ["lifecycle", "audit", "--package", "packages/tool"],
+      ...({ cwd: dir }),
+      stdout(text) {
+        stdout += text;
+      },
+      stderr(text) {
+        stderr += text;
+      }
+    });
+
+    assert.equal(result.code, 0, stderr);
+    assert.match(stdout, /Lifecycle audit: @async\/tool/);
+    assert.match(stdout, /Pipeline config: pipeline.js/);
+    assert.match(stdout, /@async\/pipeline: 0.9.17/);
+
+    stdout = "";
+    stderr = "";
+    const jsonResult = await runPipelineCli({
+      args: ["lifecycle", "audit", "--package", "packages/tool", "--format", "json"],
+      ...({ cwd: dir }),
+      stdout(text) {
+        stdout += text;
+      },
+      stderr(text) {
+        stderr += text;
+      }
+    });
+
+    assert.equal(jsonResult.code, 0, stderr);
+    const report = JSON.parse(stdout);
+    assert.equal(report.package.path, "packages/tool/package.json");
+    assert.equal(report.pipeline.configPath, "pipeline.js");
+    assert.equal(report.package.asyncPipelineVersion, "0.9.17");
+    assert.ok(report.scripts.some((script) => script.name === "pipeline:publish" && script.managedByPipeline));
+    assert.ok(report.scripts.some((script) => script.name === "release:evidence:check" && script.category === "keep"));
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
 test("runPipelineCli validates execution profiles before command-policy mock", async () => {
   const dir = mkdtempSync(join(tmpdir(), "async-pipeline-cli-execution-"));
   try {

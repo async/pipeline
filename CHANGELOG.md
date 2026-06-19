@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.17 - 2026-06-19
+
+### Features
+
+- Add `async-pipeline lifecycle audit [--package <path>] [--format text|json]` as a read-only migration report for release and publish ownership. It scans package metadata, Pipeline config and locks, lifecycle-looking scripts, workflow files, release config files, and lifecycle-looking files under `scripts/` without executing repo commands or mutating generated surfaces.
+
 ## 0.9.16 - 2026-06-19
 
 ### Features

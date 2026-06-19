@@ -191,6 +191,8 @@ Package-owned release evidence uses the same task dependency graph as every othe
 
 The published `@async/pipeline` package keeps workflow generation local and does not ship release lifecycle GitHub API networking code. This keeps normal installs free of lifecycle `fetch` code; release jobs make networking explicit in GitHub Actions steps.
 
+`lifecycle audit` is a read-only migration report for release and publish ownership. It can run before a repo has a Pipeline config, and it reports package metadata, the selected package path, discovered Pipeline config and locks, lifecycle-looking package scripts, generated or custom workflow files, release config files, and lifecycle-looking files under `scripts/`. Use `--package <path>` for nested publishable packages and `--format json` when a repo receipt needs structured keep/configure/promote/remove evidence. The command does not execute repo scripts, run workflows, read npm configuration files, or mutate generated surfaces.
+
 ## task
 
 ```ts

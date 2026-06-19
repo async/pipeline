@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { DEFAULT_PIPELINE_CONFIG_FILES, buildGraph, composePipelines, tasksForJob, type ContainerProvider, type ExecutionRecord, type NormalizedPipeline, type TaskResult } from "@async/pipeline-core";
 import { runDoctor } from "./doctor.js";
 import { checkGitHubWorkflow, planGitHubJobs, readGitHubEventContext, renderGitHubWorkflow, runGitHubLocalPlan, writeGitHubWorkflow, type GitHubLocalNetworkMode, type GitHubPlanOptions, type GitHubPlanResult } from "./github.js";
+import { auditLifecycle, renderLifecycleAuditText, type LifecycleAuditFormat } from "./lifecycle-audit.js";
 import { loadPipeline } from "./loader.js";
 import { beginShutdown, cacheManifestForJob, cacheManifestForTask, commandProxy, planJob, runJob, runSingleTask, shutdownExitCode, type CommandResult, type GitHubCacheManifestTrust, type PipelineCommands } from "./runner.js";
 import { runMcpServer } from "./mcp.js";
@@ -114,6 +115,11 @@ async function runPipelineCliBuffered(options: Omit<PipelineCliOptions, "stdout"
       const checks = await runDoctor(cwd, doctorPipeline);
       for (const check of checks) out(`${check.status.toUpperCase()} ${check.name}: ${check.message}\n`);
       return { code: checks.some((check) => check.status === "fail") ? 1 : 0, stdout, stderr };
+    }
+
+    if (commandName === "lifecycle") {
+      const code = await handleLifecycleCommand(args, { cwd, stdout: out, stderr: err }, program);
+      return { code, stdout, stderr };
     }
 
     if (!commandName || commandName === "help" || commandName === "--help") {
@@ -521,6 +527,35 @@ async function handleReleaseCommand(args: string[], context: PipelineCliContext,
     );
   }
   throw new Error(usage);
+}
+
+async function handleLifecycleCommand(
+  args: string[],
+  context: Pick<PipelineCliContext, "cwd" | "stdout" | "stderr">,
+  program: string
+): Promise<number> {
+  const subcommand = args[0] ?? "help";
+  if (subcommand !== "audit") {
+    throw new Error(`Usage: ${program} lifecycle audit [--package <path>] [--format text|json]`);
+  }
+  const rest = args.slice(1);
+  const format = lifecycleAuditFormat(rest);
+  const packagePath = optionalFlagValue(rest, "--package");
+  const report = await auditLifecycle({ cwd: context.cwd, packagePath });
+  if (format === "json") {
+    context.stdout(`${JSON.stringify(report, null, 2)}\n`);
+  } else {
+    context.stdout(renderLifecycleAuditText(report));
+  }
+  return 0;
+}
+
+function lifecycleAuditFormat(args: string[]): LifecycleAuditFormat {
+  const format = optionalFlagValue(args, "--format") ?? "text";
+  if (format !== "text" && format !== "json") {
+    throw new Error("--format must be text or json.");
+  }
+  return format;
 }
 
 async function printDryRun(context: PipelineCliContext, format: "text" | "json", jobId?: string, taskId?: string): Promise<number> {
@@ -977,6 +1012,7 @@ function printHelp(program: string): string {
   ${program} release ensure --package <path>
   ${program} release doctor --package <path>
   ${program} release sync-descriptions --package <path> [--check]
+  ${program} lifecycle audit [--package <path>] [--format text|json]
   ${program} sync list
   ${program} sync generate
   ${program} sync check

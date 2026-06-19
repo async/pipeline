@@ -117,6 +117,24 @@
       ]
     },
     {
+      "id": "readme.lifecycle-audit",
+      "source": "README.md",
+      "anchor": "Use `lifecycle audit` before migrating a repo's release or publish flow.",
+      "tests": [
+        "lifecycle audit reports custom release surfaces without a pipeline config",
+        "lifecycle audit recognizes pipeline-owned scripts and nested package paths"
+      ]
+    },
+    {
+      "id": "api.lifecycle-audit-read-only",
+      "source": "docs/api.md",
+      "anchor": "`lifecycle audit` is a read-only migration report for release and publish ownership.",
+      "tests": [
+        "lifecycle audit reports custom release surfaces without a pipeline config",
+        "lifecycle audit recognizes pipeline-owned scripts and nested package paths"
+      ]
+    },
+    {
       "id": "local-runs.config-discovery-order",
       "source": "docs/local-runs.md",
       "anchor": "The CLI searches the project root in this order:",
