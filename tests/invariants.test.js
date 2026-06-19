@@ -398,6 +398,9 @@ test("PROMISE: published package does not ship release lifecycle GitHub API fetc
   const lifecycle = await readFile(new URL("../packages/pipeline/dist/internal/node/package-lifecycle.js", import.meta.url), "utf8");
   assert.doesNotMatch(lifecycle, /globalThis\s*\[\s*["']fetch["']\s*\]|(?<![A-Za-z0-9_$])fetch\s*\(/);
   assert.match(lifecycle, /Package lifecycle commands moved out of the @async\/pipeline npm tarball/);
+  assert.match(lifecycle, /github:async\/release#b21372abc92a921cf659e54dc479dfe1028f8acf/);
+  assert.match(lifecycle, /release", "sync-descriptions"/);
+  assert.match(lifecycle, /publishGitHubPackage\(\) \{ throw new Error\(message\); \}/);
 });
 
 test("PROMISE: package exports the CLI subpath for Deno npm entrypoints", async () => {

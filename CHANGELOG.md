@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.20 - 2026-06-19
+
+### Fixes
+
+- Make the published `async-pipeline release sync-descriptions` command
+  delegate to pinned `@async/release` source instead of the generic lifecycle
+  stub, while keeping publish and doctor networking out of the npm tarball.
+
 ## 0.9.19 - 2026-06-19
 
 ### Fixes

@@ -96,25 +96,49 @@ function isTextBuildFile(fileName) {
 
 async function writeLifecycleStub(nodeInternalDir) {
   const message = "Package lifecycle commands moved out of the @async/pipeline npm tarball. Use generated workflows with async/actions publish, preview, and pages steps.";
+  const releaseCommand = "npx --yes github:async/release#b21372abc92a921cf659e54dc479dfe1028f8acf";
   await writeFile(join(nodeInternalDir, "package-lifecycle.js"), [
+    "import { spawnSync } from \"node:child_process\";",
     "const message = \"Package lifecycle commands moved out of the @async/pipeline npm tarball. Use generated workflows with async/actions publish, preview, and pages steps.\";",
+    `const releaseCommand = ${JSON.stringify(releaseCommand)};`,
     "export function publishGitHubPackage() { throw new Error(message); }",
     "export function publishNpmPackage() { throw new Error(message); }",
     "export function ensureGitHubRelease() { throw new Error(message); }",
     "export function runReleaseDoctor() { throw new Error(message); }",
-    "export function syncGitHubReleaseDescriptions() { throw new Error(message); }",
-    "export async function runLifecycleCli(_action, io) { io?.stderr?.(`${message}\\n`); return 1; }",
+    "export async function syncGitHubReleaseDescriptions(options = {}) {",
+    "  const args = [...releaseCommand.split(/\\s+/u), \"release\", \"sync-descriptions\", \"--package\", options.packagePath ?? \".\", \"--evidence-dir\", options.evidenceDir ?? \".async/release\"];",
+    "  if (options.check) args.push(\"--check\");",
+    "  const result = spawnSync(args[0], args.slice(1), {",
+    "    cwd: options.cwd ?? process.cwd(),",
+    "    encoding: \"utf8\",",
+    "    stdio: [\"ignore\", \"pipe\", \"pipe\"],",
+    "    env: { ...process.env, ...(options.env ?? {}) }",
+    "  });",
+    "  if (result.stdout) options.io?.stdout?.(result.stdout);",
+    "  if (result.stderr) options.io?.stderr?.(result.stderr);",
+    "  if (result.status !== 0) throw new Error(`async-release sync-descriptions failed with exit code ${result.status ?? \"unknown\"}.`);",
+    "}",
+    "export async function runLifecycleCli(action, io) {",
+    "  try {",
+    "    await action();",
+    "    return 0;",
+    "  } catch (error) {",
+    "    io?.stderr?.(`${error instanceof Error ? error.message : String(error)}\\n`);",
+    "    return 1;",
+    "  }",
+    "}",
     ""
   ].join("\n"), "utf8");
   await writeFile(join(nodeInternalDir, "package-lifecycle.d.ts"), [
     "export type GitHubPackagePublishMode = \"pr\" | \"main\" | \"release\";",
     "export interface PackageLifecycleIO { stdout(text: string): void; stderr(text: string): void; }",
     "export interface PackageLifecycleOptions { cwd: string; packagePath: string; registry?: string; namespace?: string; comment?: boolean; env: NodeJS.ProcessEnv; io: PackageLifecycleIO; }",
+    "export interface ReleaseDescriptionSyncOptions extends PackageLifecycleOptions { check?: boolean; evidenceDir?: string; }",
     "export declare function publishGitHubPackage(): never;",
     "export declare function publishNpmPackage(): never;",
     "export declare function ensureGitHubRelease(): never;",
     "export declare function runReleaseDoctor(): never;",
-    "export declare function syncGitHubReleaseDescriptions(): never;",
+    "export declare function syncGitHubReleaseDescriptions(options: ReleaseDescriptionSyncOptions): Promise<void>;",
     "export declare function runLifecycleCli(_action: () => Promise<void>, io: PackageLifecycleIO): Promise<number>;",
     ""
   ].join("\n"), "utf8");
