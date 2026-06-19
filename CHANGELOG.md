@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.15 - 2026-06-19
+
+### Fixes
+
+- Pin generated workflows to `async/actions` v0.1.16 so hygiene jobs resolve the repo-local `async-hygiene` binary from `node_modules/.bin` before falling back to PATH.
+
 ## 0.9.14 - 2026-06-19
 
 ### Features

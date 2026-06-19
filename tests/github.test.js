@@ -13,8 +13,8 @@ import { checkGitHubWorkflow, jobsForGitHubEvent, planGitHubJobs, renderGitHubWo
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
 const cliPath = join(repoRoot, "packages/pipeline-node/dist/cli.js");
-const asyncActionsSha = "65477189c448280bd62b93ae8e0fe987bcac91a8";
-const asyncActionsLabel = "v0.1.15";
+const asyncActionsSha = "f81b4ae15d6a8c512a94bc3a2e866f807ad398a4";
+const asyncActionsLabel = "v0.1.16";
 const asyncActionsRefPattern = `${asyncActionsSha} # ${asyncActionsLabel.replaceAll(".", "\\.")}`;
 const asyncActionUses = (name) => new RegExp(`uses: async/actions/${name}@${asyncActionsRefPattern}`);
 
