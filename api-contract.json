@@ -80,6 +80,15 @@
           "docsUrl": "https://github.com/async/pipeline/blob/main/docs/github-actions.md"
         },
         {
+          "id": "config.sync.github.bridge",
+          "title": "Generated GitHub Actions storage bridge declaration",
+          "releaseTag": "beta",
+          "stability": "preview",
+          "lifecycle": "active",
+          "group": "config",
+          "docsUrl": "https://github.com/async/pipeline/blob/main/docs/github-actions.md"
+        },
+        {
           "id": "config.job",
           "title": "Job declaration",
           "releaseTag": "public",
@@ -346,6 +355,7 @@
         "config.definePipeline",
         "config.env",
         "config.github.pages",
+        "config.sync.github.bridge",
         "config.sync.github.pages",
         "config.job",
         "config.source",

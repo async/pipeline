@@ -1,10 +1,10 @@
 {
-  "version": 13,
+  "version": 14,
   "generator": "@async/pipeline",
   "config": "pipeline.ts",
   "workflow": ".github/workflows/async-pipeline.yml",
-  "hash": "sha256:33e9eb0a9f8a07e6514bd845b48de5c2a2203f073588a2354f01fff4af41f77f",
-  "generatedAt": "2026-06-18T22:14:54.093Z",
+  "hash": "sha256:cc73640ecd293aa850d4ecd739f0b83f9f7f5397905b0f05bfb77f90495ff149",
+  "generatedAt": "2026-06-19T00:08:54.913Z",
   "actions": [
     {
       "id": "actions.cache",
@@ -138,6 +138,23 @@
     "registry": "https://npm.pkg.github.com",
     "tokenEnv": "GITHUB_TOKEN",
     "comment": true
+  },
+  "bridge": {
+    "enabled": false,
+    "mode": "off",
+    "schedule": false,
+    "pullRequest": true,
+    "branchPrefix": "async/bridge/",
+    "allowedPaths": [],
+    "endpointVar": "ASYNC_PROJECT_URL",
+    "tokenEnv": "ASYNC_PROJECT_TOKEN",
+    "packageVersion": "latest",
+    "job": "async-bridge",
+    "actionsJob": {
+      "enabled": false,
+      "scheduled": false,
+      "manual": false
+    }
   },
   "pages": {
     "enabled": false,

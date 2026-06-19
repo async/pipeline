@@ -78,6 +78,59 @@ test("renders github workflow triggers and bootloader steps", async () => {
   }
 });
 
+test("renders generated actions bridge job from sync github bridge", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-bridge-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          bridge: {
+            mode: "actions",
+            schedule: "*/15 * * * *",
+            branchPrefix: "async/bridge/",
+            allowedPaths: ["pipeline.ts", "package.json", "docs/**"],
+            endpointVar: "ASYNC_BRIDGE_URL",
+            tokenEnv: "ASYNC_BRIDGE_TOKEN",
+            packageVersion: "0.1.1"
+          }
+        }
+      },
+      tasks: {
+        verify: task({ run: sh`echo verify` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, /workflow_dispatch:\n    inputs:\n      job:/);
+    assert.match(rendered.workflow, /- "async-bridge"/);
+    assert.match(rendered.workflow, /schedule:\n    - cron: "\*\/15 \* \* \* \*"/);
+    assert.match(rendered.workflow, /async-bridge:\n    name: async-bridge/);
+    assert.match(rendered.workflow, /github\.event_name == 'schedule' && github\.event\.schedule == '\*\/15 \* \* \* \*'/);
+    assert.match(rendered.workflow, /contents: write/);
+    assert.match(rendered.workflow, /pull-requests: write/);
+    assert.match(rendered.workflow, /group: async-bridge-\$\{\{ github\.repository \}\}/);
+    assert.match(rendered.workflow, /name: Check generated workflow[\s\S]+command: "pnpm async-pipeline github check"/);
+    assert.match(rendered.workflow, /name: Pull and apply Async bridge change sets[\s\S]+uses: async\/actions\/run@313494352cd10207bf0331c83e83364eb45c8e02 # v0\.1\.5/);
+    assert.match(rendered.workflow, /npx --yes \\"@async\/github-app@0\.1\.1\\" actions pull --branch-prefix async\/bridge\/ --pull-request true --allowed-path pipeline\.ts --allowed-path package\.json --allowed-path \\"docs\/\*\*\\"/);
+    assert.match(rendered.workflow, /ASYNC_PROJECT_URL: \$\{\{ vars\.ASYNC_BRIDGE_URL \}\}/);
+    assert.match(rendered.workflow, /ASYNC_PROJECT_TOKEN: \$\{\{ secrets\.ASYNC_BRIDGE_TOKEN \}\}/);
+    assertAllRemoteActionRefsPinned(rendered.workflow);
+    assert.equal(rendered.lock.bridge.enabled, true);
+    assert.equal(rendered.lock.bridge.job, "async-bridge");
+    assert.equal(rendered.lock.bridge.actionsJob.scheduled, true);
+    assert.deepEqual(rendered.lock.bridge.allowedPaths, ["pipeline.ts", "package.json", "docs/**"]);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
 test("renders explicit async setup provider", async () => {
   const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-async-setup-"));
   try {

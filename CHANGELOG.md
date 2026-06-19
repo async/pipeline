@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.3 - 2026-06-18
+
+### Features
+
+- Add `sync.github.bridge` object form so generated workflows can render an `async-bridge` job that runs on manual dispatch or a configured schedule, enforces branch-prefix and allowed-path constraints through `@async/github-app`, records bridge identity in the generated lock, and scopes the Async project token to the bridge pull step.
+
 ## 0.9.2 - 2026-06-18
 
 ### Fixes

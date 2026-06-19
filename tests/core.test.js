@@ -751,6 +751,17 @@ test("normalizes sync github and task defaults independently from triggers", () 
     tokenEnv: "GITHUB_TOKEN",
     comment: true
   });
+  assert.deepEqual(pipeline.sync.github.bridge, {
+    enabled: false,
+    mode: "off",
+    schedule: false,
+    pullRequest: true,
+    branchPrefix: "async/bridge/",
+    allowedPaths: [],
+    endpointVar: "ASYNC_PROJECT_URL",
+    tokenEnv: "ASYNC_PROJECT_TOKEN",
+    packageVersion: "latest"
+  });
   assert.deepEqual(pipeline.sync.github.pages, {
     enabled: false,
     job: "pages",
@@ -785,6 +796,16 @@ test("normalizes explicit sync task config and validates selected ids", () => {
           namespace: "preview",
           tokenEnv: "PACKAGES_TOKEN",
           comment: false
+        },
+        bridge: {
+          mode: "actions",
+          schedule: "*/15 * * * *",
+          pullRequest: true,
+          branchPrefix: "async/bridge/",
+          allowedPaths: ["pipeline.ts", "package.json", "docs/**", "docs/**"],
+          endpointVar: "ASYNC_BRIDGE_URL",
+          tokenEnv: "ASYNC_BRIDGE_TOKEN",
+          packageVersion: "0.1.1"
         },
         pages: {
           target: "docs.site",
@@ -834,6 +855,17 @@ test("normalizes explicit sync task config and validates selected ids", () => {
     tokenEnv: "PACKAGES_TOKEN",
     comment: false
   });
+  assert.deepEqual(pipeline.sync.github.bridge, {
+    enabled: true,
+    mode: "actions",
+    schedule: "*/15 * * * *",
+    pullRequest: true,
+    branchPrefix: "async/bridge/",
+    allowedPaths: ["pipeline.ts", "package.json", "docs/**"],
+    endpointVar: "ASYNC_BRIDGE_URL",
+    tokenEnv: "ASYNC_BRIDGE_TOKEN",
+    packageVersion: "0.1.1"
+  });
   assert.deepEqual(pipeline.sync.github.pages, {
     enabled: true,
     target: "docs.site",
@@ -862,6 +894,47 @@ test("normalizes explicit sync task config and validates selected ids", () => {
     tasks: { build: task({ run: sh`echo build` }) },
     jobs: { verify: job({ target: "build" }) }
   }), (error) => error.code === "ASYNC_PIPELINE_SYNC_INVALID_GITHUB_SETUP" && /python/.test(error.message));
+
+  assert.throws(() => definePipeline({
+    name: "bad",
+    sync: {
+      github: {
+        bridge: {
+          mode: "actions"
+        }
+      }
+    },
+    tasks: { build: task({ run: sh`echo build` }) },
+    jobs: { verify: job({ target: "build" }) }
+  }), (error) => error.code === "ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID" && /allowedPaths/.test(error.message));
+
+  assert.throws(() => definePipeline({
+    name: "bad",
+    sync: {
+      github: {
+        bridge: {
+          mode: "actions",
+          allowedPaths: [".github/workflows/async-pipeline.yml"]
+        }
+      }
+    },
+    tasks: { build: task({ run: sh`echo build` }) },
+    jobs: { verify: job({ target: "build" }) }
+  }), (error) => error.code === "ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID" && /workflows/.test(error.message));
+
+  assert.throws(() => definePipeline({
+    name: "bad",
+    sync: {
+      github: {
+        bridge: {
+          mode: "app",
+          allowedPaths: ["pipeline.ts"]
+        }
+      }
+    },
+    tasks: { build: task({ run: sh`echo build` }) },
+    jobs: { verify: job({ target: "build" }) }
+  }), (error) => error.code === "ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID" && /actions\" or \"off/.test(error.message));
 
   assert.throws(() => definePipeline({
     name: "bad",

@@ -45,6 +45,12 @@ sync: {
     dependencyCache: true,
     dependabotAutoMerge: true,
     packagePreviews: true,
+    bridge: {
+      mode: "actions",
+      schedule: "*/15 * * * *",
+      branchPrefix: "async/bridge/",
+      allowedPaths: ["pipeline.ts", "package.json", "docs/**"]
+    },
     pages: { target: "docs.site" }
   }
 }
@@ -85,6 +91,29 @@ sync: {
 ```
 
 `sync.github.dependabotAutoMerge: true` generates a separate `dependabot-auto-merge` job on `pull_request_target`. It only runs for `dependabot[bot]`, fetches Dependabot metadata, then calls `async/actions/dependabot-merge` with the allowed ecosystems. The action approves, waits for non-self checks, then schedules a squash merge with branch deletion.
+
+## Generated Actions Bridge
+
+`sync.github.bridge` generates an `async-bridge` job that can pull approved Async change sets, enforce the configured branch prefix and path allowlist, and apply them through `@async/github-app`.
+
+```ts
+sync: {
+  github: {
+    bridge: {
+      mode: "actions",
+      schedule: "*/15 * * * *",
+      pullRequest: true,
+      branchPrefix: "async/bridge/",
+      allowedPaths: ["pipeline.ts", "package.json", "docs/**"],
+      endpointVar: "ASYNC_PROJECT_URL",
+      tokenEnv: "ASYNC_PROJECT_TOKEN",
+      packageVersion: "latest"
+    }
+  }
+}
+```
+
+The generated bridge job adds `workflow_dispatch` plus the configured schedule, requests only `contents: write` and `pull-requests: write`, uses one writer concurrency group per repository, runs `async-pipeline github check` without project credentials, then passes the Async project URL, project token, repository, and `GITHUB_TOKEN` only to the bridge pull step. Actions-primary mode requires a non-empty `allowedPaths` list, and `.github/workflows/**` writes are rejected so workflow changes go through `pipeline.ts` plus regeneration.
 
 ## GitHub Pages
 

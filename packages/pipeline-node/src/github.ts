@@ -2,12 +2,12 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubPagesSyncConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, TriggerDefinition, TriggerId } from "@async/pipeline-core";
+import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubBridgeSyncConfig, NormalizedGitHubPagesSyncConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, TriggerDefinition, TriggerId } from "@async/pipeline-core";
 import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 13;
+const GENERATOR_VERSION = 14;
 const DEFAULT_NODE_VERSION = "24";
 const DEFAULT_DENO_VERSION = "2";
 const DEFAULT_PNPM_VERSION = "11.1.0";
@@ -113,6 +113,14 @@ export interface GitHubLock {
     tokenEnv: string;
     comment: boolean;
   };
+  bridge: NormalizedGitHubBridgeSyncConfig & {
+    job: "async-bridge";
+    actionsJob: {
+      enabled: boolean;
+      scheduled: boolean;
+      manual: boolean;
+    };
+  };
   pages: NormalizedGitHubPagesSyncConfig;
   manualDispatchJobs?: string[];
 }
@@ -183,6 +191,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     dependencyCachePath: renderModel.dependencyCachePath,
     dependabotAutoMerge: renderModel.dependabotAutoMerge,
     packagePreviews: renderModel.packagePreviews,
+    bridge: renderModel.bridge,
     pages: renderModel.pages,
     manualDispatchJobs: renderModel.manualDispatchJobs,
     actions: ACTION_LOCKS
@@ -209,6 +218,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     dependencyCachePath: renderModel.dependencyCachePath,
     dependabotAutoMerge: renderModel.dependabotAutoMerge,
     packagePreviews: renderModel.packagePreviews,
+    bridge: renderModel.bridge,
     pages: renderModel.pages,
     manualDispatchJobs: renderModel.manualDispatchJobs
   };
@@ -335,6 +345,7 @@ function buildRenderModel(
     addPullRequestTrigger(triggers, "pull_request");
   }
   const pages = resolveGitHubPages(pipeline);
+  const bridge = resolveGitHubBridge(pipeline);
   if (pages.enabled) {
     if (pages.triggers.pullRequest) {
       addGitHubEventTrigger(triggers, "pull_request");
@@ -343,12 +354,19 @@ function buildRenderModel(
       addPushBranchTrigger(triggers, pages.triggers.main.branch);
     }
   }
+  if (bridge.actionsJob.scheduled && bridge.schedule) {
+    addScheduleTrigger(triggers, bridge.schedule, "async-bridge");
+  }
   const manualDispatchJobs = Object.values(pipeline.jobs)
     .filter((job) => job.trigger.some((triggerId) => pipeline.triggers[triggerId]?.type === "manual"))
     .map((job) => job.id)
     .sort((left, right) => left.localeCompare(right));
   if (pages.enabled && pages.triggers.manual) {
     manualDispatchJobs.push(pages.job);
+    manualDispatchJobs.sort((left, right) => left.localeCompare(right));
+  }
+  if (bridge.actionsJob.manual) {
+    manualDispatchJobs.push(bridge.job);
     manualDispatchJobs.sort((left, right) => left.localeCompare(right));
   }
   const nodeVersion = pipeline.sync.github.nodeVersion ?? DEFAULT_NODE_VERSION;
@@ -386,9 +404,34 @@ function buildRenderModel(
     dependencyCachePath: pipeline.sync.github.dependencyCache === false ? undefined : options.dependencyCachePath,
     dependabotAutoMerge: pipeline.sync.github.dependabotAutoMerge,
     packagePreviews,
+    bridge,
     pages,
     manualDispatchJobs
   };
+}
+
+function resolveGitHubBridge(pipeline: NormalizedPipeline): NormalizedGitHubBridgeSyncConfig & {
+  job: "async-bridge";
+  actionsJob: { enabled: boolean; scheduled: boolean; manual: boolean };
+} {
+  const config = pipeline.sync.github.bridge;
+  const actionsJobEnabled = gitHubBridgeActionsEnabled(config);
+  const scheduled = actionsJobEnabled && config.schedule !== false;
+  const manual = actionsJobEnabled;
+  return {
+    ...config,
+    job: "async-bridge",
+    actionsJob: {
+      enabled: actionsJobEnabled,
+      scheduled,
+      manual
+    }
+  };
+}
+
+function gitHubBridgeActionsEnabled(bridge: NormalizedGitHubBridgeSyncConfig): boolean {
+  if (!bridge.enabled) return false;
+  return bridge.mode === "actions";
 }
 
 function resolveGitHubPages(pipeline: NormalizedPipeline): NormalizedGitHubPagesSyncConfig {
@@ -449,6 +492,18 @@ function addPushBranchTrigger(triggers: Record<string, unknown>, branch: string)
     ...existing,
     branches: [...new Set([...existingBranches, branch])].sort()
   });
+}
+
+function addScheduleTrigger(triggers: Record<string, unknown>, cron: string, id: string): void {
+  const existing = Array.isArray(triggers.schedule)
+    ? triggers.schedule.filter((value): value is { cron: string; timezone?: string; id?: string } => {
+        return Boolean(value) && typeof value === "object" && typeof value.cron === "string";
+      })
+    : [];
+  if (!existing.some((schedule) => schedule.cron === cron)) {
+    existing.push({ cron, id });
+  }
+  triggers.schedule = existing.sort((left, right) => left.cron.localeCompare(right.cron));
 }
 
 function resolvePackagePreviews(pipeline: NormalizedPipeline, packageInfo: PackageInfo): NormalizedPackagePreviewsConfig {
@@ -560,6 +615,9 @@ function renderWorkflow(model: ReturnType<typeof buildRenderModel>): string {
   }
   if (model.packagePreviews.enabled) {
     renderPackagePreviewJob(lines, model);
+  }
+  if (model.bridge.actionsJob.enabled) {
+    renderBridgeJob(lines, model);
   }
   return `${lines.join("\n").replace(/\n+$/u, "")}\n`;
 }
@@ -1095,6 +1153,93 @@ function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof build
     ""
   );
   lines.push("");
+}
+
+function renderBridgeJob(lines: string[], model: ReturnType<typeof buildRenderModel>): void {
+  const bridge = model.bridge;
+  lines.push(
+    `  ${bridge.job}:`,
+    `    name: ${bridge.job}`,
+    `    if: ${renderBridgeCondition(bridge)}`,
+    "    runs-on: ubuntu-latest",
+    "    permissions:",
+    "      contents: write",
+    "      pull-requests: write",
+    "    concurrency:",
+    "      group: async-bridge-${{ github.repository }}",
+    "      cancel-in-progress: false",
+    "    steps:",
+    "      - name: Checkout",
+    `        uses: ${CHECKOUT_ACTION}`,
+    "        with:",
+    "          persist-credentials: false",
+    "",
+    ...(model.taskCache
+      ? [
+          "      - name: Restore task cache",
+          `        uses: ${CACHE_ACTION}`,
+          "        with:",
+          "          path: .async/cache",
+          "          key: async-pipeline-${{ runner.os }}-${{ github.sha }}",
+          "          restore-keys: |",
+          "            async-pipeline-${{ runner.os }}-",
+          ""
+        ]
+      : []),
+    ...renderSetupSteps(model),
+    ...renderDependencyInstallSteps(model)
+  );
+  if (model.buildCommand) {
+    lines.push(
+      "",
+      "      - name: Build pipeline CLI",
+      `        run: ${model.buildCommand}`
+    );
+  }
+  renderRunActionStep(lines, "Check generated workflow", `${model.command} github check`, {});
+  renderBridgePullStep(lines, bridge);
+  lines.push("");
+}
+
+function renderBridgeCondition(bridge: ReturnType<typeof buildRenderModel>["bridge"]): string {
+  const conditions: string[] = [];
+  if (bridge.actionsJob.scheduled && bridge.schedule) {
+    conditions.push(`github.event_name == 'schedule' && github.event.schedule == '${escapeExpressionString(bridge.schedule)}'`);
+  }
+  if (bridge.actionsJob.manual) {
+    conditions.push(`github.event_name == 'workflow_dispatch' && github.event.inputs.job == '${bridge.job}'`);
+  }
+  return conditions.length > 0 ? conditions.join(" || ") : "false";
+}
+
+function renderBridgePullStep(lines: string[], bridge: ReturnType<typeof buildRenderModel>["bridge"]): void {
+  const command = [
+    "npx",
+    "--yes",
+    `@async/github-app@${bridge.packageVersion}`,
+    "actions",
+    "pull",
+    "--branch-prefix",
+    bridge.branchPrefix,
+    "--pull-request",
+    String(bridge.pullRequest),
+    ...bridge.allowedPaths.flatMap((path) => ["--allowed-path", path])
+  ].map(shellWord).join(" ");
+  lines.push(
+    "",
+    "      - name: Pull and apply Async bridge change sets",
+    `        uses: ${ASYNC_RUN_ACTION}`,
+    "        with:",
+    `          command: ${JSON.stringify(command)}`,
+    "          check-generated: false",
+    "          artifact-name: async-bridge-${{ github.run_id }}",
+    "        env:",
+    "          CI: true",
+    `          ASYNC_PROJECT_URL: \${{ vars.${bridge.endpointVar} }}`,
+    `          ASYNC_PROJECT_TOKEN: \${{ secrets.${bridge.tokenEnv} }}`,
+    "          GITHUB_REPOSITORY: ${{ github.repository }}",
+    "          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}"
+  );
 }
 
 function renderDependabotAutoMergeJob(lines: string[], ecosystems: string[]): void {

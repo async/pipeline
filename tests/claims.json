@@ -912,13 +912,32 @@
     {
       "id": "api.generated-dependabot-package-previews",
       "source": "docs/api.md",
-      "anchor": "`dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates through `async/actions/dependabot-merge`. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, publishes a GitHub Packages PR preview through `async/actions/preview`, and comments install instructions on same-repo PRs. `pages: true` generates GitHub Pages build/deploy jobs from an existing docs task, defaulting to `.async/pages` and pull request, `main`, and manual triggers; `build.kind: \"prerender\"` validates static prerender output for GitHub Pages.",
+      "anchor": "`dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates through `async/actions/dependabot-merge`. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, publishes a GitHub Packages PR preview through `async/actions/preview`, and comments install instructions on same-repo PRs. `bridge` object form generates an `async-bridge` job that pulls approved Async change sets through `@async/github-app`, enforces the configured branch prefix and path allowlist, and scopes the project token to the bridge pull step. `pages: true` generates GitHub Pages build/deploy jobs from an existing docs task, defaulting to `.async/pages` and pull request, `main`, and manual triggers; `build.kind: \"prerender\"` validates static prerender output for GitHub Pages.",
       "tests": [
         "normalizes explicit sync task config and validates selected ids",
         "renders generated Dependabot auto-merge workflow job",
         "renders generated package preview job from packagePreviews true",
+        "renders generated actions bridge job from sync github bridge",
         "renders generated github pages jobs from sync github pages",
         "renders prerender github pages build through async pages action"
+      ]
+    },
+    {
+      "id": "github-actions.generated-actions-bridge",
+      "source": "docs/github-actions.md",
+      "anchor": "`sync.github.bridge` generates an `async-bridge` job that can pull approved Async change sets, enforce the configured branch prefix and path allowlist, and apply them through `@async/github-app`.",
+      "tests": [
+        "normalizes explicit sync task config and validates selected ids",
+        "renders generated actions bridge job from sync github bridge"
+      ]
+    },
+    {
+      "id": "changelog.generated-actions-bridge",
+      "source": "CHANGELOG.md",
+      "anchor": "Add `sync.github.bridge` object form so generated workflows can render an `async-bridge` job that runs on manual dispatch or a configured schedule, enforces branch-prefix and allowed-path constraints through `@async/github-app`, records bridge identity in the generated lock, and scopes the Async project token to the bridge pull step.",
+      "tests": [
+        "normalizes explicit sync task config and validates selected ids",
+        "renders generated actions bridge job from sync github bridge"
       ]
     },
     {

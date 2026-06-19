@@ -292,6 +292,21 @@ export interface PackagePreviewsConfig {
 
 export type PackagePreviewsInput = boolean | PackagePreviewsConfig;
 
+export type GitHubBridgeMode = "actions" | "off";
+
+export interface GitHubBridgeSyncConfig {
+  mode?: GitHubBridgeMode;
+  schedule?: string | false;
+  pullRequest?: boolean;
+  branchPrefix?: string;
+  allowedPaths?: string[];
+  endpointVar?: string;
+  tokenEnv?: string;
+  packageVersion?: string;
+}
+
+export type GitHubBridgeSyncInput = false | GitHubBridgeSyncConfig;
+
 export interface GitHubPagesSyncTriggersConfig {
   pullRequest?: boolean;
   main?: boolean | {
@@ -318,6 +333,7 @@ export interface GitHubSyncConfig {
   dependencyCache?: boolean;
   dependabotAutoMerge?: DependabotAutoMergeInput;
   packagePreviews?: PackagePreviewsInput;
+  bridge?: GitHubBridgeSyncInput;
   pages?: GitHubPagesSyncInput;
 }
 
@@ -351,6 +367,7 @@ export interface NormalizedGitHubSyncConfig {
   dependencyCache: boolean;
   dependabotAutoMerge: NormalizedDependabotAutoMergeConfig;
   packagePreviews: NormalizedPackagePreviewsConfig;
+  bridge: NormalizedGitHubBridgeSyncConfig;
   pages: NormalizedGitHubPagesSyncConfig;
 }
 
@@ -367,6 +384,18 @@ export interface NormalizedPackagePreviewsConfig {
   namespace?: string;
   tokenEnv: string;
   comment: boolean;
+}
+
+export interface NormalizedGitHubBridgeSyncConfig {
+  enabled: boolean;
+  mode: GitHubBridgeMode;
+  schedule: string | false;
+  pullRequest: boolean;
+  branchPrefix: string;
+  allowedPaths: string[];
+  endpointVar: string;
+  tokenEnv: string;
+  packageVersion: string;
 }
 
 export interface NormalizedGitHubPagesSyncTriggersConfig {
@@ -889,11 +918,12 @@ const GITHUB_PAGES_STATIC_BUILD_FIELDS = new Set(["kind", "path"]);
 const GITHUB_PAGES_PRERENDER_BUILD_FIELDS = new Set(["kind", "path", "spaFallback", "validateIndex"]);
 const GITHUB_PERMISSION_FIELDS = new Set(["contents", "idToken", "issues", "packages", "pullRequests"]);
 const SYNC_FIELDS = new Set(["command", "github", "tasks"]);
-const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "dependabotAutoMerge", "packagePreviews", "pages"]);
+const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "packagePreviews", "dependabotAutoMerge", "bridge", "pages"]);
 const GITHUB_SETUP_PROVIDERS = new Set<GitHubSetupProvider>(["auto", "async", "pnpm", "node"]);
 const DEPENDABOT_AUTO_MERGE_FIELDS = new Set(["ecosystems"]);
 const DEPENDABOT_AUTO_MERGE_ECOSYSTEMS = new Set<DependabotAutoMergeEcosystem>(["github-actions", "npm", "deno"]);
 const PACKAGE_PREVIEWS_FIELDS = new Set(["package", "target", "registry", "namespace", "tokenEnv", "comment"]);
+const GITHUB_BRIDGE_FIELDS = new Set(["mode", "schedule", "pullRequest", "branchPrefix", "allowedPaths", "endpointVar", "tokenEnv", "packageVersion"]);
 const GITHUB_SYNC_PAGES_FIELDS = new Set(["artifactName", "build", "environment", "job", "target", "triggers"]);
 const GITHUB_SYNC_PAGES_TRIGGERS_FIELDS = new Set(["manual", "main", "pullRequest"]);
 const GITHUB_SYNC_PAGES_MAIN_TRIGGER_FIELDS = new Set(["branch"]);
@@ -942,6 +972,9 @@ function validateDefinitionShape(definition: PipelineDefinition): void {
     }
     if (definition.sync.github.packagePreviews && typeof definition.sync.github.packagePreviews === "object") {
       rejectUnknownFields(PACKAGE_PREVIEWS_FIELDS, definition.sync.github.packagePreviews, "sync.github.packagePreviews");
+    }
+    if (definition.sync.github.bridge && typeof definition.sync.github.bridge === "object") {
+      rejectUnknownFields(GITHUB_BRIDGE_FIELDS, definition.sync.github.bridge, "sync.github.bridge");
     }
     if (definition.sync.github.pages && typeof definition.sync.github.pages === "object") {
       rejectUnknownFields(GITHUB_SYNC_PAGES_FIELDS, definition.sync.github.pages, "sync.github.pages");
@@ -1779,6 +1812,7 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       dependencyCache: true,
       dependabotAutoMerge: normalizeDependabotAutoMerge(undefined),
       packagePreviews: normalizePackagePreviews(undefined),
+      bridge: normalizeGitHubBridge(undefined),
       pages: normalizeGitHubPagesSync(undefined)
     };
   }
@@ -1794,6 +1828,7 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       dependencyCache: true,
       dependabotAutoMerge: normalizeDependabotAutoMerge(undefined),
       packagePreviews: normalizePackagePreviews(undefined),
+      bridge: normalizeGitHubBridge(undefined),
       pages: normalizeGitHubPagesSync(undefined)
     };
   }
@@ -1808,6 +1843,7 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
     dependencyCache: github.dependencyCache ?? true,
     dependabotAutoMerge: normalizeDependabotAutoMerge(github.dependabotAutoMerge),
     packagePreviews: normalizePackagePreviews(github.packagePreviews),
+    bridge: normalizeGitHubBridge(github.bridge),
     pages: normalizeGitHubPagesSync(github.pages)
   };
 }
@@ -1905,6 +1941,117 @@ function normalizePackagePreviews(input: PackagePreviewsInput | undefined): Norm
     throw pipelineError("ASYNC_PIPELINE_PACKAGE_PREVIEWS_INVALID", `sync.github.packagePreviews.tokenEnv must be an environment variable name. Found: ${output.tokenEnv}.`);
   }
   return output;
+}
+
+function normalizeGitHubBridge(input: GitHubBridgeSyncInput | undefined): NormalizedGitHubBridgeSyncConfig {
+  const disabled: NormalizedGitHubBridgeSyncConfig = {
+    enabled: false,
+    mode: "off",
+    schedule: false,
+    pullRequest: true,
+    branchPrefix: "async/bridge/",
+    allowedPaths: [],
+    endpointVar: "ASYNC_PROJECT_URL",
+    tokenEnv: "ASYNC_PROJECT_TOKEN",
+    packageVersion: "latest"
+  };
+  if (!input) return disabled;
+
+  const mode = input.mode ?? "actions";
+  if (mode !== "actions" && mode !== "off") {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID", `sync.github.bridge.mode must be "actions" or "off". Found: ${String(mode)}.`);
+  }
+  if (mode === "off") return disabled;
+
+  const output: NormalizedGitHubBridgeSyncConfig = {
+    enabled: true,
+    mode,
+    schedule: normalizeGitHubBridgeSchedule(input.schedule),
+    pullRequest: input.pullRequest ?? true,
+    branchPrefix: normalizeGitHubBridgeBranchPrefix(input.branchPrefix),
+    allowedPaths: normalizeGitHubBridgeAllowedPaths(input.allowedPaths),
+    endpointVar: normalizeGitHubBridgeEnvName(input.endpointVar, "sync.github.bridge.endpointVar"),
+    tokenEnv: normalizeGitHubBridgeEnvName(input.tokenEnv, "sync.github.bridge.tokenEnv"),
+    packageVersion: normalizeOptionalNonEmptyString(input.packageVersion, "sync.github.bridge.packageVersion", "ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID") ?? "latest"
+  };
+
+  if (typeof output.pullRequest !== "boolean") {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID", "sync.github.bridge.pullRequest must be a boolean.");
+  }
+  if (githubBridgeActionsEnabled(output) && output.allowedPaths.length === 0) {
+    throw pipelineError(
+      "ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID",
+      "sync.github.bridge.allowedPaths must include at least one safe repo-relative path or glob when an Actions bridge job is generated."
+    );
+  }
+  return output;
+}
+
+function githubBridgeActionsEnabled(bridge: NormalizedGitHubBridgeSyncConfig): boolean {
+  if (!bridge.enabled) return false;
+  return bridge.mode === "actions";
+}
+
+function normalizeGitHubBridgeSchedule(schedule: string | false | undefined): string | false {
+  if (schedule === false) return false;
+  if (schedule !== undefined) {
+    return normalizeOptionalNonEmptyString(schedule, "sync.github.bridge.schedule", "ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID") ?? false;
+  }
+  return "*/15 * * * *";
+}
+
+function normalizeGitHubBridgeBranchPrefix(prefix: string | undefined): string {
+  const normalized = normalizeOptionalNonEmptyString(prefix, "sync.github.bridge.branchPrefix", "ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID") ?? "async/bridge/";
+  validateSafeRepoPathLike(normalized, "sync.github.bridge.branchPrefix", { allowTrailingSlash: true, allowGlob: false });
+  if (!normalized.endsWith("/")) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID", "sync.github.bridge.branchPrefix must end with /.");
+  }
+  return normalized;
+}
+
+function normalizeGitHubBridgeAllowedPaths(paths: string[] | undefined): string[] {
+  if (paths === undefined) return [];
+  if (!Array.isArray(paths)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID", "sync.github.bridge.allowedPaths must be an array of repo-relative paths or globs.");
+  }
+  const normalized = paths.map((path, index) => {
+    const value = normalizeOptionalNonEmptyString(path, `sync.github.bridge.allowedPaths[${index}]`, "ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID");
+    if (!value) {
+      throw pipelineError("ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID", `sync.github.bridge.allowedPaths[${index}] cannot be empty.`);
+    }
+    validateSafeRepoPathLike(value, `sync.github.bridge.allowedPaths[${index}]`, { allowTrailingSlash: false, allowGlob: true });
+    if (value.startsWith(".github/workflows/")) {
+      throw pipelineError("ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID", "sync.github.bridge.allowedPaths cannot include .github/workflows/**; update pipeline.ts and regenerate workflows instead.");
+    }
+    return value;
+  });
+  return [...new Set(normalized)];
+}
+
+function normalizeGitHubBridgeEnvName(value: string | undefined, field: string): string {
+  const normalized = normalizeOptionalNonEmptyString(value, field, "ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID") ?? (field.endsWith("endpointVar") ? "ASYNC_PROJECT_URL" : "ASYNC_PROJECT_TOKEN");
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(normalized)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID", `${field} must be an environment variable name. Found: ${normalized}.`);
+  }
+  return normalized;
+}
+
+function validateSafeRepoPathLike(value: string, field: string, options: { allowTrailingSlash: boolean; allowGlob: boolean }): void {
+  if (value.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(value)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID", `${field} must be repo-relative.`);
+  }
+  const parts = value.split("/");
+  const lastPart = parts.at(-1);
+  if (!options.allowTrailingSlash && lastPart === "") {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID", `${field} cannot end with /.`);
+  }
+  const checkedParts = options.allowTrailingSlash && lastPart === "" ? parts.slice(0, -1) : parts;
+  if (checkedParts.some((part) => part === "" || part === "..")) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID", `${field} cannot contain empty segments or parent-directory segments.`);
+  }
+  if (!options.allowGlob && checkedParts.some((part) => part.includes("*"))) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID", `${field} cannot contain glob characters.`);
+  }
 }
 
 function normalizeGitHubPagesSync(input: GitHubPagesSyncInput | undefined): NormalizedGitHubPagesSyncConfig {
