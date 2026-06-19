@@ -46,7 +46,7 @@ jobs:
         run: deno install --frozen=false
 
       - name: Run pipeline job
-        uses: async/actions/run@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/run@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           command: "deno run -A ../../packages/pipeline/dist/cli.js github check && deno run -A ../../packages/pipeline/dist/cli.js run verify"
           check-generated: false

@@ -46,6 +46,7 @@ sync: {
     dependabotAutoMerge: true,
     packagePreviews: true,
     evidence: true,
+    sourceImpact: true,
     bridge: {
       mode: "actions",
       schedule: "*/15 * * * *",
@@ -70,6 +71,8 @@ The default `pnpm/setup` provider still has the historical single-runtime constr
 Each generated job calls `async/actions/run` to run the pipeline command, explain failures, and upload `.async/runs` as evidence. GitHub Actions stays a bootloader for the same task graph; the uploaded evidence is the local run record, graph snapshot, cache receipts, logs, and context packs from the normal runner.
 
 `sync.github.evidence: true` adds a `Collect evidence manifest` step to generated jobs and an `evidence` fan-in job that downloads `async-evidence-*` artifacts, merges their manifests through `async/actions/evidence`, and uploads a bounded index artifact. Manifest entries record paths, kinds, byte counts, and SHA-256 digests; receipt metadata is sanitized before inclusion and raw file contents are not copied into the manifest.
+
+`sync.github.sourceImpact: true` adds generated `<job>-source-plan` and `<job>-sources` jobs for source-backed pipeline jobs while leaving the original job in place. The plan job writes reviewed source metadata into the workflow, `async/actions/source-impact` emits the source matrix, and each matrix row validates checkout and representable prepare commands before running the namespaced source task. Prepare callbacks or unrepresentable steps stay out of the lowered path and are recorded as skip reasons; the normal job still runs through `async/actions/run`.
 
 Lifecycle lowering only happens for exact, whole-command publish, preview, release, or doctor lifecycle steps with representable semantics. Compound shell syntax, unmodeled flags, retries, and timeouts stay in the normal `async/actions/run` path so the pipeline runtime keeps ownership of task semantics. Generated lifecycle publish and preview steps pass secret env only to the exact Async action step that needs it.
 
@@ -495,4 +498,4 @@ Use that output in a planning job, then run namespaced tasks with:
 async-pipeline run-task "$TASK"
 ```
 
-This keeps impact runs explicit and metadata-safe. v1 does not dispatch workflows in consumer repos.
+This keeps impact runs explicit and metadata-safe. `sync.github.sourceImpact: true` is the generated version of that pattern: it writes a reviewed source plan, runs `<job>-source-plan` to produce the matrix, and runs `<job>-sources` for source-backed task refs while preserving the original job. v1 does not dispatch workflows in consumer repos.

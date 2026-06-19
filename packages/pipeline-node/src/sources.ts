@@ -2,15 +2,17 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import {
   DEFAULT_PIPELINE_CONFIG_FILES,
   composePipelines,
   parseTaskRef,
+  pipelineError,
   sourceUsesDefaultPipelineConfig,
   tasksForJob,
   type CandidateContext,
   type ExecutionSourceRecord,
+  type JobId,
   type NormalizedPipeline,
   type NormalizedSource,
   type ShellCommand,
@@ -55,6 +57,32 @@ export interface MatrixRow {
   url?: string;
   path?: string;
   ref?: string;
+}
+
+export interface SourceImpactPlanSource {
+  id: SourceId;
+  type: "git" | "path";
+  path: string;
+  pipeline: string;
+  url?: string;
+  ref?: string;
+  writable?: boolean;
+  prepare: string[];
+  prepareSkippedReason?: string;
+}
+
+export interface SourceImpactMatrixRow extends MatrixRow {
+  path: string;
+}
+
+export interface SourceImpactPlan {
+  version: 1;
+  generatedBy: "@async/pipeline";
+  job: JobId;
+  sources: Record<SourceId, SourceImpactPlanSource>;
+  matrix: {
+    include: SourceImpactMatrixRow[];
+  };
 }
 
 export async function createRunPlan(rootPipeline: NormalizedPipeline, cwd: string, store: PipelineStore): Promise<PipelineRunPlan> {
@@ -185,6 +213,54 @@ export function matrixForJob(pipeline: NormalizedPipeline, jobId: string): { inc
   return { include };
 }
 
+export function sourceImpactPlanForJob(pipeline: NormalizedPipeline, cwd: string, jobId: JobId): SourceImpactPlan {
+  const matrix = matrixForJob(pipeline, jobId);
+  const store: PipelineStore = {
+    root: cwd,
+    asyncDir: join(cwd, ".async"),
+    runsDir: join(cwd, ".async", "runs"),
+    cacheDir: join(cwd, ".async", "cache", "tasks"),
+    sourcesDir: join(cwd, ".async", "sources")
+  };
+  const sources: Record<SourceId, SourceImpactPlanSource> = {};
+  const include: SourceImpactMatrixRow[] = [];
+
+  for (const row of matrix.include) {
+    const sourceDefinition = pipeline.sources[row.source];
+    if (!sourceDefinition) continue;
+    if (!sources[row.source]) {
+      const prepare = serializePrepare(sourceDefinition);
+      const sourcePath = sourceDefinition.type === "git"
+        ? repoRelativePath(cwd, sourceCheckoutDir(store, sourceDefinition), `source "${sourceDefinition.id}" checkout path`)
+        : repoRelativePath(cwd, resolve(cwd, sourceDefinition.path), `source "${sourceDefinition.id}" path`);
+      sources[row.source] = {
+        id: sourceDefinition.id,
+        type: sourceDefinition.type,
+        path: sourcePath,
+        pipeline: sourceDefinition.pipeline,
+        ...(sourceDefinition.type === "git" ? { url: sourceDefinition.url, ref: sourceDefinition.ref } : {}),
+        ...(sourceDefinition.type === "path" ? { writable: sourceDefinition.writable } : {}),
+        prepare: prepare.commands,
+        ...(prepare.skippedReason ? { prepareSkippedReason: prepare.skippedReason } : {})
+      };
+    }
+    const source = sources[row.source];
+    if (!source) continue;
+    include.push({
+      ...row,
+      path: source.path
+    });
+  }
+
+  return {
+    version: 1,
+    generatedBy: "@async/pipeline",
+    job: jobId,
+    sources,
+    matrix: { include }
+  };
+}
+
 export function sourceContext(source: ResolvedSource): TaskSourceContext {
   return {
     name: source.id,
@@ -203,6 +279,33 @@ export function sourceCheckoutDir(store: PipelineStore, sourceDefinition: Normal
     .digest("hex")
     .slice(0, 16);
   return join(store.sourcesDir, sourceDefinition.id, hash);
+}
+
+function serializePrepare(sourceDefinition: NormalizedSource): { commands: string[]; skippedReason?: string } {
+  const commands: string[] = [];
+  for (const step of sourceDefinition.prepare) {
+    if (typeof step === "object" && step !== null && "kind" in step && step.kind === "shell") {
+      commands.push(step.command);
+      continue;
+    }
+    return {
+      commands: [],
+      skippedReason: "prepare includes deferred or non-shell steps"
+    };
+  }
+  return { commands };
+}
+
+function repoRelativePath(cwd: string, target: string, label: string): string {
+  const relativePath = relative(cwd, target);
+  if (!relativePath) return ".";
+  if (relativePath === ".." || relativePath.startsWith("../") || relativePath.startsWith("..\\")) {
+    throw pipelineError(
+      "ASYNC_PIPELINE_GITHUB_SOURCE_IMPACT_INVALID",
+      `${label} must resolve inside the repository when sync.github.sourceImpact is enabled.`
+    );
+  }
+  return relativePath.split("\\").join("/");
 }
 
 export function shellCommandsFromSteps(steps: readonly ShellCommand[]): string[] {

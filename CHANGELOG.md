@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.5 - 2026-06-19
+
+### Features
+
+- Add `sync.github.sourceImpact` so generated workflows can write static source plans, emit source matrices through `async/actions/source-impact`, validate source checkout and prepare metadata, and collect source receipts through generated evidence artifacts.
+
 ## 0.9.4 - 2026-06-18
 
 ### Features

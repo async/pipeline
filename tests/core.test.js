@@ -782,6 +782,10 @@ test("normalizes sync github and task defaults independently from triggers", () 
       manual: true
     }
   });
+  assert.deepEqual(pipeline.sync.github.sourceImpact, {
+    enabled: false,
+    jobs: []
+  });
   assert.equal(pipeline.sync.tasks.enabled, true);
   assert.equal(pipeline.sync.tasks.prefix, "pipeline");
   assert.equal(pipeline.sync.tasks.runners, "all");
@@ -837,6 +841,9 @@ test("normalizes explicit sync task config and validates selected ids", () => {
             main: { branch: "stable" },
             manual: true
           }
+        },
+        sourceImpact: {
+          jobs: ["verify"]
         }
       },
       tasks: {
@@ -908,6 +915,10 @@ test("normalizes explicit sync task config and validates selected ids", () => {
       manual: true
     }
   });
+  assert.deepEqual(pipeline.sync.github.sourceImpact, {
+    enabled: true,
+    jobs: ["verify"]
+  });
   assert.deepEqual(pipeline.sync.tasks.runners, ["package"]);
   assert.deepEqual(pipeline.sync.tasks.jobs, ["verify"]);
   assert.deepEqual(pipeline.sync.tasks.tasks, ["build"]);
@@ -977,6 +988,19 @@ test("normalizes explicit sync task config and validates selected ids", () => {
     tasks: { build: task({ run: sh`echo build` }) },
     jobs: { verify: job({ target: "build" }) }
   }), (error) => error.code === "ASYNC_PIPELINE_GITHUB_BRIDGE_INVALID" && /actions\" or \"off/.test(error.message));
+
+  assert.throws(() => definePipeline({
+    name: "bad",
+    sync: {
+      github: {
+        sourceImpact: {
+          jobs: []
+        }
+      }
+    },
+    tasks: { build: task({ run: sh`echo build` }) },
+    jobs: { verify: job({ target: "build" }) }
+  }), (error) => error.code === "ASYNC_PIPELINE_GITHUB_SOURCE_IMPACT_INVALID" && /cannot be empty/.test(error.message));
 
   assert.throws(() => definePipeline({
     name: "bad",
@@ -1183,6 +1207,11 @@ test("rejects unknown config fields with the field name", () => {
     ...base,
     sync: { github: { pages: { triggers: { manuel: true } } } }
   }), /sync\.github\.pages\.triggers has unknown field "manuel"/);
+
+  assert.throws(() => definePipeline({
+    ...base,
+    sync: { github: { sourceImpact: { jobz: ["j"] } } }
+  }), /sync\.github\.sourceImpact has unknown field "jobz"/);
 
   assert.throws(() => definePipeline({
     ...base,

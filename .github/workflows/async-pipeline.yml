@@ -60,7 +60,7 @@ jobs:
             async-pipeline-${{ runner.os }}-
 
       - name: Setup Async runtimes
-        uses: async/actions/setup@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/setup@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           node-version: 24
           pnpm-version: 11.1.0
@@ -83,7 +83,7 @@ jobs:
         run: pnpm build
 
       - name: Run pipeline task pack
-        uses: async/actions/run@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/run@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"
           check-generated: false
@@ -92,7 +92,7 @@ jobs:
           CI: true
 
       - name: Create or update GitHub Release
-        uses: async/actions/publish@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/publish@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           package-path: "packages/pipeline"
           mode: github-release
@@ -103,7 +103,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish GitHub Packages mirror
-        uses: async/actions/publish@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/publish@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           package-path: "packages/pipeline"
           mode: github-packages
@@ -115,7 +115,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish npm package
-        uses: async/actions/publish@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/publish@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           package-path: "packages/pipeline"
           mode: npm
@@ -128,7 +128,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Run release doctor
-        uses: async/actions/publish@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/publish@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           package-path: "packages/pipeline"
           mode: doctor
@@ -140,7 +140,7 @@ jobs:
 
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/evidence@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           mode: collect
           paths: |
@@ -174,7 +174,7 @@ jobs:
             async-pipeline-${{ runner.os }}-
 
       - name: Setup Async runtimes
-        uses: async/actions/setup@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/setup@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           node-version: 24
           pnpm-version: 11.1.0
@@ -194,7 +194,7 @@ jobs:
         run: pnpm build
 
       - name: Run pipeline task pack
-        uses: async/actions/run@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/run@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"
           check-generated: false
@@ -203,7 +203,7 @@ jobs:
           CI: true
 
       - name: Publish main package preview
-        uses: async/actions/preview@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/preview@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           package-path: "packages/pipeline"
           target-registry: "https://npm.pkg.github.com"
@@ -216,7 +216,7 @@ jobs:
 
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/evidence@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           mode: collect
           paths: |
@@ -253,7 +253,7 @@ jobs:
             async-pipeline-${{ runner.os }}-
 
       - name: Setup Async runtimes
-        uses: async/actions/setup@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/setup@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           node-version: 24
           pnpm-version: 11.1.0
@@ -273,7 +273,7 @@ jobs:
         run: pnpm build
 
       - name: Run pipeline job
-        uses: async/actions/run@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/run@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run verify"
           check-generated: false
@@ -283,7 +283,7 @@ jobs:
 
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/evidence@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           mode: collect
           paths: |
@@ -314,7 +314,7 @@ jobs:
             async-pipeline-${{ runner.os }}-
 
       - name: Setup Async runtimes
-        uses: async/actions/setup@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/setup@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           node-version: 24
           pnpm-version: 11.1.0
@@ -334,7 +334,7 @@ jobs:
         run: pnpm build
 
       - name: Run Pages target
-        uses: async/actions/run@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/run@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run-task docs.site"
           check-generated: false
@@ -343,14 +343,14 @@ jobs:
           CI: true
 
       - name: Upload Pages artifact
-        uses: async/actions/pages@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/pages@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           mode: static
           path: ".async/pages"
 
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/evidence@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           mode: collect
           paths: |
@@ -378,7 +378,7 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: async/actions/pages@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/pages@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           upload: false
           deploy: true
@@ -398,7 +398,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Merge validated Dependabot PR
-        uses: async/actions/dependabot-merge@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/dependabot-merge@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           pull-request-number: ${{ github.event.pull_request.number }}
           actor: ${{ github.event.pull_request.user.login }}
@@ -434,7 +434,7 @@ jobs:
             async-pipeline-${{ runner.os }}-
 
       - name: Setup Async runtimes
-        uses: async/actions/setup@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/setup@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           node-version: 24
           pnpm-version: 11.1.0
@@ -454,7 +454,7 @@ jobs:
         run: pnpm build
 
       - name: Run package preview target
-        uses: async/actions/run@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/run@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run-task pack"
           check-generated: false
@@ -463,7 +463,7 @@ jobs:
           CI: true
 
       - name: Publish package preview
-        uses: async/actions/preview@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/preview@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           package-path: "packages/pipeline"
           target-registry: "https://npm.pkg.github.com"
@@ -476,7 +476,7 @@ jobs:
 
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/evidence@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           mode: collect
           paths: |
@@ -499,7 +499,7 @@ jobs:
       contents: read
     steps:
       - name: Merge evidence manifests
-        uses: async/actions/evidence@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6
+        uses: async/actions/evidence@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7
         with:
           mode: merge
           artifact-pattern: async-evidence-*

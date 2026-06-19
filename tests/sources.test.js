@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { loadPipeline, readPipelineMetadata, runJob } from "../packages/pipeline-node/dist/index.js";
+import { loadPipeline, readPipelineMetadata, runJob, sourceImpactPlanForJob } from "../packages/pipeline-node/dist/index.js";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
@@ -133,6 +133,25 @@ test("CLI exposes metadata, matrix, source list, source sync, and namespaced run
   }
 });
 
+test("source impact plans serialize repo-local sources, matrix rows, and prepare fallback reasons", async () => {
+  const fixture = await createSourceImpactFixture();
+  try {
+    const pipeline = await loadPipeline(join(fixture.root, "pipeline.js"));
+    const plan = sourceImpactPlanForJob(pipeline, fixture.root, "verifyImpact");
+
+    assert.equal(plan.generatedBy, "@async/pipeline");
+    assert.equal(plan.job, "verifyImpact");
+    assert.deepEqual(plan.matrix.include.map((row) => row.task), ["app:test", "lib:test"]);
+    assert.equal(plan.sources.app.path, "repos/app");
+    assert.deepEqual(plan.sources.app.prepare, ["node tools/prepare.mjs"]);
+    assert.equal(plan.sources.lib.path, "repos/lib");
+    assert.equal(plan.sources.lib.prepare.length, 0);
+    assert.equal(plan.sources.lib.prepareSkippedReason, "prepare includes deferred or non-shell steps");
+  } finally {
+    await rm(fixture.parent, { force: true, recursive: true });
+  }
+});
+
 async function createImpactFixture() {
   const parent = await mkdtemp(join(tmpdir(), "async-pipeline-impact-"));
   const root = join(parent, "design-system");
@@ -187,4 +206,60 @@ export default definePipeline({
 `, "utf8");
 
   return { app, parent, root };
+}
+
+async function createSourceImpactFixture() {
+  const parent = await mkdtemp(join(tmpdir(), "async-pipeline-source-impact-"));
+  const root = join(parent, "root");
+  const app = join(root, "repos", "app");
+  const lib = join(root, "repos", "lib");
+  await mkdir(app, { recursive: true });
+  await mkdir(lib, { recursive: true });
+
+  await writeFile(join(root, "pipeline.js"), `
+import { definePipeline, job, sh, source, task } from ${JSON.stringify(packageUrl)};
+
+export default definePipeline({
+  name: "root",
+  sources: {
+    app: source.path({
+      path: "repos/app",
+      pipeline: "pipeline.js",
+      writable: true,
+      prepare: [sh\`node tools/prepare.mjs\`]
+    }),
+    lib: source.path({
+      path: "repos/lib",
+      pipeline: "pipeline.js",
+      writable: true,
+      prepare: [sh((ctx) => sh\`node -e 'console.log(\${JSON.stringify(ctx.candidate.dir)})'\`)]
+    })
+  },
+  tasks: {
+    impact: task({
+      dependsOn: ["app:test", "lib:test"],
+      run: sh\`node -e 'console.log("impact complete")'\`
+    })
+  },
+  jobs: {
+    verifyImpact: job({ target: "impact" })
+  }
+});
+`, "utf8");
+  for (const dir of [app, lib]) {
+    await writeFile(join(dir, "pipeline.js"), `
+import { definePipeline, job, sh, task } from ${JSON.stringify(packageUrl)};
+
+export default definePipeline({
+  name: "source",
+  tasks: {
+    test: task({ cache: false, run: sh\`true\` })
+  },
+  jobs: {
+    verify: job({ target: "test" })
+  }
+});
+`, "utf8");
+  }
+  return { app, lib, parent, root };
 }

@@ -22,11 +22,11 @@ Each source declares a `prepare` step that runs inside that repo with candidate 
 
 ```ts
 prepare: [
-  sh((ctx) => sh`node tools/use-candidate.mjs ${ctx.candidate.dir}`)
+  sh`node tools/use-candidate.mjs ../..`
 ]
 ```
 
-`ctx.candidate.dir` points back at this design-system checkout. The dependent repo's `tools/use-candidate.mjs` records it in a local `candidate.json` (gitignored), and its tests import the design system from there. In a real repo the prepare step is usually `pnpm add @acme/design-system@file:${ctx.candidate.dir}` instead — same idea, package-manager edition. Deferred `sh((ctx) => ...)` callbacks stay unevaluated during metadata reads, so inspecting the pipeline never mutates the sources.
+The relative path points back at this design-system checkout from each committed dependent repo. The dependent repo's `tools/use-candidate.mjs` records it in a local `candidate.json` (gitignored), and its tests import the design system from there. In a real repo the prepare step is usually `pnpm add @acme/design-system@file:<candidate>` instead: same idea, package-manager edition. Deferred `sh((ctx) => ...)` callbacks still work for local runs and stay unevaluated during metadata reads, so inspecting the pipeline never mutates the sources. Generated source-impact matrices only lower exact shell prepare commands they can represent; deferred callbacks remain on the normal `async/actions/run` path with a recorded skip reason.
 
 ## Try It Locally
 
@@ -74,7 +74,7 @@ pnpm async-pipeline matrix verifyImpact --format github
 ]}
 ```
 
-A workflow can fan dependent repos out across runners with that matrix and run `async-pipeline run-task "$TASK"` per row. The committed bootloader (`sync.github: true`) runs the whole `verifyImpact` job on one runner; matrix fan-out is the scaling step when dependent repos get slow. v1 runs dependent tasks in this repo's CI — it does not dispatch workflows in the consumer repos.
+A workflow can fan dependent repos out across runners with that matrix and run `async-pipeline run-task "$TASK"` per row. This example opts into `sync.github.sourceImpact: true`, so the committed workflow keeps the normal `verifyImpact` job, writes a static source plan, runs `verifyImpact-source-plan` through `async/actions/source-impact`, and fans out `verifyImpact-sources` for source-backed task refs. v1 runs dependent tasks in this repo's CI — it does not dispatch workflows in the consumer repos.
 
 ## Git Sources
 

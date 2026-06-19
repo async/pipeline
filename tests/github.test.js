@@ -7,14 +7,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { definePipeline, env, execution, job, sandbox, sh, task, trigger } from "../packages/pipeline-core/dist/index.js";
+import { definePipeline, env, execution, job, sandbox, sh, source, task, trigger } from "../packages/pipeline-core/dist/index.js";
 import { checkGitHubWorkflow, jobsForGitHubEvent, renderGitHubWorkflow, writeGitHubWorkflow } from "../packages/pipeline-node/dist/index.js";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
 const cliPath = join(repoRoot, "packages/pipeline-node/dist/cli.js");
-const asyncActionsSha = "e91fb515670a66c0694936c079de4061f6306d43";
-const asyncActionsLabel = "v0.1.6";
+const asyncActionsSha = "cef0f1a3b7dd1300a16004e6d69b472261a3272f";
+const asyncActionsLabel = "v0.1.7";
 const asyncActionsRefPattern = `${asyncActionsSha} # ${asyncActionsLabel.replaceAll(".", "\\.")}`;
 const asyncActionUses = (name) => new RegExp(`uses: async/actions/${name}@${asyncActionsRefPattern}`);
 
@@ -491,6 +491,71 @@ test("renders generated package preview job from packagePreviews true", async ()
       ifNoFilesFound: "warn",
       includeSummary: true
     });
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("renders source impact planning and matrix jobs from sync github sourceImpact", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-source-impact-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ packageManager: "pnpm@11.1.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          sourceImpact: true,
+          evidence: true
+        }
+      },
+      sources: {
+        app: source.path({
+          path: "repos/app",
+          pipeline: "pipeline.js",
+          writable: true,
+          prepare: [sh`node tools/prepare.mjs`]
+        })
+      },
+      tasks: {
+        local: task({ run: sh`echo local` }),
+        impact: task({ dependsOn: ["local", "app:test"], run: sh`echo impact` })
+      },
+      jobs: {
+        verifyImpact: job({ target: "impact" })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, asyncActionUses("source-impact"));
+    assert.match(rendered.workflow, /verifyimpact-source-plan:\n    name: verifyimpact-source-plan/);
+    assert.match(rendered.workflow, /outputs:\n      matrix: \$\{\{ steps\.source-plan\.outputs\.matrix \}\}/);
+    assert.match(rendered.workflow, /cat > \.async\/actions\/source-impact\/verifyImpact-source-plan\.json <<'ASYNC_SOURCE_PLAN'/);
+    assert.match(rendered.workflow, /"generatedBy": "@async\/pipeline"/);
+    assert.match(rendered.workflow, /"task": "app:test"/);
+    assert.match(rendered.workflow, /"prepare": \[\n\s+"node tools\/prepare\.mjs"\n\s+\]/);
+    assert.match(rendered.workflow, /verifyimpact-sources:\n    name: verifyImpact source \(\$\{\{ matrix\.source \}\}:\$\{\{ matrix\.taskId \}\}\)/);
+    assert.match(rendered.workflow, /needs: "verifyimpact-source-plan"/);
+    assert.match(rendered.workflow, /matrix: \$\{\{ fromJSON\(needs\['verifyimpact-source-plan'\]\.outputs\.matrix \|\| '\{"include":\[\]\}'\) \}\}/);
+    assert.match(rendered.workflow, /name: Validate source checkout[\s\S]+mode: checkout[\s\S]+source-id: \$\{\{ matrix\.source \}\}/);
+    assert.match(rendered.workflow, /name: Prepare source checkout[\s\S]+mode: prepare[\s\S]+path: \$\{\{ matrix\.path \}\}/);
+    assert.match(rendered.workflow, /command: "pnpm async-pipeline github check && pnpm async-pipeline run-task \\"\$\{\{ matrix\.task \}\}\\""/);
+    assert.match(rendered.workflow, /evidence:\n    name: evidence\n    needs: \["verifyImpact","verifyimpact-source-plan","verifyimpact-sources"\]\n    if: always\(\)/);
+    assert.deepEqual(rendered.lock.sourceImpact, {
+      enabled: true,
+      jobs: [],
+      generatedJobs: [
+        {
+          job: "verifyImpact",
+          planJob: "verifyimpact-source-plan",
+          matrixJob: "verifyimpact-sources",
+          matrixRows: 1,
+          sources: ["app"]
+        }
+      ]
+    });
+    assert.equal(rendered.lock.actions.find((entry) => entry.id === "async.actions.source-impact")?.sha, asyncActionsSha);
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }

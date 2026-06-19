@@ -2,12 +2,13 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubBridgeSyncConfig, NormalizedGitHubEvidenceConfig, NormalizedGitHubPagesSyncConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, TriggerDefinition, TriggerId } from "@async/pipeline-core";
+import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubBridgeSyncConfig, NormalizedGitHubEvidenceConfig, NormalizedGitHubPagesSyncConfig, NormalizedGitHubSourceImpactConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, TriggerDefinition, TriggerId } from "@async/pipeline-core";
 import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
+import { sourceImpactPlanForJob, type SourceImpactPlan } from "./sources.js";
 
 export const GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 export const GITHUB_LOCK_PATH = ".github/async-pipeline.lock.json";
-const GENERATOR_VERSION = 15;
+const GENERATOR_VERSION = 16;
 const DEFAULT_NODE_VERSION = "24";
 const DEFAULT_DENO_VERSION = "2";
 const DEFAULT_PNPM_VERSION = "11.1.0";
@@ -31,8 +32,8 @@ function defineActionRef(id: string, uses: string, sha: string, label: string): 
   };
 }
 
-const ASYNC_ACTIONS_SHA = "e91fb515670a66c0694936c079de4061f6306d43";
-const ASYNC_ACTIONS_LABEL = "v0.1.6";
+const ASYNC_ACTIONS_SHA = "cef0f1a3b7dd1300a16004e6d69b472261a3272f";
+const ASYNC_ACTIONS_LABEL = "v0.1.7";
 
 const GENERATED_ACTIONS = [
   defineActionRef("async.actions.setup", "async/actions/setup", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
@@ -42,6 +43,7 @@ const GENERATED_ACTIONS = [
   defineActionRef("async.actions.publish", "async/actions/publish", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.dependabot-merge", "async/actions/dependabot-merge", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.evidence", "async/actions/evidence", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("async.actions.source-impact", "async/actions/source-impact", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("actions.checkout", "actions/checkout", "de0fac2e4500dabe0009e67214ff5f5447ce83dd", "v6.0.2"),
   defineActionRef("actions.cache", "actions/cache", "0057852bfaa89a56745cba8c7296529d2fc39830", "v4"),
   defineActionRef("pnpm.setup", "pnpm/setup", "cf03a9b516e09bc5a90f041fc26fc930c9dc631b", "v1.0.0"),
@@ -60,6 +62,7 @@ const ASYNC_PREVIEW_ACTION = actionRef("async.actions.preview");
 const ASYNC_PUBLISH_ACTION = actionRef("async.actions.publish");
 const ASYNC_DEPENDABOT_MERGE_ACTION = actionRef("async.actions.dependabot-merge");
 const ASYNC_EVIDENCE_ACTION = actionRef("async.actions.evidence");
+const ASYNC_SOURCE_IMPACT_ACTION = actionRef("async.actions.source-impact");
 const CHECKOUT_ACTION = actionRef("actions.checkout");
 const CACHE_ACTION = actionRef("actions.cache");
 const PNPM_SETUP_ACTION = actionRef("pnpm.setup");
@@ -116,6 +119,9 @@ export interface GitHubLock {
     comment: boolean;
   };
   evidence: NormalizedGitHubEvidenceConfig;
+  sourceImpact: NormalizedGitHubSourceImpactConfig & {
+    generatedJobs: Array<{ job: string; planJob: string; matrixJob: string; matrixRows: number; sources: string[] }>;
+  };
   bridge: NormalizedGitHubBridgeSyncConfig & {
     job: "async-bridge";
     actionsJob: {
@@ -141,6 +147,29 @@ interface RuntimeSpec {
   name: GitHubRuntimeName;
   version?: string;
   spec: string;
+}
+
+interface RenderJobModel {
+  id: JobId;
+  target: string[];
+  trigger: string[];
+  env: Record<string, EnvValue>;
+  environment?: JobEnvironment;
+  requires?: JobRequirements;
+  execution?: ExecutionProfileId;
+  github?: GitHubJobConfig;
+  if?: string;
+}
+
+interface SourceImpactRenderJob {
+  job: JobId;
+  planJob: JobId;
+  matrixJob: JobId;
+  planPath: string;
+  plan: SourceImpactPlan;
+  if?: string;
+  github?: GitHubJobConfig;
+  env: Record<string, EnvValue>;
 }
 
 type LifecyclePlanItem =
@@ -172,6 +201,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
   const packageInfo = await readPackageInfo(options.cwd);
   const renderModel = buildRenderModel(pipeline, {
     ...packageInfo,
+    cwd: options.cwd,
     configPath: relativePath(options.cwd, options.configPath),
     workflowPath
   });
@@ -195,6 +225,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     dependabotAutoMerge: renderModel.dependabotAutoMerge,
     packagePreviews: renderModel.packagePreviews,
     evidence: renderModel.evidence,
+    sourceImpact: renderModel.sourceImpact,
     bridge: renderModel.bridge,
     pages: renderModel.pages,
     manualDispatchJobs: renderModel.manualDispatchJobs,
@@ -223,6 +254,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     dependabotAutoMerge: renderModel.dependabotAutoMerge,
     packagePreviews: renderModel.packagePreviews,
     evidence: renderModel.evidence,
+    sourceImpact: renderModel.sourceImpact,
     bridge: renderModel.bridge,
     pages: renderModel.pages,
     manualDispatchJobs: renderModel.manualDispatchJobs
@@ -337,7 +369,7 @@ export function jobsForGitHubEvent(pipeline: NormalizedPipeline, context: GitHub
 
 function buildRenderModel(
   pipeline: NormalizedPipeline,
-  options: PackageInfo & { configPath: string; workflowPath: string }
+  options: PackageInfo & { cwd: string; configPath: string; workflowPath: string }
 ) {
   const usedTriggerIds = new Set<TriggerId>(Object.values(pipeline.jobs).flatMap((job) => job.trigger));
   const usedTriggers = Object.fromEntries([...usedTriggerIds].sort().map((triggerId) => [triggerId, pipeline.triggers[triggerId]]));
@@ -378,25 +410,38 @@ function buildRenderModel(
   const nodeVersion = pipeline.sync.github.nodeVersion ?? DEFAULT_NODE_VERSION;
   const runtime = resolveRuntimeSpecs(pipeline.sync.github.runtime, options.projectKind, nodeVersion);
   const setup = resolveGitHubSetup(pipeline.sync.github.setup, options.packageManager, options.packageManagerVersion);
+  const jobs: RenderJobModel[] = Object.values(pipeline.jobs)
+    .map((job) => ({
+      id: job.id,
+      target: [...job.target],
+      trigger: [...job.trigger],
+      env: { ...pipeline.env, ...(job.env ?? {}) },
+      environment: job.environment,
+      requires: job.requires,
+      execution: job.execution,
+      github: githubConfigForJob(pipeline, job),
+      if: renderGitHubJobCondition(job, pipeline.triggers)
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const sourceImpactJobs = resolveGitHubSourceImpactJobs(pipeline, options.cwd, jobs);
+  const sourceImpact = {
+    ...pipeline.sync.github.sourceImpact,
+    generatedJobs: sourceImpactJobs.map((job) => ({
+      job: job.job,
+      planJob: job.planJob,
+      matrixJob: job.matrixJob,
+      matrixRows: job.plan.matrix.include.length,
+      sources: Object.keys(job.plan.sources).sort((left, right) => left.localeCompare(right))
+    }))
+  };
   return {
     name: "Async Pipeline",
     configPath: options.configPath,
     workflowPath: options.workflowPath,
     projectKind: options.projectKind,
     triggers,
-    jobs: Object.values(pipeline.jobs)
-      .map((job) => ({
-        id: job.id,
-        target: [...job.target],
-        trigger: [...job.trigger],
-        env: { ...pipeline.env, ...(job.env ?? {}) },
-        environment: job.environment,
-        requires: job.requires,
-        execution: job.execution,
-        github: githubConfigForJob(pipeline, job),
-        if: renderGitHubJobCondition(job, pipeline.triggers)
-      }))
-      .sort((left, right) => left.id.localeCompare(right.id)),
+    jobs,
+    sourceImpactJobs,
     tasks: pipeline.tasks,
     packageManager: options.packageManager,
     packageManagerVersion: options.packageManagerVersion,
@@ -411,6 +456,7 @@ function buildRenderModel(
     dependabotAutoMerge: pipeline.sync.github.dependabotAutoMerge,
     packagePreviews,
     evidence,
+    sourceImpact,
     bridge,
     pages,
     manualDispatchJobs
@@ -434,6 +480,71 @@ function resolveGitHubEvidence(pipeline: NormalizedPipeline): NormalizedGitHubEv
     );
   }
   return config;
+}
+
+function resolveGitHubSourceImpactJobs(pipeline: NormalizedPipeline, cwd: string, jobs: RenderJobModel[]): SourceImpactRenderJob[] {
+  const config = pipeline.sync.github.sourceImpact;
+  if (!config.enabled) return [];
+
+  const jobsById = new Map(jobs.map((job) => [job.id, job]));
+  const explicitJobs = new Set(config.jobs);
+  const selectedJobIds = config.jobs.length > 0 ? config.jobs : jobs.map((job) => job.id);
+  const generatedIds = new Set<string>([
+    "package-preview",
+    "dependabot-auto-merge",
+    "async-bridge",
+    pipeline.sync.github.evidence.job,
+    pipeline.sync.github.pages.job
+  ].map((id) => id.toLowerCase()));
+  const existingJobIds = new Set(Object.keys(pipeline.jobs).map((id) => id.toLowerCase()));
+  const result: SourceImpactRenderJob[] = [];
+
+  for (const jobId of selectedJobIds) {
+    const job = jobsById.get(jobId);
+    if (!job) {
+      throw pipelineError("ASYNC_PIPELINE_GITHUB_SOURCE_IMPACT_INVALID", `sync.github.sourceImpact references missing job "${jobId}".`);
+    }
+    if (job.github?.runsOnMatrix) {
+      throw pipelineError(
+        "ASYNC_PIPELINE_GITHUB_SOURCE_IMPACT_INVALID",
+        `sync.github.sourceImpact cannot target job "${jobId}" because that job already uses github.runsOnMatrix.`
+      );
+    }
+    const plan = sourceImpactPlanForJob(pipeline, cwd, jobId);
+    if (plan.matrix.include.length === 0) {
+      if (explicitJobs.has(jobId)) {
+        throw pipelineError("ASYNC_PIPELINE_GITHUB_SOURCE_IMPACT_INVALID", `sync.github.sourceImpact job "${jobId}" has no source task refs.`);
+      }
+      continue;
+    }
+
+    const generatedJobPrefix = safeGeneratedJobId(jobId);
+    const planJob = `${generatedJobPrefix}-source-plan`;
+    const matrixJob = `${generatedJobPrefix}-sources`;
+    for (const generatedJob of [planJob, matrixJob]) {
+      const generatedJobKey = generatedJob.toLowerCase();
+      if (existingJobIds.has(generatedJobKey)) {
+        throw pipelineError("ASYNC_PIPELINE_GITHUB_SOURCE_IMPACT_JOB_CONFLICT", `Generated source-impact job "${generatedJob}" conflicts with an existing pipeline job.`);
+      }
+      if (generatedIds.has(generatedJobKey)) {
+        throw pipelineError("ASYNC_PIPELINE_GITHUB_SOURCE_IMPACT_JOB_CONFLICT", `Generated source-impact job "${generatedJob}" conflicts with another generated GitHub job.`);
+      }
+      generatedIds.add(generatedJobKey);
+    }
+
+    result.push({
+      job: jobId,
+      planJob,
+      matrixJob,
+      planPath: `.async/actions/source-impact/${safeArtifactPart(jobId)}-source-plan.json`,
+      plan,
+      if: job.if,
+      github: job.github,
+      env: job.env
+    });
+  }
+
+  return result.sort((left, right) => left.job.localeCompare(right.job));
 }
 
 function resolveGitHubBridge(pipeline: NormalizedPipeline): NormalizedGitHubBridgeSyncConfig & {
@@ -623,6 +734,10 @@ function renderWorkflow(model: ReturnType<typeof buildRenderModel>): string {
       renderPagesDeployJob(lines, job);
     }
   }
+  for (const sourceJob of model.sourceImpactJobs) {
+    renderSourceImpactPlanJob(lines, model, sourceJob);
+    renderSourceImpactMatrixJob(lines, model, sourceJob);
+  }
   if (model.pages.enabled) {
     renderGeneratedPagesJob(lines, model);
     renderPagesDeployJob(lines, {
@@ -744,6 +859,125 @@ function renderJob(lines: string[], model: ReturnType<typeof buildRenderModel>, 
   }
   renderEvidenceCollectStep(lines, model, { matrix: Boolean(runnerMatrix && runnerMatrix.length > 0) });
   lines.push("");
+}
+
+function renderSourceImpactPlanJob(lines: string[], model: ReturnType<typeof buildRenderModel>, sourceJob: SourceImpactRenderJob): void {
+  const runsOn = sourceJob.github?.runsOn ?? "ubuntu-latest";
+  lines.push(
+    `  ${yamlKey(sourceJob.planJob)}:`,
+    `    name: ${sourceJob.planJob}`
+  );
+  if (sourceJob.if) {
+    lines.push(`    if: ${sourceJob.if}`);
+  }
+  lines.push(
+    `    runs-on: ${Array.isArray(runsOn) ? JSON.stringify(runsOn) : runsOn}`,
+    "    permissions:",
+    "      contents: read",
+    "    outputs:",
+    "      matrix: ${{ steps.source-plan.outputs.matrix }}",
+    "    steps:",
+    "      - name: Checkout",
+    `        uses: ${CHECKOUT_ACTION}`,
+    "",
+    ...renderSetupSteps(model)
+  );
+  renderWriteSourceImpactPlanStep(lines, sourceJob);
+  lines.push(
+    "",
+    "      - name: Plan source impact matrix",
+    "        id: source-plan",
+    `        uses: ${ASYNC_SOURCE_IMPACT_ACTION}`,
+    "        with:",
+    "          mode: plan",
+    `          source-plan: ${sourceJob.planPath}`,
+    "          output-matrix: true"
+  );
+  renderEvidenceCollectStep(lines, model);
+  lines.push("");
+}
+
+function renderSourceImpactMatrixJob(lines: string[], model: ReturnType<typeof buildRenderModel>, sourceJob: SourceImpactRenderJob): void {
+  const runsOn = sourceJob.github?.runsOn ?? "ubuntu-latest";
+  lines.push(
+    `  ${yamlKey(sourceJob.matrixJob)}:`,
+    `    name: ${sourceJob.job} source (\${{ matrix.source }}:\${{ matrix.taskId }})`,
+    `    needs: ${JSON.stringify(sourceJob.planJob)}`,
+    `    if: \${{ always() && needs['${sourceJob.planJob}'].result == 'success' }}`,
+    "    strategy:",
+    "      fail-fast: false",
+    `      matrix: \${{ fromJSON(needs['${sourceJob.planJob}'].outputs.matrix || '{"include":[]}') }}`,
+    `    runs-on: ${Array.isArray(runsOn) ? JSON.stringify(runsOn) : runsOn}`,
+    "    permissions:",
+    "      contents: read",
+    "    steps:",
+    "      - name: Checkout",
+    `        uses: ${CHECKOUT_ACTION}`,
+    "",
+    ...(model.taskCache
+      ? [
+          "      - name: Restore task cache",
+          `        uses: ${CACHE_ACTION}`,
+          "        with:",
+          "          path: .async/cache",
+          "          key: async-pipeline-${{ runner.os }}-${{ github.sha }}",
+          "          restore-keys: |",
+          "            async-pipeline-${{ runner.os }}-",
+          ""
+        ]
+      : []),
+    ...renderSetupSteps(model),
+    ...renderDependencyInstallSteps(model)
+  );
+  if (model.buildCommand) {
+    lines.push(
+      "",
+      "      - name: Build pipeline CLI",
+      `        run: ${model.buildCommand}`
+    );
+  }
+  renderWriteSourceImpactPlanStep(lines, sourceJob);
+  lines.push(
+    "",
+    "      - name: Validate source checkout",
+    `        uses: ${ASYNC_SOURCE_IMPACT_ACTION}`,
+    "        with:",
+    "          mode: checkout",
+    `          source-plan: ${sourceJob.planPath}`,
+    "          source-id: ${{ matrix.source }}",
+    "          ref: ${{ matrix.ref }}",
+    "          path: ${{ matrix.path }}",
+    "",
+    "      - name: Prepare source checkout",
+    `        uses: ${ASYNC_SOURCE_IMPACT_ACTION}`,
+    "        with:",
+    "          mode: prepare",
+    `          source-plan: ${sourceJob.planPath}`,
+    "          source-id: ${{ matrix.source }}",
+    "          path: ${{ matrix.path }}"
+  );
+  renderRunActionStep(
+    lines,
+    "Run source task",
+    `${model.command} github check && ${model.command} run-task "\${{ matrix.task }}"`,
+    scopeActionEnv(sourceJob.env, new Set()),
+    { artifactName: "async-pipeline-${{ github.job }}-${{ matrix.source }}-${{ matrix.taskId }}-runs" }
+  );
+  renderEvidenceCollectStep(lines, model, { matrix: true });
+  lines.push("");
+}
+
+function renderWriteSourceImpactPlanStep(lines: string[], sourceJob: SourceImpactRenderJob): void {
+  const planJson = JSON.stringify(sourceJob.plan, null, 2);
+  lines.push(
+    "",
+    "      - name: Write generated source plan",
+    "        run: |",
+    `          mkdir -p ${shellWord(dirname(sourceJob.planPath))}`,
+    `          cat > ${shellWord(sourceJob.planPath)} <<'ASYNC_SOURCE_PLAN'`,
+    ...planJson.split("\n").map((line) => `          ${line}`),
+    "          ASYNC_SOURCE_PLAN"
+  );
 }
 
 function renderGeneratedPagesJob(lines: string[], model: ReturnType<typeof buildRenderModel>): void {
@@ -1152,6 +1386,11 @@ function safeArtifactPart(value: string): string {
   return value.replace(/[^A-Za-z0-9_.-]+/gu, "-");
 }
 
+function safeGeneratedJobId(value: string): string {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9_-]+/gu, "-").replace(/^-+|-+$/gu, "");
+  return normalized || "job";
+}
+
 function renderPackagePreviewJob(lines: string[], model: ReturnType<typeof buildRenderModel>): void {
   const preview = model.packagePreviews;
   if (!preview.package || !preview.target) return;
@@ -1331,6 +1570,10 @@ function renderEvidenceFanInJob(lines: string[], model: ReturnType<typeof buildR
 
 function evidenceProducerJobIds(model: ReturnType<typeof buildRenderModel>): string[] {
   const ids = new Set(model.jobs.map((job) => job.id));
+  for (const sourceJob of model.sourceImpactJobs) {
+    ids.add(sourceJob.planJob);
+    ids.add(sourceJob.matrixJob);
+  }
   if (model.pages.enabled) ids.add(model.pages.job);
   if (model.packagePreviews.enabled) ids.add("package-preview");
   if (model.bridge.actionsJob.enabled) ids.add(model.bridge.job);

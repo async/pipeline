@@ -1,10 +1,10 @@
 {
-  "version": 15,
+  "version": 16,
   "generator": "@async/pipeline",
   "config": "pipeline.ts",
   "workflow": ".github/workflows/async-pipeline.yml",
-  "hash": "sha256:a3eaae4bd37b5a472bbced99d108cdfd4d488fbfe14d052e1844c8443bd20169",
-  "generatedAt": "2026-06-19T00:34:04.851Z",
+  "hash": "sha256:c00c207806b99e701ad8ab1a98c1cf45199b2a611c7c32140b38668d2d078631",
+  "generatedAt": "2026-06-19T01:05:53.011Z",
   "actions": [
     {
       "id": "actions.cache",
@@ -30,51 +30,58 @@
     {
       "id": "async.actions.dependabot-merge",
       "uses": "async/actions/dependabot-merge",
-      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
-      "label": "v0.1.6",
-      "ref": "async/actions/dependabot-merge@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
+      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
+      "label": "v0.1.7",
+      "ref": "async/actions/dependabot-merge@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
     },
     {
       "id": "async.actions.evidence",
       "uses": "async/actions/evidence",
-      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
-      "label": "v0.1.6",
-      "ref": "async/actions/evidence@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
+      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
+      "label": "v0.1.7",
+      "ref": "async/actions/evidence@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
     },
     {
       "id": "async.actions.pages",
       "uses": "async/actions/pages",
-      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
-      "label": "v0.1.6",
-      "ref": "async/actions/pages@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
+      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
+      "label": "v0.1.7",
+      "ref": "async/actions/pages@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
     },
     {
       "id": "async.actions.preview",
       "uses": "async/actions/preview",
-      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
-      "label": "v0.1.6",
-      "ref": "async/actions/preview@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
+      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
+      "label": "v0.1.7",
+      "ref": "async/actions/preview@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
     },
     {
       "id": "async.actions.publish",
       "uses": "async/actions/publish",
-      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
-      "label": "v0.1.6",
-      "ref": "async/actions/publish@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
+      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
+      "label": "v0.1.7",
+      "ref": "async/actions/publish@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
     },
     {
       "id": "async.actions.run",
       "uses": "async/actions/run",
-      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
-      "label": "v0.1.6",
-      "ref": "async/actions/run@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
+      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
+      "label": "v0.1.7",
+      "ref": "async/actions/run@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
     },
     {
       "id": "async.actions.setup",
       "uses": "async/actions/setup",
-      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
-      "label": "v0.1.6",
-      "ref": "async/actions/setup@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
+      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
+      "label": "v0.1.7",
+      "ref": "async/actions/setup@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
+    },
+    {
+      "id": "async.actions.source-impact",
+      "uses": "async/actions/source-impact",
+      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
+      "label": "v0.1.7",
+      "ref": "async/actions/source-impact@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
     },
     {
       "id": "deno.setup",
@@ -147,7 +154,7 @@
     "comment": true
   },
   "evidence": {
-    "enabled": false,
+    "enabled": true,
     "job": "evidence",
     "paths": [
       ".async/runs"
@@ -159,6 +166,22 @@
     "retentionDays": 14,
     "ifNoFilesFound": "warn",
     "includeSummary": true
+  },
+  "sourceImpact": {
+    "enabled": true,
+    "jobs": [],
+    "generatedJobs": [
+      {
+        "job": "verifyImpact",
+        "planJob": "verifyimpact-source-plan",
+        "matrixJob": "verifyimpact-sources",
+        "matrixRows": 2,
+        "sources": [
+          "admin",
+          "storefront"
+        ]
+      }
+    ]
   },
   "bridge": {
     "enabled": false,

@@ -337,6 +337,12 @@ export interface GitHubPagesSyncConfig extends Partial<GitHubPagesConfig> {
 
 export type GitHubPagesSyncInput = boolean | GitHubPagesSyncConfig;
 
+export interface GitHubSourceImpactConfig {
+  jobs?: JobId[];
+}
+
+export type GitHubSourceImpactInput = boolean | GitHubSourceImpactConfig;
+
 export interface GitHubSyncConfig {
   workflow?: string;
   lock?: string;
@@ -350,6 +356,7 @@ export interface GitHubSyncConfig {
   evidence?: GitHubEvidenceInput;
   bridge?: GitHubBridgeSyncInput;
   pages?: GitHubPagesSyncInput;
+  sourceImpact?: GitHubSourceImpactInput;
 }
 
 export type GitHubSyncInput = boolean | GitHubSyncConfig;
@@ -385,6 +392,7 @@ export interface NormalizedGitHubSyncConfig {
   evidence: NormalizedGitHubEvidenceConfig;
   bridge: NormalizedGitHubBridgeSyncConfig;
   pages: NormalizedGitHubPagesSyncConfig;
+  sourceImpact: NormalizedGitHubSourceImpactConfig;
 }
 
 export interface NormalizedDependabotAutoMergeConfig {
@@ -438,6 +446,11 @@ export interface NormalizedGitHubPagesSyncConfig extends GitHubPagesConfig {
   target?: string;
   job: string;
   triggers: NormalizedGitHubPagesSyncTriggersConfig;
+}
+
+export interface NormalizedGitHubSourceImpactConfig {
+  enabled: boolean;
+  jobs: JobId[];
 }
 
 export interface NormalizedTaskSyncConfig {
@@ -945,7 +958,7 @@ const GITHUB_PAGES_STATIC_BUILD_FIELDS = new Set(["kind", "path"]);
 const GITHUB_PAGES_PRERENDER_BUILD_FIELDS = new Set(["kind", "path", "spaFallback", "validateIndex"]);
 const GITHUB_PERMISSION_FIELDS = new Set(["contents", "idToken", "issues", "packages", "pullRequests"]);
 const SYNC_FIELDS = new Set(["command", "github", "tasks"]);
-const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "packagePreviews", "dependabotAutoMerge", "evidence", "bridge", "pages"]);
+const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "packagePreviews", "dependabotAutoMerge", "evidence", "bridge", "pages", "sourceImpact"]);
 const GITHUB_SETUP_PROVIDERS = new Set<GitHubSetupProvider>(["auto", "async", "pnpm", "node"]);
 const DEPENDABOT_AUTO_MERGE_FIELDS = new Set(["ecosystems"]);
 const DEPENDABOT_AUTO_MERGE_ECOSYSTEMS = new Set<DependabotAutoMergeEcosystem>(["github-actions", "npm", "deno"]);
@@ -953,6 +966,7 @@ const PACKAGE_PREVIEWS_FIELDS = new Set(["package", "target", "registry", "names
 const GITHUB_EVIDENCE_FIELDS = new Set(["job", "paths", "receiptPaths", "artifactNamePrefix", "retentionDays", "ifNoFilesFound", "includeSummary"]);
 const GITHUB_BRIDGE_FIELDS = new Set(["mode", "schedule", "pullRequest", "branchPrefix", "allowedPaths", "endpointVar", "tokenEnv", "packageVersion"]);
 const GITHUB_SYNC_PAGES_FIELDS = new Set(["artifactName", "build", "environment", "job", "target", "triggers"]);
+const GITHUB_SOURCE_IMPACT_FIELDS = new Set(["jobs"]);
 const GITHUB_SYNC_PAGES_TRIGGERS_FIELDS = new Set(["manual", "main", "pullRequest"]);
 const GITHUB_SYNC_PAGES_MAIN_TRIGGER_FIELDS = new Set(["branch"]);
 const CONTAINER_PROVIDERS = new Set(["auto", "docker", "apple-container", "lima"]);
@@ -1006,6 +1020,9 @@ function validateDefinitionShape(definition: PipelineDefinition): void {
     }
     if (definition.sync.github.bridge && typeof definition.sync.github.bridge === "object") {
       rejectUnknownFields(GITHUB_BRIDGE_FIELDS, definition.sync.github.bridge, "sync.github.bridge");
+    }
+    if (definition.sync.github.sourceImpact && typeof definition.sync.github.sourceImpact === "object") {
+      rejectUnknownFields(GITHUB_SOURCE_IMPACT_FIELDS, definition.sync.github.sourceImpact, "sync.github.sourceImpact");
     }
     if (definition.sync.github.pages && typeof definition.sync.github.pages === "object") {
       rejectUnknownFields(GITHUB_SYNC_PAGES_FIELDS, definition.sync.github.pages, "sync.github.pages");
@@ -1845,7 +1862,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       packagePreviews: normalizePackagePreviews(undefined),
       evidence: normalizeGitHubEvidence(undefined),
       bridge: normalizeGitHubBridge(undefined),
-      pages: normalizeGitHubPagesSync(undefined)
+      pages: normalizeGitHubPagesSync(undefined),
+      sourceImpact: normalizeGitHubSourceImpact(undefined)
     };
   }
   if (github === true) {
@@ -1862,7 +1880,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       packagePreviews: normalizePackagePreviews(undefined),
       evidence: normalizeGitHubEvidence(undefined),
       bridge: normalizeGitHubBridge(undefined),
-      pages: normalizeGitHubPagesSync(undefined)
+      pages: normalizeGitHubPagesSync(undefined),
+      sourceImpact: normalizeGitHubSourceImpact(undefined)
     };
   }
   return {
@@ -1878,7 +1897,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
     packagePreviews: normalizePackagePreviews(github.packagePreviews),
     evidence: normalizeGitHubEvidence(github.evidence),
     bridge: normalizeGitHubBridge(github.bridge),
-    pages: normalizeGitHubPagesSync(github.pages)
+    pages: normalizeGitHubPagesSync(github.pages),
+    sourceImpact: normalizeGitHubSourceImpact(github.sourceImpact)
   };
 }
 
@@ -2057,6 +2077,29 @@ function validateGitHubEvidenceJob(jobId: string): void {
   if (jobId.includes(":")) {
     throw pipelineError("ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID", "sync.github.evidence.job cannot contain source namespace delimiter ':'.");
   }
+}
+
+function normalizeGitHubSourceImpact(input: GitHubSourceImpactInput | undefined): NormalizedGitHubSourceImpactConfig {
+  if (!input) return { enabled: false, jobs: [] };
+  if (input === true) return { enabled: true, jobs: [] };
+  const jobs = input.jobs ?? [];
+  if (!Array.isArray(jobs)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_SOURCE_IMPACT_INVALID", "sync.github.sourceImpact.jobs must be an array of job ids.");
+  }
+  if (jobs.length === 0 && input.jobs !== undefined) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_SOURCE_IMPACT_INVALID", "sync.github.sourceImpact.jobs cannot be empty.");
+  }
+  const normalized = jobs.map((jobId, index) => {
+    const value = normalizeOptionalNonEmptyString(jobId, `sync.github.sourceImpact.jobs[${index}]`, "ASYNC_PIPELINE_GITHUB_SOURCE_IMPACT_INVALID");
+    if (!value) {
+      throw pipelineError("ASYNC_PIPELINE_GITHUB_SOURCE_IMPACT_INVALID", `sync.github.sourceImpact.jobs[${index}] cannot be empty.`);
+    }
+    if (value.includes(":")) {
+      throw pipelineError("ASYNC_PIPELINE_GITHUB_SOURCE_IMPACT_INVALID", "sync.github.sourceImpact.jobs cannot contain source namespace delimiter ':'.");
+    }
+    return value;
+  });
+  return { enabled: true, jobs: [...new Set(normalized)] };
 }
 
 function normalizeGitHubBridge(input: GitHubBridgeSyncInput | undefined): NormalizedGitHubBridgeSyncConfig {

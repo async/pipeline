@@ -1,10 +1,10 @@
 {
-  "version": 15,
+  "version": 16,
   "generator": "@async/pipeline",
   "config": "pipeline.ts",
   "workflow": ".github/workflows/async-pipeline.yml",
-  "hash": "sha256:7ae43a3a9cb9f57d7abed3833fed236fa9720be38246a9457efe4cbca938a378",
-  "generatedAt": "2026-06-19T00:33:59.065Z",
+  "hash": "sha256:d65b88231bceb49f84f0249b31dfb516e6dba675466b6c2813ddca35718e2d4e",
+  "generatedAt": "2026-06-19T01:05:43.787Z",
   "actions": [
     {
       "id": "actions.cache",
@@ -30,51 +30,58 @@
     {
       "id": "async.actions.dependabot-merge",
       "uses": "async/actions/dependabot-merge",
-      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
-      "label": "v0.1.6",
-      "ref": "async/actions/dependabot-merge@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
+      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
+      "label": "v0.1.7",
+      "ref": "async/actions/dependabot-merge@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
     },
     {
       "id": "async.actions.evidence",
       "uses": "async/actions/evidence",
-      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
-      "label": "v0.1.6",
-      "ref": "async/actions/evidence@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
+      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
+      "label": "v0.1.7",
+      "ref": "async/actions/evidence@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
     },
     {
       "id": "async.actions.pages",
       "uses": "async/actions/pages",
-      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
-      "label": "v0.1.6",
-      "ref": "async/actions/pages@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
+      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
+      "label": "v0.1.7",
+      "ref": "async/actions/pages@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
     },
     {
       "id": "async.actions.preview",
       "uses": "async/actions/preview",
-      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
-      "label": "v0.1.6",
-      "ref": "async/actions/preview@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
+      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
+      "label": "v0.1.7",
+      "ref": "async/actions/preview@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
     },
     {
       "id": "async.actions.publish",
       "uses": "async/actions/publish",
-      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
-      "label": "v0.1.6",
-      "ref": "async/actions/publish@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
+      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
+      "label": "v0.1.7",
+      "ref": "async/actions/publish@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
     },
     {
       "id": "async.actions.run",
       "uses": "async/actions/run",
-      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
-      "label": "v0.1.6",
-      "ref": "async/actions/run@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
+      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
+      "label": "v0.1.7",
+      "ref": "async/actions/run@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
     },
     {
       "id": "async.actions.setup",
       "uses": "async/actions/setup",
-      "sha": "e91fb515670a66c0694936c079de4061f6306d43",
-      "label": "v0.1.6",
-      "ref": "async/actions/setup@e91fb515670a66c0694936c079de4061f6306d43 # v0.1.6"
+      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
+      "label": "v0.1.7",
+      "ref": "async/actions/setup@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
+    },
+    {
+      "id": "async.actions.source-impact",
+      "uses": "async/actions/source-impact",
+      "sha": "cef0f1a3b7dd1300a16004e6d69b472261a3272f",
+      "label": "v0.1.7",
+      "ref": "async/actions/source-impact@cef0f1a3b7dd1300a16004e6d69b472261a3272f # v0.1.7"
     },
     {
       "id": "deno.setup",
@@ -245,6 +252,11 @@
     "retentionDays": 14,
     "ifNoFilesFound": "warn",
     "includeSummary": true
+  },
+  "sourceImpact": {
+    "enabled": false,
+    "jobs": [],
+    "generatedJobs": []
   },
   "bridge": {
     "enabled": false,

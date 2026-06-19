@@ -11,7 +11,10 @@ export default definePipeline({
   },
 
   sync: {
-    github: true
+    github: {
+      sourceImpact: true,
+      evidence: true
+    }
   },
 
   // The dependency map is explicit and reviewable. Nothing here is inferred
@@ -35,7 +38,7 @@ export default definePipeline({
       pipeline: "pipeline.mjs",
       writable: true,
       prepare: [
-        sh((ctx) => sh`node tools/use-candidate.mjs ${ctx.candidate.dir}`)
+        sh`node tools/use-candidate.mjs ../..`
       ]
     }),
 
@@ -43,7 +46,7 @@ export default definePipeline({
       path: "repos/admin",
       writable: true,
       prepare: [
-        sh((ctx) => sh`node tools/use-candidate.mjs ${ctx.candidate.dir}`)
+        sh`node tools/use-candidate.mjs ../..`
       ]
     })
   },

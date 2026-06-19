@@ -912,11 +912,12 @@
     {
       "id": "api.generated-dependabot-package-previews",
       "source": "docs/api.md",
-      "anchor": "`dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates through `async/actions/dependabot-merge`. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, publishes a GitHub Packages PR preview through `async/actions/preview`, and comments install instructions on same-repo PRs. `evidence: true` adds manifest-backed evidence collection to generated jobs and a fan-in evidence job that merges downloaded manifests through `async/actions/evidence`. `bridge` object form generates an `async-bridge` job that pulls approved Async change sets through `@async/github-app`, enforces the configured branch prefix and path allowlist, and scopes the project token to the bridge pull step. `pages: true` generates GitHub Pages build/deploy jobs from an existing docs task, defaulting to `.async/pages` and pull request, `main`, and manual triggers; `build.kind: \"prerender\"` validates static prerender output for GitHub Pages.",
+      "anchor": "`dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates through `async/actions/dependabot-merge`. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, publishes a GitHub Packages PR preview through `async/actions/preview`, and comments install instructions on same-repo PRs. `evidence: true` adds manifest-backed evidence collection to generated jobs and a fan-in evidence job that merges downloaded manifests through `async/actions/evidence`. `sourceImpact: true` adds generated `<job>-source-plan` and `<job>-sources` jobs for source-backed jobs; the plan job writes static source metadata, `async/actions/source-impact` emits the source matrix, and the matrix job validates checkout and prepare metadata before running namespaced source tasks. `bridge` object form generates an `async-bridge` job that pulls approved Async change sets through `@async/github-app`, enforces the configured branch prefix and path allowlist, and scopes the project token to the bridge pull step. `pages: true` generates GitHub Pages build/deploy jobs from an existing docs task, defaulting to `.async/pages` and pull request, `main`, and manual triggers; `build.kind: \"prerender\"` validates static prerender output for GitHub Pages.",
       "tests": [
         "normalizes explicit sync task config and validates selected ids",
         "renders generated Dependabot auto-merge workflow job",
         "renders generated package preview job from packagePreviews true",
+        "renders source impact planning and matrix jobs from sync github sourceImpact",
         "renders generated actions bridge job from sync github bridge",
         "renders generated github pages jobs from sync github pages",
         "renders prerender github pages build through async pages action"
@@ -950,6 +951,16 @@
       ]
     },
     {
+      "id": "changelog.generated-source-impact",
+      "source": "CHANGELOG.md",
+      "anchor": "Add `sync.github.sourceImpact` so generated workflows can write static source plans, emit source matrices through `async/actions/source-impact`, validate source checkout and prepare metadata, and collect source receipts through generated evidence artifacts.",
+      "tests": [
+        "normalizes explicit sync task config and validates selected ids",
+        "source impact plans serialize repo-local sources, matrix rows, and prepare fallback reasons",
+        "renders source impact planning and matrix jobs from sync github sourceImpact"
+      ]
+    },
+    {
       "id": "github-actions.generated-package-previews",
       "source": "docs/github-actions.md",
       "anchor": "`sync.github.packagePreviews: true` generates a `package-preview` job on pull requests. The generator finds the public root package, or the single public `packages/*` workspace package when the root package is private.",
@@ -965,6 +976,15 @@
       "anchor": "`sync.github.evidence: true` adds a `Collect evidence manifest` step to generated jobs and an `evidence` fan-in job that downloads `async-evidence-*` artifacts, merges their manifests through `async/actions/evidence`, and uploads a bounded index artifact.",
       "tests": [
         "renders generated package preview job from packagePreviews true"
+      ]
+    },
+    {
+      "id": "github-actions.generated-source-impact",
+      "source": "docs/github-actions.md",
+      "anchor": "`sync.github.sourceImpact: true` adds generated `<job>-source-plan` and `<job>-sources` jobs for source-backed pipeline jobs while leaving the original job in place.",
+      "tests": [
+        "source impact plans serialize repo-local sources, matrix rows, and prepare fallback reasons",
+        "renders source impact planning and matrix jobs from sync github sourceImpact"
       ]
     },
     {
