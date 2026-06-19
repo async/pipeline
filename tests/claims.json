@@ -194,6 +194,52 @@
       ]
     },
     {
+      "id": "readme.github-local-manifest-harness",
+      "source": "README.md",
+      "anchor": "Use `github run` with `--event`, `--event-action`, and `--network mock|deny|allow` to simulate selected generated jobs locally; it writes manifests, per-step JSON, artifact directories, and receipts under `.async/github-local/`.",
+      "tests": [
+        "github plan and run expose local generated job manifests through the CLI",
+        "runs github manifests locally with receipts, artifact directories, permission checks, and network denial"
+      ]
+    },
+    {
+      "id": "github-actions.local-manifest-harness",
+      "source": "docs/github-actions.md",
+      "anchor": "This harness validates generated job selection, permissions, matrix expansion, artifacts, and action contracts; it does not replace a live GitHub Actions run for hosted runner behavior, GitHub token scopes, or platform services.",
+      "tests": [
+        "plans github action manifests with pinned refs, matrix rows, event skips, and artifact contracts",
+        "runs github manifests locally with receipts, artifact directories, permission checks, and network denial",
+        "plans async bridge manifests with constraints, secrets, and lease-aware receipts"
+      ]
+    },
+    {
+      "id": "api.github-plan-manifest",
+      "source": "docs/api.md",
+      "anchor": "`github plan` emits a stable generated job manifest for a GitHub event, including selected jobs, runner matrices, pinned action refs, permissions, artifact contracts, and local action mocks.",
+      "tests": [
+        "github plan and run expose local generated job manifests through the CLI",
+        "plans github action manifests with pinned refs, matrix rows, event skips, and artifact contracts"
+      ]
+    },
+    {
+      "id": "api.github-run-local-harness",
+      "source": "docs/api.md",
+      "anchor": "`github run` reads the GitHub event context when `--event` is omitted, or simulates the explicit `--event` and `--event-action` you pass.",
+      "tests": [
+        "github plan and run expose local generated job manifests through the CLI"
+      ]
+    },
+    {
+      "id": "changelog.github-local-manifest-harness",
+      "source": "CHANGELOG.md",
+      "anchor": "Add `async-pipeline github plan` and a local GitHub manifest harness so generated jobs can be inspected and simulated by event, selected job, matrix, permissions, artifacts, pinned action refs, and mocked network policy before a live GitHub Actions run.",
+      "tests": [
+        "github plan and run expose local generated job manifests through the CLI",
+        "plans github action manifests with pinned refs, matrix rows, event skips, and artifact contracts",
+        "runs github manifests locally with receipts, artifact directories, permission checks, and network denial"
+      ]
+    },
+    {
       "id": "github-actions.task-cache-step",
       "source": "docs/github-actions.md",
       "anchor": "The generated workflow writes an Async task-cache manifest and calls `async/actions/cache` to restore declared `.async/cache/tasks/<key>` paths when `sync.github.cache` is true.",

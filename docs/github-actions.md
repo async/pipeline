@@ -316,6 +316,27 @@ Manual workflow runs require selecting a single pipeline job; generated manual j
 
 The execution records still go under `.async/runs` inside the runner workspace.
 
+## Local Manifest Harness
+
+Use `github plan` to inspect the generated job manifest that a GitHub event would select:
+
+```sh
+async-pipeline github plan --job verify --event pull_request --event-action opened --format json
+async-pipeline github plan --event workflow_dispatch --selected-job verify --format json
+```
+
+The manifest records the event, selected job, runner matrix, pinned action refs, job permissions, branch/path constraints for bridge jobs, required secret names, artifact contracts, and the local mock boundary.
+
+Use `github run` to execute that manifest through the local harness:
+
+```sh
+async-pipeline github run --job verify --event pull_request --network mock
+async-pipeline github run --job package-preview --event pull_request --mock-network
+async-pipeline github run --job release --event workflow_dispatch --dry-run
+```
+
+Local GitHub runs write manifests, per-step JSON, artifact directories, and receipts under `.async/github-local/`. Networked steps default to `mock`; `--network deny` fails before a networked action or shell command is simulated, and `--network allow` requires the named secret env vars to exist before the step is allowed. This harness validates generated job selection, permissions, matrix expansion, artifacts, and action contracts; it does not replace a live GitHub Actions run for hosted runner behavior, GitHub token scopes, or platform services.
+
 ## Runtime Env
 
 Keep platform-specific GitHub settings under `github`, and runtime process env under `env`.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -146,6 +146,95 @@ test("runPipelineCli exposes CLI behavior without spawning a subprocess", async 
   assert.equal(stderr, "");
   assert.match(stdout, /verify/);
   assert.match(stdout, /typecheck/);
+});
+
+test("github plan and run expose local generated job manifests through the CLI", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "async-pipeline-cli-github-plan-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module", private: true, packageManager: "pnpm@11.1.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    writeFileSync(join(dir, "pipeline.js"), `
+import { definePipeline, job, sh, task, trigger } from ${JSON.stringify(packageUrl)};
+
+export default definePipeline({
+  name: "fixture",
+  sync: { github: { evidence: true } },
+  triggers: {
+    pr: trigger.github({ events: ["pull_request"] })
+  },
+  tasks: {
+    verify: task({ run: sh\`echo verify\` })
+  },
+  jobs: {
+    verify: job({
+      target: "verify",
+      trigger: ["pr"],
+      github: { runsOnMatrix: ["ubuntu-latest", "macos-latest"] }
+    })
+  }
+});
+`, "utf8");
+
+    let stdout = "";
+    let stderr = "";
+    const plan = await runPipelineCli({
+      args: ["github", "plan", "--job", "verify", "--event", "pull_request", "--event-action", "opened", "--format", "json"],
+      ...({ cwd: dir, env: { PATH: process.env.PATH } }),
+      stdout(text) {
+        stdout += text;
+      },
+      stderr(text) {
+        stderr += text;
+      }
+    });
+
+    assert.equal(plan.code, 0, stderr);
+    const planJson = JSON.parse(stdout);
+    assert.equal(planJson.version, 1);
+    assert.equal(planJson.event.name, "pull_request");
+    assert.equal(planJson.manifests[0].job.id, "verify");
+    assert.equal(planJson.manifests[0].job.matrix.length, 2);
+    assert.ok(planJson.manifests[0].steps.some((entry) => entry.local.contract === "run"));
+
+    stdout = "";
+    stderr = "";
+    const envPlan = await runPipelineCli({
+      args: ["github", "plan", "--job", "verify", "--format", "json"],
+      ...({ cwd: dir, env: { PATH: process.env.PATH, GITHUB_EVENT_NAME: "pull_request" } }),
+      stdout(text) {
+        stdout += text;
+      },
+      stderr(text) {
+        stderr += text;
+      }
+    });
+
+    assert.equal(envPlan.code, 0, stderr);
+    assert.equal(JSON.parse(stdout).event.name, "pull_request");
+
+    stdout = "";
+    stderr = "";
+    const run = await runPipelineCli({
+      args: ["github", "run", "--job", "verify", "--event", "pull_request", "--format", "json"],
+      ...({ cwd: dir, env: { PATH: process.env.PATH } }),
+      stdout(text) {
+        stdout += text;
+      },
+      stderr(text) {
+        stderr += text;
+      }
+    });
+
+    assert.equal(run.code, 0, stderr);
+    const runJson = JSON.parse(stdout);
+    assert.equal(runJson.status, "passed");
+    assert.equal(runJson.receipts[0].job, "verify");
+    assert.equal(runJson.receipts[0].network, "mock");
+    assert.equal(existsSync(join(dir, runJson.receipts[0].manifestPath)), true);
+    assert.equal(existsSync(join(dir, ".async/github-local/jobs/verify/receipt.json")), true);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
 });
 
 test("runPipelineCli can mock a CLI command through workspace commands", async () => {

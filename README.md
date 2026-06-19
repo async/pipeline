@@ -222,7 +222,8 @@ async-pipeline sync tasks generate
 async-pipeline sync tasks check
 async-pipeline github generate [--workflow <path>] [--lock <path>]
 async-pipeline github check [--workflow <path>] [--lock <path>]
-async-pipeline github run [--job <id>] [--concurrency <n>]
+async-pipeline github plan [--job <id>] [--event <name>] [--event-action <action>] [--format text|json]
+async-pipeline github run [--job <id>] [--event <name>] [--event-action <action>] [--network mock|deny|allow] [--dry-run] [--format text|json]
 async-pipeline cache clear
 async-pipeline gc [--keep <n>] [--cache-days <n>]
 async-pipeline doctor
@@ -262,6 +263,14 @@ The generated workflow installs dependencies, checks that the YAML and lock stil
 async-pipeline github check
 async-pipeline github run [--concurrency <n>]
 ```
+
+Use `github plan` to inspect the stable JSON manifest for generated jobs before a live workflow runs:
+
+```sh
+async-pipeline github plan --job verify --event pull_request --format json
+```
+
+Use `github run` with `--event`, `--event-action`, and `--network mock|deny|allow` to simulate selected generated jobs locally; it writes manifests, per-step JSON, artifact directories, and receipts under `.async/github-local/`.
 
 The checked-in generated workflow is [.github/workflows/async-pipeline.yml](.github/workflows/async-pipeline.yml).
 

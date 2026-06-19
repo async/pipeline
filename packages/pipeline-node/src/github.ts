@@ -206,6 +206,147 @@ export interface GitHubEventContext {
   payload?: unknown;
 }
 
+export type GitHubLocalNetworkMode = "mock" | "deny" | "allow";
+
+export interface GitHubManifestEvent {
+  name: string;
+  action?: string;
+  ref?: string;
+  sha?: string;
+  actor?: string;
+  schedule?: string;
+  selectedJob?: string;
+  pullRequest?: {
+    number?: number;
+    headRepo?: string;
+    headSha?: string;
+    baseRef?: string;
+  };
+}
+
+export interface GitHubManifestStep {
+  id: string;
+  name: string;
+  uses?: string;
+  label?: string;
+  run?: string;
+  if?: string;
+  with?: Record<string, unknown>;
+  env?: Record<string, string>;
+  permissions?: Record<string, "read" | "write">;
+  secrets: string[];
+  local: {
+    contract: string;
+    mode: "action" | "shell" | "mock";
+    network: GitHubLocalNetworkMode;
+    networked: boolean;
+    dangerous: boolean;
+    mockReason?: string;
+    fallbackReason?: string;
+  };
+}
+
+export interface GitHubJobManifest {
+  version: 1;
+  generatedBy: "@async/pipeline";
+  repo: string;
+  workflow: string;
+  lock: string;
+  event: GitHubManifestEvent;
+  job: {
+    id: string;
+    name: string;
+    kind: "pipeline" | "generated";
+    target: string[];
+    runsOn: string | string[];
+    matrix?: Array<{ runner: string[]; index: number }>;
+    permissions: Record<string, "read" | "write">;
+    environment: JobEnvironment | null;
+    concurrency: string | null;
+    if: string | null;
+    trigger: string[];
+  };
+  steps: GitHubManifestStep[];
+  trust: {
+    actionRefsPinned: boolean;
+    workflow: string;
+    lock: string;
+    lifecycleFallbackReason: string | null;
+  };
+  artifacts: Array<{
+    name: string;
+    path: string;
+    mode: "upload" | "download" | "local";
+    producerJob?: string;
+    consumerJob?: string;
+    retentionDays?: number;
+    ifNoFilesFound?: string;
+  }>;
+  local: {
+    workspace: string;
+    stateDirectory: string;
+    network: GitHubLocalNetworkMode;
+    permissionsMode: "enforced";
+    mocks: string[];
+  };
+}
+
+export interface GitHubPlanOptions extends GitHubRenderOptions {
+  job?: string;
+  eventName?: string;
+  eventAction?: string;
+  ref?: string;
+  sha?: string;
+  actor?: string;
+  schedule?: string;
+  selectedJob?: string;
+  prNumber?: number;
+  headRepo?: string;
+  headSha?: string;
+  baseRef?: string;
+  network?: GitHubLocalNetworkMode;
+}
+
+export interface GitHubPlanResult {
+  version: 1;
+  generatedBy: "@async/pipeline";
+  workflow: string;
+  lock: string;
+  event: GitHubManifestEvent;
+  manifests: GitHubJobManifest[];
+  skippedJobs: Array<{
+    id: string;
+    reason: string;
+    trigger: string[];
+  }>;
+}
+
+export interface GitHubLocalStepReceipt {
+  id: string;
+  name: string;
+  contract: string;
+  status: "passed" | "failed" | "planned";
+  decision: "mocked" | "simulated" | "allowed" | "denied" | "planned";
+  issues: string[];
+}
+
+export interface GitHubLocalRunReceipt {
+  job: string;
+  status: "passed" | "failed" | "planned";
+  dryRun: boolean;
+  network: GitHubLocalNetworkMode;
+  manifestPath?: string;
+  stepReceipts: GitHubLocalStepReceipt[];
+  artifacts: GitHubJobManifest["artifacts"];
+  issues: string[];
+}
+
+export interface GitHubLocalRunResult {
+  status: "passed" | "failed" | "skipped" | "planned";
+  plan: GitHubPlanResult;
+  receipts: GitHubLocalRunReceipt[];
+}
+
 export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options: GitHubRenderOptions): Promise<GitHubRenderResult> {
   const workflowPath = options.workflowPath ?? pipeline.sync.github.workflow ?? GITHUB_WORKFLOW_PATH;
   const lockPath = options.lockPath ?? pipeline.sync.github.lock ?? GITHUB_LOCK_PATH;
@@ -378,6 +519,1075 @@ export function jobsForGitHubEvent(pipeline: NormalizedPipeline, context: GitHub
     }
   }
   return matches.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+export async function planGitHubJobs(pipeline: NormalizedPipeline, options: GitHubPlanOptions): Promise<GitHubPlanResult> {
+  const rendered = await renderGitHubWorkflow(pipeline, options);
+  const packageInfo = await readPackageInfo(options.cwd);
+  const model = buildRenderModel(pipeline, {
+    ...packageInfo,
+    cwd: options.cwd,
+    configPath: relativePath(options.cwd, options.configPath),
+    workflowPath: rendered.workflowPath
+  });
+  const event = manifestEventFromOptions(options);
+  const network = options.network ?? "mock";
+  const candidates = buildManifestCandidates(pipeline, model, rendered, event, network);
+  const selected = options.job
+    ? candidates.filter((candidate) => candidate.manifest.job.id === options.job)
+    : candidates.filter((candidate) => candidate.selected);
+  if (options.job && selected.length === 0) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_PLAN_UNKNOWN_JOB", `Unknown generated GitHub job "${options.job}".`);
+  }
+  const selectedIds = new Set(selected.map((candidate) => candidate.manifest.job.id));
+  return {
+    version: 1,
+    generatedBy: "@async/pipeline",
+    workflow: rendered.workflowPath,
+    lock: rendered.lockPath,
+    event,
+    manifests: selected.map((candidate) => candidate.manifest),
+    skippedJobs: candidates
+      .filter((candidate) => !selectedIds.has(candidate.manifest.job.id))
+      .map((candidate) => ({
+        id: candidate.manifest.job.id,
+        reason: candidate.skipReason || (options.job ? "job_filter" : "event_filter"),
+        trigger: candidate.manifest.job.trigger
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id))
+  };
+}
+
+export async function runGitHubLocalPlan(
+  pipeline: NormalizedPipeline,
+  options: GitHubPlanOptions & { env?: NodeJS.ProcessEnv; dryRun?: boolean }
+): Promise<GitHubLocalRunResult> {
+  const plan = await planGitHubJobs(pipeline, options);
+  if (plan.manifests.length === 0) {
+    return { status: "skipped", plan, receipts: [] };
+  }
+  const receipts: GitHubLocalRunReceipt[] = [];
+  for (const manifest of plan.manifests) {
+    receipts.push(await runGitHubLocalManifest(manifest, options.cwd, {
+      env: options.env ?? process.env,
+      dryRun: options.dryRun ?? false
+    }));
+  }
+  const status = options.dryRun
+    ? "planned"
+    : receipts.some((receipt) => receipt.status === "failed")
+      ? "failed"
+      : "passed";
+  return { status, plan, receipts };
+}
+
+export async function runGitHubLocalManifest(
+  manifest: GitHubJobManifest,
+  cwd: string,
+  options: { env?: NodeJS.ProcessEnv; dryRun?: boolean } = {}
+): Promise<GitHubLocalRunReceipt> {
+  const env = options.env ?? process.env;
+  const dryRun = options.dryRun ?? false;
+  const stepReceipts: GitHubLocalStepReceipt[] = [];
+  const issues: string[] = [];
+
+  for (const step of manifest.steps) {
+    const stepIssues = validateLocalStep(manifest, step, env);
+    issues.push(...stepIssues.map((issue) => `${step.id}: ${issue}`));
+    const blockedByNetwork = step.local.networked && manifest.local.network === "deny";
+    const status = dryRun ? "planned" : stepIssues.length > 0 ? "failed" : "passed";
+    stepReceipts.push({
+      id: step.id,
+      name: step.name,
+      contract: step.local.contract,
+      status,
+      decision: dryRun
+        ? "planned"
+        : blockedByNetwork
+          ? "denied"
+          : manifest.local.network === "allow" && step.local.networked
+            ? "allowed"
+            : step.local.mode === "shell"
+              ? "simulated"
+              : "mocked",
+      issues: stepIssues
+    });
+    if (stepIssues.length > 0 && !dryRun) break;
+  }
+
+  const receipt: GitHubLocalRunReceipt = {
+    job: manifest.job.id,
+    status: dryRun ? "planned" : issues.length > 0 ? "failed" : "passed",
+    dryRun,
+    network: manifest.local.network,
+    artifacts: manifest.artifacts,
+    stepReceipts,
+    issues
+  };
+
+  if (!dryRun) {
+    const jobDir = resolve(cwd, manifest.local.stateDirectory);
+    await mkdir(join(jobDir, "steps"), { recursive: true });
+    await mkdir(join(jobDir, "outputs"), { recursive: true });
+    await mkdir(join(jobDir, "artifacts"), { recursive: true });
+    await writeFile(join(jobDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    for (const [index, step] of manifest.steps.entries()) {
+      await writeFile(join(jobDir, "steps", `${String(index + 1).padStart(2, "0")}-${step.id}.json`), `${JSON.stringify(step, null, 2)}\n`, "utf8");
+    }
+    for (const artifact of manifest.artifacts) {
+      await mkdir(join(jobDir, "artifacts", safeArtifactPart(artifact.name)), { recursive: true });
+    }
+    receipt.manifestPath = relativePath(cwd, join(jobDir, "manifest.json"));
+    await writeFile(join(jobDir, "receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  }
+
+  return receipt;
+}
+
+interface ManifestCandidate {
+  manifest: GitHubJobManifest;
+  selected: boolean;
+  skipReason: string;
+}
+
+function manifestEventFromOptions(options: GitHubPlanOptions): GitHubManifestEvent {
+  const name = options.eventName ?? "workflow_dispatch";
+  const selectedJob = options.selectedJob ?? (name === "workflow_dispatch" ? options.job : undefined);
+  return {
+    name,
+    ...(options.eventAction ? { action: options.eventAction } : {}),
+    ref: options.ref ?? (name === "push" ? "refs/heads/main" : undefined),
+    sha: options.sha,
+    actor: options.actor,
+    schedule: options.schedule,
+    selectedJob,
+    pullRequest: name === "pull_request" || name === "pull_request_target"
+      ? {
+          number: options.prNumber,
+          headRepo: options.headRepo,
+          headSha: options.headSha,
+          baseRef: options.baseRef
+        }
+      : undefined
+  };
+}
+
+function eventContextFromManifestEvent(event: GitHubManifestEvent): GitHubEventContext {
+  return {
+    eventName: event.name,
+    action: event.action,
+    ref: event.ref,
+    baseRef: event.pullRequest?.baseRef,
+    schedule: event.schedule,
+    selectedJob: event.selectedJob
+  };
+}
+
+function buildManifestCandidates(
+  pipeline: NormalizedPipeline,
+  model: ReturnType<typeof buildRenderModel>,
+  rendered: GitHubRenderResult,
+  event: GitHubManifestEvent,
+  network: GitHubLocalNetworkMode
+): ManifestCandidate[] {
+  const selectedPipelineJobs = new Set(jobsForGitHubEvent(pipeline, eventContextFromManifestEvent(event)).map((job) => job.id));
+  const candidates: ManifestCandidate[] = [];
+  for (const job of model.jobs) {
+    const selected = selectedPipelineJobs.has(job.id);
+    candidates.push({
+      manifest: buildPipelineJobManifest(model, rendered, event, job, network),
+      selected,
+      skipReason: selected ? "" : skipReasonForJob(event, job.trigger)
+    });
+  }
+
+  for (const generated of buildGeneratedJobManifests(model, rendered, event, network, selectedPipelineJobs)) {
+    candidates.push(generated);
+  }
+  return candidates.sort((left, right) => left.manifest.job.id.localeCompare(right.manifest.job.id));
+}
+
+function buildPipelineJobManifest(
+  model: ReturnType<typeof buildRenderModel>,
+  rendered: GitHubRenderResult,
+  event: GitHubManifestEvent,
+  job: ReturnType<typeof buildRenderModel>["jobs"][number],
+  network: GitHubLocalNetworkMode
+): GitHubJobManifest {
+  const lifecyclePlan = resolveLifecycleJobPlan(model, job);
+  const permissions = manifestJobPermissions(model, job, lifecyclePlan);
+  const runnerMatrix = job.github?.runsOnMatrix;
+  const steps = [
+    checkoutStep(),
+    ...setupManifestSteps(model),
+    ...dependencyInstallManifestSteps(model),
+    ...(model.buildCommand ? [shellManifestStep("build-pipeline-cli", "Build pipeline CLI", model.buildCommand, "build")] : []),
+    ...taskCacheManifestSteps(model, { kind: "job", id: job.id }),
+    ...(lifecyclePlan ? lifecycleManifestSteps(model, job, lifecyclePlan) : [
+      runActionManifestStep(
+        "run-pipeline-job",
+        "Run pipeline job",
+        `${model.command} github check && ${model.command} run ${shellWord(job.id)}${job.execution ? ` --execution ${shellWord(job.execution)}` : ""}`,
+        scopeTaskRunEnv(job.env, undefined),
+        "run"
+      )
+    ]),
+    ...attestManifestSteps(model, lifecyclePlan, job.requires?.provenance === true),
+    ...agentEvidenceManifestSteps(model, job),
+    ...taskCacheSaveManifestSteps(model, { kind: "job", id: job.id }),
+    ...(job.github?.pages ? [pagesActionManifestStep("upload-pages-artifact", "Upload Pages artifact", job.github.pages)] : []),
+    ...evidenceCollectManifestSteps(model)
+  ];
+  return makeJobManifest(model, rendered, event, {
+    id: job.id,
+    kind: "pipeline",
+    target: job.target,
+    runsOn: runnerMatrix && runnerMatrix.length > 0 ? "${{ matrix.runner }}" : job.github?.runsOn ?? "ubuntu-latest",
+    matrix: runnerMatrix ? runnerMatrix.map((runner, index) => ({ runner: Array.isArray(runner) ? runner : [runner], index })) : undefined,
+    permissions,
+    environment: job.environment ?? job.github?.environment ?? null,
+    concurrency: null,
+    if: job.if ?? null,
+    trigger: job.trigger,
+    steps,
+    network
+  });
+}
+
+function buildGeneratedJobManifests(
+  model: ReturnType<typeof buildRenderModel>,
+  rendered: GitHubRenderResult,
+  event: GitHubManifestEvent,
+  network: GitHubLocalNetworkMode,
+  selectedPipelineJobs: Set<string>
+): ManifestCandidate[] {
+  const candidates: ManifestCandidate[] = [];
+  if (model.pages.enabled && model.pages.target) {
+    const selected = generatedPagesSelected(model.pages, event);
+    candidates.push({
+      manifest: buildGeneratedPagesManifest(model, rendered, event, network),
+      selected,
+      skipReason: selected ? "" : skipReasonForGeneratedJob(event, [model.pages.job])
+    });
+  }
+  if (model.packagePreviews.enabled && model.packagePreviews.target) {
+    const selected = event.name === "pull_request";
+    candidates.push({
+      manifest: buildPackagePreviewManifest(model, rendered, event, network),
+      selected,
+      skipReason: selected ? "" : "event_filter"
+    });
+  }
+  if (model.bridge.actionsJob.enabled) {
+    const selected = bridgeSelected(model.bridge, event);
+    candidates.push({
+      manifest: buildBridgeManifest(model, rendered, event, network),
+      selected,
+      skipReason: selected ? "" : "event_filter"
+    });
+  }
+  if (model.dependabotAutoMerge.enabled) {
+    const selected = event.name === "pull_request_target";
+    candidates.push({
+      manifest: buildDependabotManifest(model, rendered, event, network),
+      selected,
+      skipReason: selected ? "" : "event_filter"
+    });
+  }
+  for (const sourceJob of model.sourceImpactJobs) {
+    const selected = selectedPipelineJobs.has(sourceJob.job);
+    candidates.push({
+      manifest: buildSourceImpactPlanManifest(model, rendered, event, sourceJob, network),
+      selected,
+      skipReason: selected ? "" : "upstream_job_skipped"
+    });
+    candidates.push({
+      manifest: buildSourceImpactMatrixManifest(model, rendered, event, sourceJob, network),
+      selected,
+      skipReason: selected ? "" : "upstream_job_skipped"
+    });
+  }
+  if (model.evidence.enabled) {
+    const producerIds = new Set(evidenceProducerJobIds(model));
+    const selected = candidates.some((candidate) => candidate.selected && producerIds.has(candidate.manifest.job.id))
+      || [...selectedPipelineJobs].some((jobId) => producerIds.has(jobId));
+    candidates.push({
+      manifest: buildEvidenceFanInManifest(model, rendered, event, network),
+      selected,
+      skipReason: selected ? "" : "no_evidence_producers"
+    });
+  }
+  return candidates;
+}
+
+function makeJobManifest(
+  model: ReturnType<typeof buildRenderModel>,
+  rendered: GitHubRenderResult,
+  event: GitHubManifestEvent,
+  options: {
+    id: string;
+    kind: "pipeline" | "generated";
+    target: string[];
+    runsOn: string | string[];
+    matrix?: Array<{ runner: string[]; index: number }>;
+    permissions: Record<string, "read" | "write">;
+    environment: JobEnvironment | null;
+    concurrency: string | null;
+    if: string | null;
+    trigger: string[];
+    steps: GitHubManifestStep[];
+    network: GitHubLocalNetworkMode;
+  }
+): GitHubJobManifest {
+  const stateDirectory = `.async/github-local/jobs/${safeArtifactPart(options.id)}`;
+  return {
+    version: 1,
+    generatedBy: "@async/pipeline",
+    repo: "${{ github.repository }}",
+    workflow: rendered.workflowPath,
+    lock: rendered.lockPath,
+    event,
+    job: {
+      id: options.id,
+      name: options.id,
+      kind: options.kind,
+      target: options.target,
+      runsOn: options.runsOn,
+      ...(options.matrix ? { matrix: options.matrix } : {}),
+      permissions: options.permissions,
+      environment: options.environment,
+      concurrency: options.concurrency,
+      if: options.if,
+      trigger: options.trigger
+    },
+    steps: options.steps,
+    trust: {
+      actionRefsPinned: ACTION_LOCKS.every((action) => /^[0-9a-f]{40}$/iu.test(action.sha)),
+      workflow: rendered.workflowPath,
+      lock: rendered.lockPath,
+      lifecycleFallbackReason: lifecycleFallbackReason(options.steps)
+    },
+    artifacts: artifactsForSteps(options.id, options.steps, model.evidence.retentionDays, model.evidence.ifNoFilesFound),
+    local: {
+      workspace: ".",
+      stateDirectory,
+      network: options.network,
+      permissionsMode: "enforced",
+      mocks: [
+        "setup",
+        "run",
+        "pages",
+        "preview",
+        "publish",
+        "storage-bridge",
+        "release",
+        "contract",
+        "hygiene",
+        "comment",
+        "evidence",
+        "agent-evidence",
+        "source-impact",
+        "cache",
+        "attest"
+      ]
+    }
+  };
+}
+
+function lifecycleFallbackReason(steps: GitHubManifestStep[]): string | null {
+  return steps.find((step) => step.local.fallbackReason)?.local.fallbackReason ?? null;
+}
+
+function manifestJobPermissions(
+  model: ReturnType<typeof buildRenderModel>,
+  job: ReturnType<typeof buildRenderModel>["jobs"][number],
+  lifecyclePlan: LifecyclePlanItem[] | undefined
+): Record<string, "read" | "write"> {
+  const grants = job.github?.permissions;
+  const idToken = grants?.idToken ?? (job.requires?.provenance || attestRequiresOidc(model, lifecyclePlan) ? "write" as const : undefined);
+  const issues = grants?.issues;
+  const packages = grants?.packages;
+  const pullRequests = grants?.pullRequests;
+  const contents = grants?.contents ?? ((idToken || issues || packages || pullRequests) ? "read" : "read");
+  return cleanPermissions({
+    contents,
+    ...(idToken ? { "id-token": idToken } : {}),
+    ...(issues ? { issues } : {}),
+    ...(packages ? { packages } : {}),
+    ...(pullRequests ? { "pull-requests": pullRequests } : {})
+  });
+}
+
+function cleanPermissions(permissions: Record<string, string | undefined>): Record<string, "read" | "write"> {
+  return Object.fromEntries(
+    Object.entries(permissions).filter((entry): entry is [string, "read" | "write"] => entry[1] === "read" || entry[1] === "write")
+  );
+}
+
+function checkoutStep(): GitHubManifestStep {
+  return actionManifestStep("checkout", "Checkout", CHECKOUT_ACTION, {}, "checkout");
+}
+
+function setupManifestSteps(model: ReturnType<typeof buildRenderModel>): GitHubManifestStep[] {
+  const runtime = model.runtime.map((entry) => entry.spec);
+  if (model.setup === "async") {
+    return [
+      actionManifestStep("setup-async-runtimes", "Setup Async runtimes", ASYNC_SETUP_ACTION, {
+        "node-version": model.nodeVersion,
+        "pnpm-version": pnpmSetupVersion(model.packageManager, model.packageManagerVersion),
+        "npm-version": "11.16.0",
+        runtime: runtime.length > 1 ? runtime.join("\n") : runtime[0] ?? `node@${model.nodeVersion}`,
+        "package-manager": model.packageManager,
+        install: model.projectKind === "package",
+        "frozen-lockfile": true,
+        cache: model.dependencyCache,
+        ...(model.dependencyCachePath ? { "dependency-cache-path": model.dependencyCachePath } : {})
+      }, "setup")
+    ];
+  }
+  const steps = [actionManifestStep("setup-node", "Setup Node", SETUP_NODE_ACTION, { "node-version": model.nodeVersion }, "setup")];
+  if (model.projectKind === "deno") {
+    steps.push(actionManifestStep("setup-deno", "Setup Deno", DENO_SETUP_ACTION, { "deno-version": `v${DEFAULT_DENO_VERSION}.x` }, "setup"));
+  }
+  return steps;
+}
+
+function dependencyInstallManifestSteps(model: ReturnType<typeof buildRenderModel>): GitHubManifestStep[] {
+  if (model.setup === "async") return [];
+  return renderDependencyInstallSteps(model).map((_, index) => {
+    const command = model.projectKind === "deno"
+      ? `deno install --frozen=${model.dependencyCachePath ? "true" : "false"}`
+      : `${model.packageManager} install --frozen-lockfile`;
+    return shellManifestStep(`install-dependencies-${index}`, "Install dependencies", command, "setup");
+  });
+}
+
+function taskCacheManifestSteps(model: ReturnType<typeof buildRenderModel>, target: TaskCacheTarget): GitHubManifestStep[] {
+  if (!model.taskCache) return [];
+  const manifestPath = target.manifestPath ?? `.async/actions/cache/${safeArtifactPart(target.id)}-cache-manifest.json`;
+  return [
+    shellManifestStep("write-task-cache-manifest", "Write task cache manifest", renderCacheManifestCommand(model, target, manifestPath, "read-only"), "cache"),
+    actionManifestStep("restore-async-task-cache", "Restore Async task cache", ASYNC_CACHE_ACTION, {
+      mode: "restore",
+      manifest: manifestPath,
+      trust: "read-only"
+    }, "cache")
+  ];
+}
+
+function taskCacheSaveManifestSteps(model: ReturnType<typeof buildRenderModel>, target: TaskCacheTarget): GitHubManifestStep[] {
+  if (!model.taskCache) return [];
+  const manifestPath = target.manifestPath ?? `.async/actions/cache/${safeArtifactPart(target.id)}-cache-manifest.json`;
+  return [
+    actionManifestStep("save-async-task-cache", "Save Async task cache", ASYNC_CACHE_ACTION, {
+      mode: "save",
+      manifest: manifestPath,
+      trust: "read-write"
+    }, "cache", { if: "${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}" })
+  ];
+}
+
+function lifecycleManifestSteps(
+  model: ReturnType<typeof buildRenderModel>,
+  job: ReturnType<typeof buildRenderModel>["jobs"][number],
+  plan: LifecyclePlanItem[]
+): GitHubManifestStep[] {
+  const steps: GitHubManifestStep[] = [];
+  if (hasReleaseLifecycle(plan)) {
+    const packagePath = lifecyclePackagePath(plan) ?? ".";
+    steps.push(
+      releaseDoctorManifestStep("plan-release-package", "Plan release package", "plan", packagePath),
+      releaseDoctorManifestStep("inspect-release-package", "Inspect release package", "inspect", packagePath),
+      releaseDoctorManifestStep("check-release-changelog", "Check release changelog", "changelog", packagePath),
+      releaseDoctorManifestStep("render-release-notes", "Render release notes", "notes", packagePath)
+    );
+  }
+  for (const item of plan) {
+    if (item.kind === "run-task") {
+      steps.push(runActionManifestStep(
+        `run-pipeline-task-${safeArtifactPart(item.taskId)}`,
+        `Run pipeline task ${item.taskId}`,
+        `${model.command} github check && ${model.command} run-task ${shellWord(item.taskId)}`,
+        scopeTaskRunEnv(job.env, model.tasks[item.taskId]),
+        "run",
+        { "artifact-name": `async-pipeline-\${{ github.job }}-${safeArtifactPart(item.taskId)}-runs` }
+      ));
+      continue;
+    }
+    if (item.kind === "preview") {
+      steps.push(previewManifestStep(item));
+      if (item.mode === "pr" && item.comment) steps.push(commentManifestStep("comment-package-preview", "Comment package preview"));
+      continue;
+    }
+    if (item.kind === "release") {
+      steps.push(releaseDoctorManifestStep("run-release-doctor", "Run release doctor", "doctor", item.packagePath, true));
+      continue;
+    }
+    steps.push(publishManifestStep(item, job.requires?.provenance === true));
+  }
+  return steps;
+}
+
+function attestManifestSteps(
+  model: ReturnType<typeof buildRenderModel>,
+  lifecyclePlan: LifecyclePlanItem[] | undefined,
+  provenance: boolean
+): GitHubManifestStep[] {
+  if (!model.attest.enabled || !hasReleaseLifecycle(lifecyclePlan)) return [];
+  const packagePath = model.attest.packagePath ?? lifecyclePackagePath(lifecyclePlan) ?? ".";
+  const steps = [
+    actionManifestStep("create-attestation-subject-manifest", "Create attestation subject manifest", ASYNC_ATTEST_ACTION, {
+      mode: "digest",
+      "package-path": packagePath,
+      "subject-manifest": model.attest.subjectManifest,
+      "sbom-path": model.attest.sbomPath,
+      "require-npm-provenance": model.attest.requireNpmProvenance,
+      "tarball-scan": model.attest.tarballScan
+    }, "attest"),
+    actionManifestStep("write-attestation-sbom-evidence", "Write attestation SBOM evidence", ASYNC_ATTEST_ACTION, {
+      mode: "sbom",
+      "package-path": packagePath,
+      "subject-manifest": model.attest.subjectManifest,
+      "sbom-path": model.attest.sbomPath
+    }, "attest")
+  ];
+  if (model.attest.githubAttestation || provenance) {
+    steps.push(actionManifestStep("record-github-attestation-intent", "Record GitHub attestation intent", ASYNC_ATTEST_ACTION, {
+      mode: "attest",
+      "package-path": packagePath,
+      "subject-manifest": model.attest.subjectManifest,
+      "github-attestation": true
+    }, "attest", { permissions: { "id-token": "write" }, networked: true, dangerous: true }));
+  }
+  return steps;
+}
+
+function agentEvidenceManifestSteps(model: ReturnType<typeof buildRenderModel>, job: ReturnType<typeof buildRenderModel>["jobs"][number]): GitHubManifestStep[] {
+  const evidence = agentEvidenceForTargets(model.tasks, job.target);
+  if (!evidence.hasAgentStep) return [];
+  const canComment = job.github?.permissions?.issues === "write" || job.github?.permissions?.pullRequests === "write";
+  const steps = [
+    actionManifestStep("bundle-agent-evidence", "Bundle agent evidence", ASYNC_AGENT_EVIDENCE_ACTION, {
+      mode: canComment ? "comment" : "bundle",
+      "run-directory": ".async/runs",
+      outputs: evidence.outputs,
+      "evidence-path": ".async/actions/agent-evidence/${{ github.job }}/manifest.json",
+      "bundle-path": ".async/actions/agent-evidence/${{ github.job }}/bundle.json",
+      "receipt-path": ".async/actions/receipts/${{ github.job }}-agent-evidence.json",
+      comment: canComment,
+      "comment-marker": "async-agent-evidence-${{ github.job }}"
+    }, "agent-evidence")
+  ];
+  if (canComment) {
+    steps.push(commentManifestStep("comment-agent-evidence", "Comment agent evidence"));
+  }
+  return steps;
+}
+
+function evidenceCollectManifestSteps(model: ReturnType<typeof buildRenderModel>): GitHubManifestStep[] {
+  if (!model.evidence.enabled) return [];
+  return [
+    actionManifestStep("collect-evidence-manifest", "Collect evidence manifest", ASYNC_EVIDENCE_ACTION, {
+      mode: "collect",
+      paths: model.evidence.paths,
+      "receipt-paths": model.evidence.receiptPaths,
+      "manifest-path": ".async/evidence/${{ github.job }}/manifest.json",
+      "summary-path": ".async/evidence/${{ github.job }}/summary.md",
+      "artifact-name": `${model.evidence.artifactNamePrefix}-\${{ github.job }}`,
+      "retention-days": model.evidence.retentionDays,
+      "if-no-files-found": model.evidence.ifNoFilesFound,
+      "include-summary": model.evidence.includeSummary
+    }, "evidence", { if: "${{ always() }}" })
+  ];
+}
+
+function runActionManifestStep(
+  id: string,
+  name: string,
+  command: string,
+  env: Record<string, EnvValue>,
+  contract: string,
+  extraWith: Record<string, unknown> = {}
+): GitHubManifestStep {
+  const networked = commandLooksNetworked(command);
+  return actionManifestStep(id, name, ASYNC_RUN_ACTION, {
+    command,
+    "check-generated": false,
+    "artifact-name": "async-pipeline-${{ github.job }}-runs",
+    ...extraWith
+  }, contract, { env: manifestEnv(env), secrets: secretNamesFromEnv(env), networked, dangerous: networked });
+}
+
+function releaseDoctorManifestStep(id: string, name: string, mode: string, packagePath: string, live = false): GitHubManifestStep {
+  return actionManifestStep(id, name, ASYNC_DOCTOR_ACTION, {
+    mode,
+    "package-path": packagePath,
+    "evidence-dir": ".async/release",
+    "release-command": ASYNC_RELEASE_COMMAND,
+    ...(mode === "doctor" ? { network: live ? "live" : "mock" } : {})
+  }, "release", { networked: live, dangerous: live, secrets: live ? ["GITHUB_TOKEN"] : [] });
+}
+
+function previewManifestStep(preview: Extract<LifecyclePlanItem, { kind: "preview" }>): GitHubManifestStep {
+  return actionManifestStep(`publish-${preview.mode}-package-preview`, `Publish ${preview.mode === "main" ? "main" : "PR"} package preview`, ASYNC_PREVIEW_ACTION, {
+    "package-path": preview.packagePath,
+    "target-registry": preview.registry,
+    ...(preview.namespace ? { namespace: preview.namespace } : {}),
+    mode: preview.mode,
+    comment: preview.comment,
+    "token-env-name": preview.tokenEnv
+  }, "preview", { permissions: { packages: "write" }, secrets: [preview.tokenEnv], networked: true, dangerous: true });
+}
+
+function publishManifestStep(publish: Extract<LifecyclePlanItem, { kind: "publish" }>, provenance: boolean): GitHubManifestStep {
+  const name = publish.mode === "github-release"
+    ? "Create or update GitHub Release"
+    : publish.mode === "github-packages"
+      ? "Publish GitHub Packages mirror"
+      : "Publish npm package";
+  return actionManifestStep(`publish-${publish.mode}`, name, ASYNC_PUBLISH_ACTION, {
+    "package-path": publish.packagePath,
+    mode: publish.mode,
+    registry: publish.registry,
+    "dist-tag": publish.distTag,
+    ...(publish.mode === "npm" ? { "token-env-name": "NODE_AUTH_TOKEN", provenance } : {}),
+    ...(publish.mode === "github-packages" ? { "token-env-name": "GITHUB_TOKEN" } : {}),
+    ...(publish.mode === "github-release" ? { "notes-file": ".async/release/release-notes.md" } : {})
+  }, "publish", {
+    permissions: {
+      ...(publish.mode === "github-packages" || publish.mode === "github-release" ? { packages: "write", contents: "write" } : {}),
+      ...(provenance ? { "id-token": "write" } : {})
+    },
+    secrets: publish.mode === "npm" ? ["NODE_AUTH_TOKEN"] : ["GITHUB_TOKEN"],
+    networked: true,
+    dangerous: true
+  });
+}
+
+function commentManifestStep(id: string, name: string): GitHubManifestStep {
+  return actionManifestStep(id, name, ASYNC_COMMENT_ACTION, {
+    mode: "pr-comment",
+    repository: "${{ github.repository }}",
+    number: "${{ github.event.pull_request.number }}",
+    marker: "${{ steps.source.outputs.comment-marker }}",
+    body: "${{ steps.source.outputs.comment-body }}"
+  }, "comment", { permissions: { issues: "write" }, secrets: ["GITHUB_TOKEN"], networked: true });
+}
+
+function pagesActionManifestStep(id: string, name: string, pages: GitHubPagesConfig): GitHubManifestStep {
+  return actionManifestStep(id, name, ASYNC_PAGES_ACTION, {
+    mode: pages.build.kind,
+    ...(pages.build.kind === "jekyll" ? { source: pages.build.source, destination: pages.build.destination ?? "./_site" } : {}),
+    ...(pages.build.kind === "static" ? { path: pages.build.path } : {}),
+    ...(pages.build.kind === "prerender" ? { path: pages.build.path, "validate-index": pages.build.validateIndex ?? true, "spa-fallback": pages.build.spaFallback ?? false } : {})
+  }, "pages", { permissions: { pages: "write", "id-token": "write" } });
+}
+
+function actionManifestStep(
+  id: string,
+  name: string,
+  ref: string,
+  input: Record<string, unknown>,
+  contract: string,
+  options: {
+    if?: string;
+    env?: Record<string, string>;
+    permissions?: Record<string, "read" | "write">;
+    secrets?: string[];
+    networked?: boolean;
+    dangerous?: boolean;
+    fallbackReason?: string;
+  } = {}
+): GitHubManifestStep {
+  const action = actionFromRef(ref);
+  return {
+    id: safeGeneratedJobId(id),
+    name,
+    uses: `${action.uses}@${action.sha}`,
+    label: action.label,
+    ...(options.if ? { if: options.if } : {}),
+    with: sortObject(input),
+    ...(options.env && Object.keys(options.env).length > 0 ? { env: options.env } : {}),
+    permissions: options.permissions ?? {},
+    secrets: [...new Set(options.secrets ?? [])].sort(),
+    local: {
+      contract,
+      mode: "action",
+      network: options.networked ? "mock" : "mock",
+      networked: options.networked ?? false,
+      dangerous: options.dangerous ?? false,
+      ...(options.networked ? { mockReason: "networked action is mocked unless --network allow is selected" } : {}),
+      ...(options.fallbackReason ? { fallbackReason: options.fallbackReason } : {})
+    }
+  };
+}
+
+function shellManifestStep(id: string, name: string, command: string, contract: string): GitHubManifestStep {
+  return {
+    id: safeGeneratedJobId(id),
+    name,
+    run: command,
+    secrets: [],
+    permissions: {},
+    local: {
+      contract,
+      mode: "shell",
+      network: "mock",
+      networked: commandLooksNetworked(command),
+      dangerous: commandLooksDangerous(command),
+      ...(commandLooksNetworked(command) ? { mockReason: "networked shell command is simulated unless --network allow is selected" } : {})
+    }
+  };
+}
+
+function actionFromRef(ref: string): GitHubActionRef {
+  const found = GENERATED_ACTIONS.find((action) => action.ref === ref);
+  if (found) return found;
+  const [usesPart, rest] = ref.split("@");
+  const sha = rest?.split(/\s+/u)[0] ?? "";
+  return { id: usesPart ?? ref, uses: usesPart ?? ref, sha, label: "", ref };
+}
+
+function manifestEnv(env: Record<string, EnvValue>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env)
+      .map(([name, value]) => [name, renderGitHubEnvValue(value)] as const)
+      .filter((entry): entry is readonly [string, string] => typeof entry[1] === "string")
+      .sort(([left], [right]) => left.localeCompare(right))
+  );
+}
+
+function secretNamesFromEnv(env: Record<string, EnvValue>): string[] {
+  const names = new Set<string>();
+  for (const [envName, value] of Object.entries(env)) {
+    if (isSecretEnvValue(value)) {
+      names.add(typeof value === "object" && value !== null && "name" in value && typeof value.name === "string" ? value.name : envName);
+    }
+  }
+  return [...names].sort();
+}
+
+function artifactsForSteps(
+  jobId: string,
+  steps: GitHubManifestStep[],
+  retentionDays: number,
+  ifNoFilesFound: string
+): GitHubJobManifest["artifacts"] {
+  const artifacts: GitHubJobManifest["artifacts"] = [];
+  for (const step of steps) {
+    const artifactName = typeof step.with?.["artifact-name"] === "string" ? step.with["artifact-name"] : undefined;
+    if (artifactName) {
+      artifacts.push({
+        name: artifactName,
+        path: artifactPathForContract(step.local.contract),
+        mode: step.local.contract === "evidence" ? "upload" : "local",
+        producerJob: jobId,
+        retentionDays,
+        ifNoFilesFound
+      });
+    }
+  }
+  return artifacts.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function artifactPathForContract(contract: string): string {
+  if (contract === "evidence") return ".async/evidence";
+  if (contract === "agent-evidence") return ".async/actions/agent-evidence";
+  if (contract === "pages") return ".async/pages";
+  return ".async/runs";
+}
+
+function buildGeneratedPagesManifest(
+  model: ReturnType<typeof buildRenderModel>,
+  rendered: GitHubRenderResult,
+  event: GitHubManifestEvent,
+  network: GitHubLocalNetworkMode
+): GitHubJobManifest {
+  const pages = model.pages;
+  const steps = [
+    checkoutStep(),
+    ...setupManifestSteps(model),
+    ...dependencyInstallManifestSteps(model),
+    ...(model.buildCommand ? [shellManifestStep("build-pipeline-cli", "Build pipeline CLI", model.buildCommand, "build")] : []),
+    ...taskCacheManifestSteps(model, { kind: "task", id: pages.target ?? "docs.site" }),
+    runActionManifestStep("run-pages-target", "Run Pages target", `${model.command} github check && ${model.command} run-task ${shellWord(pages.target ?? "docs.site")}`, {}, "run"),
+    ...taskCacheSaveManifestSteps(model, { kind: "task", id: pages.target ?? "docs.site" }),
+    pagesActionManifestStep("upload-pages-artifact", "Upload Pages artifact", pages),
+    ...evidenceCollectManifestSteps(model)
+  ];
+  return makeJobManifest(model, rendered, event, {
+    id: pages.job,
+    kind: "generated",
+    target: pages.target ? [pages.target] : [],
+    runsOn: "ubuntu-latest",
+    permissions: { contents: "read", pages: "write", "id-token": "write" },
+    environment: pages.environment ?? null,
+    concurrency: null,
+    if: renderGeneratedPagesCondition(pages),
+    trigger: ["pull_request", "push", "workflow_dispatch"],
+    steps,
+    network
+  });
+}
+
+function buildPackagePreviewManifest(
+  model: ReturnType<typeof buildRenderModel>,
+  rendered: GitHubRenderResult,
+  event: GitHubManifestEvent,
+  network: GitHubLocalNetworkMode
+): GitHubJobManifest {
+  const preview = model.packagePreviews;
+  const steps = [
+    checkoutStep(),
+    ...setupManifestSteps(model),
+    ...dependencyInstallManifestSteps(model),
+    ...(model.buildCommand ? [shellManifestStep("build-pipeline-cli", "Build pipeline CLI", model.buildCommand, "build")] : []),
+    ...taskCacheManifestSteps(model, { kind: "task", id: preview.target ?? "pack", manifestPath: ".async/actions/cache/package-preview-cache-manifest.json" }),
+    runActionManifestStep("run-package-preview-target", "Run package preview target", `${model.command} github check && ${model.command} run-task ${shellWord(preview.target ?? "pack")}`, {}, "run"),
+    ...taskCacheSaveManifestSteps(model, { kind: "task", id: preview.target ?? "pack", manifestPath: ".async/actions/cache/package-preview-cache-manifest.json" }),
+    actionManifestStep("publish-package-preview", "Publish package preview", ASYNC_PREVIEW_ACTION, {
+      "package-path": preview.package ?? ".",
+      "target-registry": preview.registry,
+      ...(preview.namespace ? { namespace: preview.namespace } : {}),
+      mode: "pr",
+      comment: preview.comment,
+      "token-env-name": preview.tokenEnv
+    }, "preview", { permissions: { packages: "write" }, secrets: [preview.tokenEnv], networked: true, dangerous: true }),
+    ...(preview.comment ? [commentManifestStep("comment-package-preview", "Comment package preview")] : []),
+    ...evidenceCollectManifestSteps(model)
+  ];
+  return makeJobManifest(model, rendered, event, {
+    id: "package-preview",
+    kind: "generated",
+    target: preview.target ? [preview.target] : [],
+    runsOn: "ubuntu-latest",
+    permissions: { contents: "read", issues: "write", packages: "write", "pull-requests": "write" },
+    environment: null,
+    concurrency: null,
+    if: "github.event_name == 'pull_request' && github.event.pull_request.draft == false",
+    trigger: ["pull_request"],
+    steps,
+    network
+  });
+}
+
+function buildBridgeManifest(
+  model: ReturnType<typeof buildRenderModel>,
+  rendered: GitHubRenderResult,
+  event: GitHubManifestEvent,
+  network: GitHubLocalNetworkMode
+): GitHubJobManifest {
+  const bridge = model.bridge;
+  const command = [
+    "npx",
+    "--yes",
+    `@async/github-app@${bridge.packageVersion}`,
+    "actions",
+    "pull",
+    "--branch-prefix",
+    bridge.branchPrefix,
+    "--pull-request",
+    String(bridge.pullRequest),
+    ...bridge.allowedPaths.flatMap((path) => ["--allowed-path", path])
+  ].map(shellWord).join(" ");
+  const steps = [
+    checkoutStep(),
+    ...setupManifestSteps(model),
+    ...dependencyInstallManifestSteps(model),
+    ...(model.buildCommand ? [shellManifestStep("build-pipeline-cli", "Build pipeline CLI", model.buildCommand, "build")] : []),
+    runActionManifestStep("check-generated-workflow", "Check generated workflow", `${model.command} github check`, {}, "run"),
+    runActionManifestStep("pull-and-apply-async-bridge-change-sets", "Pull and apply Async bridge change sets", command, {
+      ASYNC_PROJECT_URL: { kind: "async-pipeline.env.var", name: bridge.endpointVar } as EnvValue,
+      ASYNC_PROJECT_TOKEN: { kind: "async-pipeline.env.secret", name: bridge.tokenEnv } as EnvValue,
+      GITHUB_TOKEN: { kind: "async-pipeline.env.secret", name: "GITHUB_TOKEN" } as EnvValue
+    }, "storage-bridge"),
+    ...evidenceCollectManifestSteps(model)
+  ];
+  return makeJobManifest(model, rendered, event, {
+    id: bridge.job,
+    kind: "generated",
+    target: [],
+    runsOn: "ubuntu-latest",
+    permissions: { contents: "write", "pull-requests": "write" },
+    environment: null,
+    concurrency: "async-bridge-${{ github.repository }}",
+    if: renderBridgeCondition(bridge),
+    trigger: ["schedule", "workflow_dispatch"],
+    steps,
+    network
+  });
+}
+
+function buildEvidenceFanInManifest(
+  model: ReturnType<typeof buildRenderModel>,
+  rendered: GitHubRenderResult,
+  event: GitHubManifestEvent,
+  network: GitHubLocalNetworkMode
+): GitHubJobManifest {
+  return makeJobManifest(model, rendered, event, {
+    id: model.evidence.job,
+    kind: "generated",
+    target: [],
+    runsOn: "ubuntu-latest",
+    permissions: { contents: "read" },
+    environment: null,
+    concurrency: null,
+    if: "always()",
+    trigger: ["fan-in"],
+    steps: [
+      actionManifestStep("merge-evidence-manifests", "Merge evidence manifests", ASYNC_EVIDENCE_ACTION, {
+        mode: "merge",
+        "artifact-pattern": `${model.evidence.artifactNamePrefix}-*`,
+        "manifest-path": ".async/evidence/index.json",
+        "summary-path": ".async/evidence/index.md",
+        "artifact-name": `${model.evidence.artifactNamePrefix}-index`,
+        "retention-days": model.evidence.retentionDays,
+        "if-no-files-found": model.evidence.ifNoFilesFound,
+        "include-summary": model.evidence.includeSummary
+      }, "evidence")
+    ],
+    network
+  });
+}
+
+function buildDependabotManifest(
+  model: ReturnType<typeof buildRenderModel>,
+  rendered: GitHubRenderResult,
+  event: GitHubManifestEvent,
+  network: GitHubLocalNetworkMode
+): GitHubJobManifest {
+  return makeJobManifest(model, rendered, event, {
+    id: "dependabot-auto-merge",
+    kind: "generated",
+    target: [],
+    runsOn: "ubuntu-latest",
+    permissions: { contents: "write", "pull-requests": "write" },
+    environment: null,
+    concurrency: null,
+    if: "github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.draft == false",
+    trigger: ["pull_request_target"],
+    steps: [
+      actionManifestStep("fetch-dependabot-metadata", "Fetch Dependabot metadata", DEPENDABOT_FETCH_METADATA_ACTION, { "github-token": "${{ secrets.GITHUB_TOKEN }}" }, "dependabot", { secrets: ["GITHUB_TOKEN"], networked: true }),
+      actionManifestStep("merge-validated-dependabot-pr", "Merge validated Dependabot PR", ASYNC_DEPENDABOT_MERGE_ACTION, { "allowed-ecosystems": model.dependabotAutoMerge.ecosystems }, "dependabot", { permissions: { contents: "write", "pull-requests": "write" }, secrets: ["GITHUB_TOKEN"], networked: true, dangerous: true })
+    ],
+    network
+  });
+}
+
+function buildSourceImpactPlanManifest(
+  model: ReturnType<typeof buildRenderModel>,
+  rendered: GitHubRenderResult,
+  event: GitHubManifestEvent,
+  sourceJob: SourceImpactRenderJob,
+  network: GitHubLocalNetworkMode
+): GitHubJobManifest {
+  return makeJobManifest(model, rendered, event, {
+    id: sourceJob.planJob,
+    kind: "generated",
+    target: [],
+    runsOn: sourceJob.github?.runsOn ?? "ubuntu-latest",
+    permissions: { contents: "read" },
+    environment: null,
+    concurrency: null,
+    if: sourceJob.if ?? null,
+    trigger: ["source-impact"],
+    steps: [
+      checkoutStep(),
+      ...setupManifestSteps(model),
+      shellManifestStep("write-generated-source-plan", "Write generated source plan", `write ${sourceJob.planPath}`, "source-impact"),
+      actionManifestStep("plan-source-impact-matrix", "Plan source impact matrix", ASYNC_SOURCE_IMPACT_ACTION, {
+        mode: "matrix",
+        "plan-path": sourceJob.planPath,
+        "matrix-path": `.async/actions/source-impact/${safeArtifactPart(sourceJob.job)}-matrix.json`
+      }, "source-impact")
+    ],
+    network
+  });
+}
+
+function buildSourceImpactMatrixManifest(
+  model: ReturnType<typeof buildRenderModel>,
+  rendered: GitHubRenderResult,
+  event: GitHubManifestEvent,
+  sourceJob: SourceImpactRenderJob,
+  network: GitHubLocalNetworkMode
+): GitHubJobManifest {
+  return makeJobManifest(model, rendered, event, {
+    id: sourceJob.matrixJob,
+    kind: "generated",
+    target: [sourceJob.job],
+    runsOn: sourceJob.github?.runsOn ?? "ubuntu-latest",
+    matrix: sourceJob.plan.matrix.include.map((entry, index) => ({ runner: [String(entry.source)], index })),
+    permissions: { contents: "read" },
+    environment: null,
+    concurrency: null,
+    if: sourceJob.if ?? null,
+    trigger: ["source-impact"],
+    steps: [
+      checkoutStep(),
+      ...setupManifestSteps(model),
+      actionManifestStep("validate-source-impact-row", "Validate source impact row", ASYNC_SOURCE_IMPACT_ACTION, {
+        mode: "validate",
+        source: "${{ matrix.source }}"
+      }, "source-impact"),
+      runActionManifestStep("run-source-impact-task", "Run source impact task", `${model.command} github check && ${model.command} run-task ${shellWord(sourceJob.job)}`, sourceJob.env, "run"),
+      ...evidenceCollectManifestSteps(model)
+    ],
+    network
+  });
+}
+
+function generatedPagesSelected(pages: ReturnType<typeof buildRenderModel>["pages"], event: GitHubManifestEvent): boolean {
+  if (event.name === "pull_request") return pages.triggers.pullRequest;
+  if (event.name === "push") return Boolean(pages.triggers.main);
+  return event.name === "workflow_dispatch" && event.selectedJob === pages.job;
+}
+
+function bridgeSelected(bridge: ReturnType<typeof buildRenderModel>["bridge"], event: GitHubManifestEvent): boolean {
+  if (event.name === "schedule") return Boolean(bridge.schedule && (!event.schedule || event.schedule === bridge.schedule));
+  return event.name === "workflow_dispatch" && event.selectedJob === bridge.job;
+}
+
+function skipReasonForJob(event: GitHubManifestEvent, trigger: string[]): string {
+  if (event.name === "workflow_dispatch" && !event.selectedJob && trigger.some((id) => id === "manual")) return "manual_selector_missing";
+  return "event_filter";
+}
+
+function skipReasonForGeneratedJob(event: GitHubManifestEvent, manualIds: string[]): string {
+  if (event.name === "workflow_dispatch" && !event.selectedJob && manualIds.length > 0) return "manual_selector_missing";
+  return "event_filter";
+}
+
+function validateLocalStep(manifest: GitHubJobManifest, step: GitHubManifestStep, env: NodeJS.ProcessEnv): string[] {
+  const issues: string[] = [];
+  for (const [permission, required] of Object.entries(step.permissions ?? {})) {
+    const actual = manifest.job.permissions[permission];
+    if (!permissionAllows(actual, required)) {
+      issues.push(`requires ${permission}: ${required}, but job grants ${actual ?? "none"}`);
+    }
+  }
+  if (step.local.networked && manifest.local.network === "deny") {
+    issues.push("networked step is denied by --network deny");
+  }
+  if (step.local.networked && manifest.local.network === "allow") {
+    for (const secret of step.secrets) {
+      if (!env[secret]) issues.push(`requires secret env ${secret} for --network allow`);
+    }
+  }
+  return issues;
+}
+
+function permissionAllows(actual: "read" | "write" | undefined, required: "read" | "write"): boolean {
+  if (required === "read") return actual === "read" || actual === "write";
+  return actual === "write";
+}
+
+function commandLooksNetworked(command: string): boolean {
+  return /\b(?:gh|npm\s+publish|npx|curl|wget|git\s+(?:push|fetch|pull|clone))\b/u.test(command);
+}
+
+function commandLooksDangerous(command: string): boolean {
+  return /\b(?:publish|push|release|comment|merge|pull-request)\b/u.test(command);
 }
 
 function buildRenderModel(

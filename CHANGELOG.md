@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.12 - 2026-06-19
+
+### Features
+
+- Add `async-pipeline github plan` and a local GitHub manifest harness so generated jobs can be inspected and simulated by event, selected job, matrix, permissions, artifacts, pinned action refs, and mocked network policy before a live GitHub Actions run.
+
 ## 0.9.11 - 2026-06-19
 
 ### Fixes

@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { agent, definePipeline, env, execution, job, sandbox, sh, source, task, trigger } from "../packages/pipeline-core/dist/index.js";
-import { checkGitHubWorkflow, jobsForGitHubEvent, renderGitHubWorkflow, writeGitHubWorkflow } from "../packages/pipeline-node/dist/index.js";
+import { checkGitHubWorkflow, jobsForGitHubEvent, planGitHubJobs, renderGitHubWorkflow, runGitHubLocalManifest, writeGitHubWorkflow } from "../packages/pipeline-node/dist/index.js";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
@@ -504,6 +504,216 @@ test("renders generated package preview job from packagePreviews true", async ()
       ifNoFilesFound: "warn",
       includeSummary: true
     });
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("plans github action manifests with pinned refs, matrix rows, event skips, and artifact contracts", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-plan-"));
+  try {
+    mkdirSync(join(dir, "packages", "pipeline"), { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "workspace", private: true, packageManager: "pnpm@11.1.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    writeFileSync(join(dir, "packages", "pipeline", "package.json"), JSON.stringify({ name: "@async/pipeline", version: "0.0.0" }), "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          packagePreviews: true,
+          evidence: true
+        }
+      },
+      triggers: {
+        pr: trigger.github({ events: ["pull_request"] })
+      },
+      tasks: {
+        verify: task({ run: sh`echo verify` }),
+        pack: task({ run: sh`echo pack` })
+      },
+      jobs: {
+        verify: job({
+          target: "verify",
+          trigger: ["pr"],
+          github: { runsOnMatrix: ["ubuntu-latest", ["macos-latest", "large"]] }
+        })
+      }
+    });
+
+    const plan = await planGitHubJobs(pipeline, {
+      cwd: dir,
+      configPath: join(dir, "pipeline.ts"),
+      job: "verify",
+      eventName: "pull_request",
+      eventAction: "opened",
+      prNumber: 42,
+      headRepo: "async/pipeline",
+      headSha: "abc123",
+      baseRef: "main"
+    });
+
+    assert.equal(plan.version, 1);
+    assert.equal(plan.event.name, "pull_request");
+    assert.equal(plan.event.pullRequest?.number, 42);
+    assert.equal(plan.manifests.length, 1);
+    const manifest = plan.manifests[0];
+    assert.equal(manifest.version, 1);
+    assert.equal(manifest.job.id, "verify");
+    assert.equal(manifest.job.kind, "pipeline");
+    assert.deepEqual(manifest.job.matrix, [
+      { runner: ["ubuntu-latest"], index: 0 },
+      { runner: ["macos-latest", "large"], index: 1 }
+    ]);
+    assert.equal(manifest.trust.actionRefsPinned, true);
+    assert.equal(manifest.local.permissionsMode, "enforced");
+    assert.ok(manifest.local.mocks.includes("setup"));
+    assert.ok(manifest.local.mocks.includes("run"));
+    assert.ok(manifest.local.mocks.includes("evidence"));
+    for (const step of manifest.steps.filter((entry) => entry.uses)) {
+      assert.match(step.uses, /@[0-9a-f]{40}/u);
+      assert.doesNotMatch(step.uses, /@v0(?:\s|$)/u);
+    }
+    assert.ok(manifest.steps.some((entry) => entry.local.contract === "setup"));
+    assert.ok(manifest.steps.some((entry) => entry.local.contract === "run"));
+    assert.ok(manifest.steps.some((entry) => entry.local.contract === "evidence"));
+    assert.ok(manifest.artifacts.some((entry) => entry.name === "async-pipeline-${{ github.job }}-runs" && entry.mode === "local"));
+    assert.ok(plan.skippedJobs.some((entry) => entry.id === "package-preview" && entry.reason === "job_filter"));
+
+    const pushPlan = await planGitHubJobs(pipeline, {
+      cwd: dir,
+      configPath: join(dir, "pipeline.ts"),
+      eventName: "push",
+      ref: "refs/heads/main"
+    });
+    assert.ok(pushPlan.skippedJobs.some((entry) => entry.id === "verify" && entry.reason === "event_filter"));
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("runs github manifests locally with receipts, artifact directories, permission checks, and network denial", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-local-run-"));
+  try {
+    mkdirSync(join(dir, "packages", "pipeline"), { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "workspace", private: true, packageManager: "pnpm@11.1.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    writeFileSync(join(dir, "packages", "pipeline", "package.json"), JSON.stringify({ name: "@async/pipeline", version: "0.0.0" }), "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          packagePreviews: true,
+          evidence: true
+        }
+      },
+      tasks: {
+        pack: task({ run: sh`echo pack` })
+      },
+      jobs: {
+        verify: job({ target: "pack" })
+      }
+    });
+
+    const plan = await planGitHubJobs(pipeline, {
+      cwd: dir,
+      configPath: join(dir, "pipeline.ts"),
+      job: "package-preview",
+      eventName: "pull_request",
+      eventAction: "opened",
+      prNumber: 7,
+      headRepo: "async/pipeline",
+      baseRef: "main"
+    });
+    const manifest = plan.manifests[0];
+
+    const receipt = await runGitHubLocalManifest(manifest, dir);
+    assert.equal(receipt.status, "passed");
+    assert.equal(receipt.network, "mock");
+    assert.ok(receipt.manifestPath);
+    assert.equal(existsSync(join(dir, receipt.manifestPath)), true);
+    assert.equal(existsSync(join(dir, ".async/github-local/jobs/package-preview/receipt.json")), true);
+    assert.equal(existsSync(join(dir, ".async/github-local/jobs/package-preview/steps/01-checkout.json")), true);
+    assert.ok(receipt.stepReceipts.some((entry) => entry.contract === "preview" && entry.decision === "mocked"));
+    for (const artifact of manifest.artifacts) {
+      assert.equal(existsSync(join(dir, ".async/github-local/jobs/package-preview/artifacts", localArtifactDirName(artifact.name))), true);
+    }
+
+    const deniedNetworkManifest = {
+      ...manifest,
+      local: { ...manifest.local, network: "deny" }
+    };
+    const deniedNetwork = await runGitHubLocalManifest(deniedNetworkManifest, dir);
+    assert.equal(deniedNetwork.status, "failed");
+    assert.match(deniedNetwork.issues.join("\n"), /networked step is denied by --network deny/);
+
+    const missingPermissionManifest = {
+      ...manifest,
+      job: { ...manifest.job, permissions: { contents: "read" } }
+    };
+    const deniedPermission = await runGitHubLocalManifest(missingPermissionManifest, dir);
+    assert.equal(deniedPermission.status, "failed");
+    assert.match(deniedPermission.issues.join("\n"), /requires packages: write/);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("plans async bridge manifests with constraints, secrets, and lease-aware receipts", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-bridge-plan-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "workspace", private: true, packageManager: "pnpm@11.1.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          bridge: {
+            mode: "actions",
+            schedule: "*/15 * * * *",
+            branchPrefix: "async/bridge/",
+            allowedPaths: ["pipeline.ts", "package.json", "docs/**"],
+            endpointVar: "ASYNC_BRIDGE_URL",
+            tokenEnv: "ASYNC_BRIDGE_TOKEN",
+            packageVersion: "0.1.1"
+          },
+          evidence: true
+        }
+      },
+      tasks: {
+        verify: task({ run: sh`echo verify` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+
+    const plan = await planGitHubJobs(pipeline, {
+      cwd: dir,
+      configPath: join(dir, "pipeline.ts"),
+      job: "async-bridge",
+      eventName: "workflow_dispatch"
+    });
+
+    assert.equal(plan.manifests.length, 1);
+    const manifest = plan.manifests[0];
+    assert.equal(manifest.job.id, "async-bridge");
+    assert.deepEqual(manifest.job.permissions, { contents: "write", "pull-requests": "write" });
+    assert.equal(manifest.job.concurrency, "async-bridge-${{ github.repository }}");
+    assert.deepEqual(manifest.job.trigger, ["schedule", "workflow_dispatch"]);
+    const bridgeStep = manifest.steps.find((entry) => entry.local.contract === "storage-bridge");
+    assert.ok(bridgeStep);
+    assert.match(bridgeStep.with.command, /"@async\/github-app@0\.1\.1" actions pull/);
+    assert.match(bridgeStep.with.command, /--branch-prefix async\/bridge\//);
+    assert.match(bridgeStep.with.command, /--allowed-path pipeline\.ts/);
+    assert.match(bridgeStep.with.command, /--allowed-path package\.json/);
+    assert.match(bridgeStep.with.command, /--allowed-path "docs\/\*\*"/);
+    assert.deepEqual(bridgeStep.secrets, ["ASYNC_BRIDGE_TOKEN", "GITHUB_TOKEN"]);
+    assert.equal(bridgeStep.local.networked, true);
+    assert.equal(bridgeStep.local.dangerous, true);
+    assert.equal(bridgeStep.env.ASYNC_PROJECT_URL, "${{ vars.ASYNC_BRIDGE_URL }}");
+    assert.equal(bridgeStep.env.ASYNC_PROJECT_TOKEN, "${{ secrets.ASYNC_BRIDGE_TOKEN }}");
+    assert.equal(bridgeStep.env.GITHUB_TOKEN, "${{ secrets.GITHUB_TOKEN }}");
+    assert.ok(manifest.artifacts.some((entry) => entry.name === "async-evidence-${{ github.job }}" && entry.mode === "upload"));
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
@@ -1517,6 +1727,10 @@ function jobBlock(workflow, name) {
   const nextMatch = /\n  [A-Za-z0-9_-]+:\n    name:/u.exec(workflow.slice(searchStart));
   const next = nextMatch ? searchStart + nextMatch.index : -1;
   return workflow.slice(start, next < 0 ? undefined : next);
+}
+
+function localArtifactDirName(value) {
+  return value.replace(/[^A-Za-z0-9_.-]+/gu, "-");
 }
 
 function mkdtempSyncCompat(prefix) {

@@ -5,7 +5,7 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { DEFAULT_PIPELINE_CONFIG_FILES, buildGraph, composePipelines, tasksForJob, type ContainerProvider, type ExecutionRecord, type NormalizedPipeline, type TaskResult } from "@async/pipeline-core";
 import { runDoctor } from "./doctor.js";
-import { checkGitHubWorkflow, jobsForGitHubEvent, readGitHubEventContext, renderGitHubWorkflow, writeGitHubWorkflow } from "./github.js";
+import { checkGitHubWorkflow, planGitHubJobs, readGitHubEventContext, renderGitHubWorkflow, runGitHubLocalPlan, writeGitHubWorkflow, type GitHubLocalNetworkMode, type GitHubPlanOptions, type GitHubPlanResult } from "./github.js";
 import { loadPipeline } from "./loader.js";
 import { beginShutdown, cacheManifestForJob, cacheManifestForTask, commandProxy, planJob, runJob, runSingleTask, shutdownExitCode, type CommandResult, type GitHubCacheManifestTrust, type PipelineCommands } from "./runner.js";
 import { runMcpServer } from "./mcp.js";
@@ -199,30 +199,46 @@ async function dispatchCommand(commandName: string, args: string[], context: Pip
       context.stdout("GitHub workflow is current.\n");
       return 0;
     }
+    if (subcommand === "plan") {
+      const planOptions = await githubPlanOptions(args.slice(1), context, paths);
+      const issues = args.includes("--check") || args.includes("--include-local-plan")
+        ? await checkGitHubWorkflow(rendered, context.cwd)
+        : [];
+      const plan = await planGitHubJobs(context.pipeline, planOptions);
+      if (issues.length > 0) {
+        for (const issue of issues) context.stderr(`${issue}\n`);
+        return 1;
+      }
+      const format = githubOutputFormat(args.slice(1));
+      if (format === "json") {
+        context.stdout(`${JSON.stringify(plan, null, 2)}\n`);
+      } else if (args.includes("--check")) {
+        context.stdout(`GitHub plan is current (${plan.manifests.length} selected job${plan.manifests.length === 1 ? "" : "s"}).\n`);
+      } else {
+        context.stdout(renderGitHubPlanText(plan));
+      }
+      return 0;
+    }
     if (subcommand === "run") {
-      const explicitJobs = collectFlagValues(args.slice(1), "--job");
-      const eventContext = await readGitHubEventContext(context.env);
-      const jobs = explicitJobs.length > 0
-        ? explicitJobs.map((jobId) => {
-            const selected = context.pipeline.jobs[jobId];
-            if (!selected) throw new Error(`Unknown job "${jobId}".`);
-            return selected;
-          })
-        : jobsForGitHubEvent(context.pipeline, eventContext);
-      if (jobs.length === 0) {
-        context.stdout(`No pipeline jobs matched GitHub event "${eventContext.eventName}". Jobs without a manual trigger need an explicit --job <id> on workflow_dispatch.\n`);
-        return 0;
+      const planOptions = await githubPlanOptions(args.slice(1), context, paths);
+      const result = await runGitHubLocalPlan(context.pipeline, {
+        ...planOptions,
+        env: context.env,
+        dryRun: context.dryRun
+      });
+      const format = githubOutputFormat(args.slice(1));
+      if (format === "json") {
+        context.stdout(`${JSON.stringify(result, null, 2)}\n`);
+      } else {
+        if (result.receipts.length === 0) {
+          context.stdout(`No generated GitHub jobs matched event "${result.plan.event.name}".\n`);
+        }
+        for (const receipt of result.receipts) {
+          context.stdout(`GitHub local ${receipt.status}: ${receipt.job}${receipt.manifestPath ? ` (${receipt.manifestPath})` : ""}\n`);
+          for (const issue of receipt.issues) context.stderr(`${issue}\n`);
+        }
       }
-      let failed = false;
-      for (const selectedJob of jobs) {
-        const graph = tasksForJob(context.pipeline, selectedJob.id);
-        context.stdout(`Running ${context.pipeline.name}:${selectedJob.id} (${graph.executionOrder.join(" -> ")})\n`);
-        const result = await runJob(context.pipeline, { id: selectedJob.id, mode: "ci", cwd: context.cwd, env: context.env, commands: context.commands, sandbox: context.sandboxId, execution: context.executionId ?? selectedJob.execution, provider: context.provider, concurrency: context.concurrency });
-        reportFailedTasks(context, result.tasks);
-        context.stdout(`Pipeline ${result.status}: ${result.id}\n`);
-        if (result.status !== "passed") failed = true;
-      }
-      return failed ? 1 : 0;
+      return result.status === "failed" ? 1 : 0;
     }
     throw new Error(`Unknown github command "${subcommand}".`);
   }
@@ -526,6 +542,81 @@ async function printDryRun(context: PipelineCliContext, format: "text" | "json",
   }
   context.stdout("Dry run: no tasks executed. Cached predictions do not verify restored output files.\n");
   return 0;
+}
+
+async function githubPlanOptions(args: string[], context: PipelineCliContext, paths: { workflowPath?: string; lockPath?: string }): Promise<GitHubPlanOptions> {
+  const eventContext = args.includes("--event") ? undefined : await readGitHubEventContext(context.env);
+  return {
+    cwd: context.cwd,
+    configPath: context.configPath,
+    ...paths,
+    job: optionalFlagValue(args, "--job"),
+    eventName: optionalFlagValue(args, "--event") ?? eventContext?.eventName,
+    eventAction: optionalFlagValue(args, "--event-action") ?? eventContext?.action,
+    ref: optionalFlagValue(args, "--ref") ?? eventContext?.ref,
+    sha: optionalFlagValue(args, "--sha"),
+    actor: optionalFlagValue(args, "--actor"),
+    schedule: optionalFlagValue(args, "--schedule") ?? eventContext?.schedule,
+    selectedJob: optionalFlagValue(args, "--selected-job") ?? eventContext?.selectedJob,
+    prNumber: optionalPositiveIntegerFlag(args, "--pr-number"),
+    headRepo: optionalFlagValue(args, "--head-repo"),
+    headSha: optionalFlagValue(args, "--head-sha"),
+    baseRef: optionalFlagValue(args, "--base-ref") ?? eventContext?.baseRef,
+    network: parseGitHubNetwork(args)
+  };
+}
+
+function githubOutputFormat(args: string[]): "text" | "json" {
+  const format = optionalFlagValue(args, "--format") ?? "text";
+  if (format !== "text" && format !== "json") {
+    throw new Error("--format must be text or json.");
+  }
+  return format;
+}
+
+function parseGitHubNetwork(args: string[]): GitHubLocalNetworkMode {
+  if (args.includes("--mock-network")) return "mock";
+  const network = optionalFlagValue(args, "--network") ?? "mock";
+  if (network !== "mock" && network !== "deny" && network !== "allow") {
+    throw new Error("--network must be mock, deny, or allow.");
+  }
+  return network;
+}
+
+function optionalPositiveIntegerFlag(args: string[], flag: string): number | undefined {
+  const raw = optionalFlagValue(args, flag);
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${flag} requires a non-negative integer.`);
+  }
+  return value;
+}
+
+function renderGitHubPlanText(plan: GitHubPlanResult): string {
+  const lines = [
+    `GitHub plan for ${plan.event.name}${plan.event.action ? `:${plan.event.action}` : ""}`,
+    `Workflow: ${plan.workflow}`,
+    `Lock: ${plan.lock}`,
+    "Selected jobs:"
+  ];
+  if (plan.manifests.length === 0) {
+    lines.push("  none");
+  } else {
+    for (const manifest of plan.manifests) {
+      const matrix = manifest.job.matrix?.length ? ` (${manifest.job.matrix.length} matrix leg${manifest.job.matrix.length === 1 ? "" : "s"})` : "";
+      lines.push(`  ${manifest.job.id}${matrix}`);
+      lines.push(`    permissions: ${Object.entries(manifest.job.permissions).map(([scope, access]) => `${scope}:${access}`).join(", ") || "none"}`);
+      lines.push(`    steps: ${manifest.steps.length}; artifacts: ${manifest.artifacts.length}; network: ${manifest.local.network}`);
+    }
+  }
+  if (plan.skippedJobs.length > 0) {
+    lines.push("Skipped jobs:");
+    for (const skipped of plan.skippedJobs) {
+      lines.push(`  ${skipped.id}: ${skipped.reason}`);
+    }
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 function runOutputFormat(args: string[], program: string): "text" | "json" {
@@ -889,7 +980,8 @@ function printHelp(program: string): string {
   ${program} sync tasks check
   ${program} github generate [--workflow <path>] [--lock <path>]
   ${program} github check [--workflow <path>] [--lock <path>]
-  ${program} github run [--job <id>] [--execution <id>] [--sandbox <id>] [--provider auto|docker|apple-container|lima] [--concurrency <n>]
+  ${program} github plan [--job <id>] [--event <name>] [--event-action <action>] [--format text|json] [--check]
+  ${program} github run [--job <id>] [--event <name>] [--event-action <action>] [--network mock|deny|allow] [--dry-run] [--format text|json]
   ${program} cache clear
   ${program} gc [--keep <n>] [--cache-days <n>]
   ${program} doctor\n`;
