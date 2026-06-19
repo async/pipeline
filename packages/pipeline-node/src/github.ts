@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubAttestConfig, NormalizedGitHubBridgeSyncConfig, NormalizedGitHubEvidenceConfig, NormalizedGitHubPagesSyncConfig, NormalizedGitHubSourceImpactConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, TriggerDefinition, TriggerId } from "@async/pipeline-core";
+import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubAttestConfig, NormalizedGitHubBridgeSyncConfig, NormalizedGitHubContractConfig, NormalizedGitHubEvidenceConfig, NormalizedGitHubPagesSyncConfig, NormalizedGitHubSourceImpactConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, TriggerDefinition, TriggerId } from "@async/pipeline-core";
 import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 import { sourceImpactPlanForJob, type SourceImpactPlan } from "./sources.js";
 
@@ -32,8 +32,8 @@ function defineActionRef(id: string, uses: string, sha: string, label: string): 
   };
 }
 
-const ASYNC_ACTIONS_SHA = "c08a62380ee60fa175d5c3598d41c4485c0ead98";
-const ASYNC_ACTIONS_LABEL = "v0.1.12";
+const ASYNC_ACTIONS_SHA = "87e033782ca1f84334d9e3a2543b0db064848fb7";
+const ASYNC_ACTIONS_LABEL = "v0.1.14";
 const ASYNC_RELEASE_COMMAND = "npx --yes github:async/release#3892d94a4890600d26b812052aa58dec98b05bfb";
 
 const GENERATED_ACTIONS = [
@@ -50,6 +50,7 @@ const GENERATED_ACTIONS = [
   defineActionRef("async.actions.source-impact", "async/actions/source-impact", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.cache", "async/actions/cache", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.attest", "async/actions/attest", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("async.actions.contract", "async/actions/contract", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("actions.checkout", "actions/checkout", "de0fac2e4500dabe0009e67214ff5f5447ce83dd", "v6.0.2"),
   defineActionRef("pnpm.setup", "pnpm/setup", "cf03a9b516e09bc5a90f041fc26fc930c9dc631b", "v1.0.0"),
   defineActionRef("deno.setup", "denoland/setup-deno", "667a34cdef165d8d2b2e98dde39547c9daac7282", "v2.0.4"),
@@ -73,6 +74,7 @@ const ASYNC_AGENT_EVIDENCE_ACTION = actionRef("async.actions.agent-evidence");
 const ASYNC_SOURCE_IMPACT_ACTION = actionRef("async.actions.source-impact");
 const ASYNC_CACHE_ACTION = actionRef("async.actions.cache");
 const ASYNC_ATTEST_ACTION = actionRef("async.actions.attest");
+const ASYNC_CONTRACT_ACTION = actionRef("async.actions.contract");
 const CHECKOUT_ACTION = actionRef("actions.checkout");
 const PNPM_SETUP_ACTION = actionRef("pnpm.setup");
 const DENO_SETUP_ACTION = actionRef("deno.setup");
@@ -132,6 +134,7 @@ export interface GitHubLock {
     generatedJobs: Array<{ job: string; planJob: string; matrixJob: string; matrixRows: number; sources: string[] }>;
   };
   attest: NormalizedGitHubAttestConfig;
+  contract: NormalizedGitHubContractConfig;
   bridge: NormalizedGitHubBridgeSyncConfig & {
     job: "async-bridge";
     actionsJob: {
@@ -379,6 +382,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     evidence: renderModel.evidence,
     sourceImpact: renderModel.sourceImpact,
     attest: renderModel.attest,
+    contract: renderModel.contract,
     bridge: renderModel.bridge,
     pages: renderModel.pages,
     manualDispatchJobs: renderModel.manualDispatchJobs,
@@ -409,6 +413,7 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     evidence: renderModel.evidence,
     sourceImpact: renderModel.sourceImpact,
     attest: renderModel.attest,
+    contract: renderModel.contract,
     bridge: renderModel.bridge,
     pages: renderModel.pages,
     manualDispatchJobs: renderModel.manualDispatchJobs
@@ -786,6 +791,14 @@ function buildGeneratedJobManifests(
       skipReason: selected ? "" : "event_filter"
     });
   }
+  if (model.contract.enabled) {
+    const selected = contractSelected(model.contract, event);
+    candidates.push({
+      manifest: buildContractManifest(model, rendered, event, network),
+      selected,
+      skipReason: selected ? "" : skipReasonForGeneratedJob(event, [model.contract.job])
+    });
+  }
   if (model.dependabotAutoMerge.enabled) {
     const selected = event.name === "pull_request_target";
     candidates.push({
@@ -1084,12 +1097,13 @@ function agentEvidenceManifestSteps(model: ReturnType<typeof buildRenderModel>, 
   return steps;
 }
 
-function evidenceCollectManifestSteps(model: ReturnType<typeof buildRenderModel>): GitHubManifestStep[] {
+function evidenceCollectManifestSteps(model: ReturnType<typeof buildRenderModel>, options: { extraPaths?: string[] } = {}): GitHubManifestStep[] {
   if (!model.evidence.enabled) return [];
+  const paths = [...new Set([...model.evidence.paths, ...(options.extraPaths ?? [])])];
   return [
     actionManifestStep("collect-evidence-manifest", "Collect evidence manifest", ASYNC_EVIDENCE_ACTION, {
       mode: "collect",
-      paths: model.evidence.paths,
+      paths,
       "receipt-paths": model.evidence.receiptPaths,
       "manifest-path": ".async/evidence/${{ github.job }}/manifest.json",
       "summary-path": ".async/evidence/${{ github.job }}/summary.md",
@@ -1099,6 +1113,31 @@ function evidenceCollectManifestSteps(model: ReturnType<typeof buildRenderModel>
       "include-summary": model.evidence.includeSummary
     }, "evidence", { if: "${{ always() }}" })
   ];
+}
+
+function contractActionInput(contract: NormalizedGitHubContractConfig): Record<string, unknown> {
+  return sortObject({
+    mode: contract.mode,
+    checks: contractChecks(contract).join(","),
+    "package-path": contract.packagePath,
+    ...(contract.schema.enabled
+      ? {
+          "schema-sources": contract.schema.sources.join("\n"),
+          "schema-output": contract.schema.output
+        }
+      : {}),
+    "evidence-dir": contract.evidenceDir,
+    annotations: contract.annotations,
+    "fail-on": contract.mode === "report" ? "advisory" : "blocking"
+  });
+}
+
+function contractChecks(contract: NormalizedGitHubContractConfig): string[] {
+  const checks: string[] = [];
+  if (contract.api) checks.push("api");
+  if (contract.claims) checks.push("claims");
+  if (contract.schema.enabled) checks.push("schema");
+  return checks;
 }
 
 function runActionManifestStep(
@@ -1293,6 +1332,7 @@ function artifactsForSteps(
 function artifactPathForContract(contract: string): string {
   if (contract === "evidence") return ".async/evidence";
   if (contract === "agent-evidence") return ".async/actions/agent-evidence";
+  if (contract === "contract") return ".async/contract";
   if (contract === "pages") return ".async/pages";
   return ".async/runs";
 }
@@ -1413,6 +1453,36 @@ function buildBridgeManifest(
     concurrency: "async-bridge-${{ github.repository }}",
     if: renderBridgeCondition(bridge),
     trigger: ["schedule", "workflow_dispatch"],
+    steps,
+    network
+  });
+}
+
+function buildContractManifest(
+  model: ReturnType<typeof buildRenderModel>,
+  rendered: GitHubRenderResult,
+  event: GitHubManifestEvent,
+  network: GitHubLocalNetworkMode
+): GitHubJobManifest {
+  const contract = model.contract;
+  const steps = [
+    checkoutStep(),
+    ...setupManifestSteps(model),
+    ...dependencyInstallManifestSteps(model),
+    ...(model.buildCommand ? [shellManifestStep("build-pipeline-cli", "Build pipeline CLI", model.buildCommand, "build")] : []),
+    actionManifestStep("run-contract-evidence", "Run contract evidence", ASYNC_CONTRACT_ACTION, contractActionInput(contract), "contract"),
+    ...evidenceCollectManifestSteps(model, { extraPaths: [contract.evidenceDir] })
+  ];
+  return makeJobManifest(model, rendered, event, {
+    id: contract.job,
+    kind: "generated",
+    target: [],
+    runsOn: "ubuntu-latest",
+    permissions: { contents: "read" },
+    environment: null,
+    concurrency: null,
+    if: renderContractCondition(contract),
+    trigger: contract.mode === "release" ? ["release", "workflow_dispatch"] : ["pull_request", "workflow_dispatch"],
     steps,
     network
   });
@@ -1548,6 +1618,14 @@ function bridgeSelected(bridge: ReturnType<typeof buildRenderModel>["bridge"], e
   return event.name === "workflow_dispatch" && event.selectedJob === bridge.job;
 }
 
+function contractSelected(contract: NormalizedGitHubContractConfig, event: GitHubManifestEvent): boolean {
+  if (event.name === "workflow_dispatch") return event.selectedJob === contract.job;
+  if (contract.mode === "release") {
+    return event.name === "release" && (!event.action || event.action === "published");
+  }
+  return event.name === "pull_request";
+}
+
 function skipReasonForJob(event: GitHubManifestEvent, trigger: string[]): string {
   if (event.name === "workflow_dispatch" && !event.selectedJob && trigger.some((id) => id === "manual")) return "manual_selector_missing";
   return "event_filter";
@@ -1607,6 +1685,7 @@ function buildRenderModel(
   const evidence = resolveGitHubEvidence(pipeline);
   const pages = resolveGitHubPages(pipeline);
   const bridge = resolveGitHubBridge(pipeline);
+  const contract = resolveGitHubContract(pipeline, { pages, bridge });
   if (pages.enabled) {
     if (pages.triggers.pullRequest) {
       addGitHubEventTrigger(triggers, "pull_request");
@@ -1618,6 +1697,13 @@ function buildRenderModel(
   if (bridge.actionsJob.scheduled && bridge.schedule) {
     addScheduleTrigger(triggers, bridge.schedule, "async-bridge");
   }
+  if (contract.enabled) {
+    if (contract.mode === "release") {
+      addReleasePublishedTrigger(triggers);
+    } else {
+      addPullRequestTrigger(triggers, "pull_request");
+    }
+  }
   const manualDispatchJobs = Object.values(pipeline.jobs)
     .filter((job) => job.trigger.some((triggerId) => pipeline.triggers[triggerId]?.type === "manual"))
     .map((job) => job.id)
@@ -1628,6 +1714,10 @@ function buildRenderModel(
   }
   if (bridge.actionsJob.manual) {
     manualDispatchJobs.push(bridge.job);
+    manualDispatchJobs.sort((left, right) => left.localeCompare(right));
+  }
+  if (contract.enabled) {
+    manualDispatchJobs.push(contract.job);
     manualDispatchJobs.sort((left, right) => left.localeCompare(right));
   }
   const nodeVersion = pipeline.sync.github.nodeVersion ?? DEFAULT_NODE_VERSION;
@@ -1681,6 +1771,7 @@ function buildRenderModel(
     evidence,
     sourceImpact,
     attest: pipeline.sync.github.attest,
+    contract,
     bridge,
     pages,
     manualDispatchJobs
@@ -1706,6 +1797,37 @@ function resolveGitHubEvidence(pipeline: NormalizedPipeline): NormalizedGitHubEv
   return config;
 }
 
+function resolveGitHubContract(
+  pipeline: NormalizedPipeline,
+  generated: {
+    pages: NormalizedGitHubPagesSyncConfig;
+    bridge: ReturnType<typeof resolveGitHubBridge>;
+  }
+): NormalizedGitHubContractConfig {
+  const config = pipeline.sync.github.contract;
+  if (!config.enabled) return config;
+  const jobId = config.job.toLowerCase();
+  if (Object.keys(pipeline.jobs).some((id) => id.toLowerCase() === jobId)) {
+    throw pipelineError(
+      "ASYNC_PIPELINE_GITHUB_CONTRACT_JOB_CONFLICT",
+      `sync.github.contract.job "${config.job}" conflicts with an existing pipeline job. Remove the explicit job or set sync.github.contract.job to a different id.`
+    );
+  }
+  const generatedJobs = new Set<string>();
+  if (pipeline.sync.github.packagePreviews.enabled) generatedJobs.add("package-preview");
+  if (pipeline.sync.github.dependabotAutoMerge.enabled) generatedJobs.add("dependabot-auto-merge");
+  if (pipeline.sync.github.evidence.enabled) generatedJobs.add(pipeline.sync.github.evidence.job);
+  if (generated.pages.enabled) generatedJobs.add(generated.pages.job);
+  if (generated.bridge.actionsJob.enabled) generatedJobs.add(generated.bridge.job);
+  if ([...generatedJobs].some((id) => id.toLowerCase() === jobId)) {
+    throw pipelineError(
+      "ASYNC_PIPELINE_GITHUB_CONTRACT_JOB_CONFLICT",
+      `sync.github.contract.job "${config.job}" conflicts with a generated GitHub job. Set sync.github.contract.job to a different id.`
+    );
+  }
+  return config;
+}
+
 function resolveGitHubSourceImpactJobs(pipeline: NormalizedPipeline, cwd: string, jobs: RenderJobModel[]): SourceImpactRenderJob[] {
   const config = pipeline.sync.github.sourceImpact;
   if (!config.enabled) return [];
@@ -1718,8 +1840,9 @@ function resolveGitHubSourceImpactJobs(pipeline: NormalizedPipeline, cwd: string
     "dependabot-auto-merge",
     "async-bridge",
     pipeline.sync.github.evidence.job,
+    pipeline.sync.github.contract.enabled ? pipeline.sync.github.contract.job : "",
     pipeline.sync.github.pages.job
-  ].map((id) => id.toLowerCase()));
+  ].filter(Boolean).map((id) => id.toLowerCase()));
   const existingJobIds = new Set(Object.keys(pipeline.jobs).map((id) => id.toLowerCase()));
   const result: SourceImpactRenderJob[] = [];
 
@@ -1835,6 +1958,17 @@ function addPullRequestTrigger(triggers: Record<string, unknown>, event: "pull_r
   triggers[event] = sortObject({
     ...existing,
     types: [...new Set([...existingTypes, "opened", "reopened", "synchronize", "ready_for_review"])].sort()
+  });
+}
+
+function addReleasePublishedTrigger(triggers: Record<string, unknown>): void {
+  const existing = triggers.release && typeof triggers.release === "object" && !Array.isArray(triggers.release)
+    ? triggers.release as Record<string, unknown>
+    : {};
+  const existingTypes = Array.isArray(existing.types) ? existing.types.filter((value): value is string => typeof value === "string") : [];
+  triggers.release = sortObject({
+    ...existing,
+    types: [...new Set([...existingTypes, "published"])].sort()
   });
 }
 
@@ -1983,6 +2117,9 @@ function renderWorkflow(model: ReturnType<typeof buildRenderModel>): string {
   }
   if (model.bridge.actionsJob.enabled) {
     renderBridgeJob(lines, model);
+  }
+  if (model.contract.enabled) {
+    renderContractJob(lines, model);
   }
   if (model.evidence.enabled) {
     renderEvidenceFanInJob(lines, model);
@@ -2306,9 +2443,10 @@ function renderRunActionStep(lines: string[], name: string, command: string, env
   renderActionEnv(lines, env);
 }
 
-function renderEvidenceCollectStep(lines: string[], model: ReturnType<typeof buildRenderModel>, options: { matrix?: boolean } = {}): void {
+function renderEvidenceCollectStep(lines: string[], model: ReturnType<typeof buildRenderModel>, options: { matrix?: boolean; extraPaths?: string[] } = {}): void {
   if (!model.evidence.enabled) return;
   const suffix = options.matrix ? "${{ github.job }}-${{ strategy.job-index }}" : "${{ github.job }}";
+  const paths = [...new Set([...model.evidence.paths, ...(options.extraPaths ?? [])])];
   lines.push(
     "",
     "      - name: Collect evidence manifest",
@@ -2317,7 +2455,7 @@ function renderEvidenceCollectStep(lines: string[], model: ReturnType<typeof bui
     "        with:",
     "          mode: collect",
     "          paths: |",
-    ...model.evidence.paths.map((path) => `            ${path}`),
+    ...paths.map((path) => `            ${path}`),
     ...(model.evidence.receiptPaths.length > 0
       ? [
           "          receipt-paths: |",
@@ -2968,6 +3106,64 @@ function renderBridgePullStep(lines: string[], bridge: ReturnType<typeof buildRe
   );
 }
 
+function renderContractJob(lines: string[], model: ReturnType<typeof buildRenderModel>): void {
+  const contract = model.contract;
+  lines.push(
+    `  ${yamlKey(contract.job)}:`,
+    `    name: ${contract.job}`,
+    `    if: ${renderContractCondition(contract)}`,
+    "    runs-on: ubuntu-latest",
+    "    permissions:",
+    "      contents: read",
+    "    steps:",
+    "      - name: Checkout",
+    `        uses: ${CHECKOUT_ACTION}`,
+    "",
+    ...renderSetupSteps(model),
+    ...renderDependencyInstallSteps(model)
+  );
+  if (model.buildCommand) {
+    lines.push(
+      "",
+      "      - name: Build pipeline CLI",
+      `        run: ${model.buildCommand}`
+    );
+  }
+  renderContractActionStep(lines, contract);
+  renderEvidenceCollectStep(lines, model, { extraPaths: [contract.evidenceDir] });
+  lines.push("");
+}
+
+function renderContractActionStep(lines: string[], contract: NormalizedGitHubContractConfig): void {
+  lines.push(
+    "",
+    "      - name: Run contract evidence",
+    `        uses: ${ASYNC_CONTRACT_ACTION}`,
+    "        with:",
+    `          mode: ${contract.mode}`,
+    `          checks: ${JSON.stringify(contractChecks(contract).join(","))}`,
+    `          package-path: ${JSON.stringify(contract.packagePath)}`,
+    ...(contract.schema.enabled
+      ? [
+          "          schema-sources: |",
+          ...contract.schema.sources.map((source) => `            ${source}`),
+          `          schema-output: ${JSON.stringify(contract.schema.output)}`
+        ]
+      : []),
+    `          evidence-dir: ${JSON.stringify(contract.evidenceDir)}`,
+    `          annotations: ${contract.annotations ? "true" : "false"}`,
+    `          fail-on: ${contract.mode === "report" ? "advisory" : "blocking"}`
+  );
+}
+
+function renderContractCondition(contract: NormalizedGitHubContractConfig): string {
+  const manual = `github.event_name == 'workflow_dispatch' && github.event.inputs.job == '${escapeExpressionString(contract.job)}'`;
+  if (contract.mode === "release") {
+    return `(github.event_name == 'release' && github.event.action == 'published') || (${manual})`;
+  }
+  return `(github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (${manual})`;
+}
+
 function renderEvidenceFanInJob(lines: string[], model: ReturnType<typeof buildRenderModel>): void {
   const needs = evidenceProducerJobIds(model);
   if (needs.length === 0) return;
@@ -3005,6 +3201,7 @@ function evidenceProducerJobIds(model: ReturnType<typeof buildRenderModel>): str
   if (model.pages.enabled) ids.add(model.pages.job);
   if (model.packagePreviews.enabled) ids.add("package-preview");
   if (model.bridge.actionsJob.enabled) ids.add(model.bridge.job);
+  if (model.contract.enabled) ids.add(model.contract.job);
   ids.delete(model.evidence.job);
   return [...ids].sort((left, right) => left.localeCompare(right));
 }

@@ -796,6 +796,21 @@ test("normalizes sync github and task defaults independently from triggers", () 
     tarballScan: false,
     githubAttestation: false
   });
+  assert.deepEqual(pipeline.sync.github.contract, {
+    enabled: false,
+    mode: "off",
+    job: "contract",
+    api: true,
+    claims: true,
+    schema: {
+      enabled: false,
+      sources: [],
+      output: ".async/contract/schema.json"
+    },
+    packagePath: ".",
+    evidenceDir: ".async/contract",
+    annotations: true
+  });
   assert.equal(pipeline.sync.tasks.enabled, true);
   assert.equal(pipeline.sync.tasks.prefix, "pipeline");
   assert.equal(pipeline.sync.tasks.runners, "all");
@@ -864,6 +879,19 @@ test("normalizes explicit sync task config and validates selected ids", () => {
           requireNpmProvenance: true,
           tarballScan: true,
           githubAttestation: true
+        },
+        contract: {
+          mode: "strict",
+          job: "contracts",
+          api: false,
+          claims: true,
+          schema: {
+            sources: ["schemas/**/*.json", "data/**/*.json", "schemas/**/*.json"],
+            output: ".async/contract/schema-report.json"
+          },
+          packagePath: "packages/example",
+          evidenceDir: ".async/contract",
+          annotations: false
         }
       },
       tasks: {
@@ -950,6 +978,21 @@ test("normalizes explicit sync task config and validates selected ids", () => {
     tarballScan: true,
     githubAttestation: true
   });
+  assert.deepEqual(pipeline.sync.github.contract, {
+    enabled: true,
+    mode: "strict",
+    job: "contracts",
+    api: false,
+    claims: true,
+    schema: {
+      enabled: true,
+      sources: ["schemas/**/*.json", "data/**/*.json"],
+      output: ".async/contract/schema-report.json"
+    },
+    packagePath: "packages/example",
+    evidenceDir: ".async/contract",
+    annotations: false
+  });
   assert.deepEqual(pipeline.sync.tasks.runners, ["package"]);
   assert.deepEqual(pipeline.sync.tasks.jobs, ["verify"]);
   assert.deepEqual(pipeline.sync.tasks.tasks, ["build"]);
@@ -978,6 +1021,49 @@ test("normalizes explicit sync task config and validates selected ids", () => {
     tasks: { build: task({ run: sh`echo build` }) },
     jobs: { verify: job({ target: "build" }) }
   }), (error) => error.code === "ASYNC_PIPELINE_GITHUB_EVIDENCE_INVALID" && /parent-directory/.test(error.message));
+
+  assert.throws(() => definePipeline({
+    name: "bad",
+    sync: {
+      github: {
+        contract: {
+          mode: "enforce"
+        }
+      }
+    },
+    tasks: { build: task({ run: sh`echo build` }) },
+    jobs: { verify: job({ target: "build" }) }
+  }), (error) => error.code === "ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID" && /mode/.test(error.message));
+
+  assert.throws(() => definePipeline({
+    name: "bad",
+    sync: {
+      github: {
+        contract: {
+          api: false,
+          claims: false,
+          schema: false
+        }
+      }
+    },
+    tasks: { build: task({ run: sh`echo build` }) },
+    jobs: { verify: job({ target: "build" }) }
+  }), (error) => error.code === "ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID" && /at least one/.test(error.message));
+
+  assert.throws(() => definePipeline({
+    name: "bad",
+    sync: {
+      github: {
+        contract: {
+          schema: {
+            sources: ["../schemas/*.json"]
+          }
+        }
+      }
+    },
+    tasks: { build: task({ run: sh`echo build` }) },
+    jobs: { verify: job({ target: "build" }) }
+  }), (error) => error.code === "ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID" && /parent-directory/.test(error.message));
 
   assert.throws(() => definePipeline({
     name: "bad",
@@ -1248,6 +1334,16 @@ test("rejects unknown config fields with the field name", () => {
     ...base,
     sync: { github: { attest: { subjectManifestt: ".async/attest/subjects.json" } } }
   }), /sync\.github\.attest has unknown field "subjectManifestt"/);
+
+  assert.throws(() => definePipeline({
+    ...base,
+    sync: { github: { contract: { scheema: true } } }
+  }), /sync\.github\.contract has unknown field "scheema"/);
+
+  assert.throws(() => definePipeline({
+    ...base,
+    sync: { github: { contract: { schema: { outpt: ".async/contract/schema.json" } } } }
+  }), /sync\.github\.contract\.schema has unknown field "outpt"/);
 
   assert.throws(() => definePipeline({
     ...base,

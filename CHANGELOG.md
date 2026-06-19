@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.13 - 2026-06-19
+
+### Features
+
+- Add `sync.github.contract` so generated workflows can run API, claims, and schema contract evidence jobs through `async/actions/contract`, plan and run those jobs locally, collect `.async/contract` evidence into the manifest fan-in, and choose advisory pull-request or release-blocking policy in `pipeline.ts`.
+
 ## 0.9.12 - 2026-06-19
 
 ### Features

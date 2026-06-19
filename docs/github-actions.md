@@ -48,6 +48,15 @@ sync: {
     evidence: true,
     sourceImpact: true,
     attest: true,
+    contract: {
+      mode: "report",
+      api: true,
+      claims: true,
+      schema: {
+        sources: ["schemas/**/*.json", "data/**/*.json"],
+        output: ".async/contract/schema.json"
+      }
+    },
     bridge: {
       mode: "actions",
       schedule: "*/15 * * * *",
@@ -78,6 +87,8 @@ Generated jobs with agent steps call `async/actions/agent-evidence` after the pi
 `sync.github.sourceImpact: true` adds generated `<job>-source-plan` and `<job>-sources` jobs for source-backed pipeline jobs while leaving the original job in place. The plan job writes reviewed source metadata into the workflow, `async/actions/source-impact` emits the source matrix, and each matrix row validates checkout and representable prepare commands before running the namespaced source task. Prepare callbacks or unrepresentable steps stay out of the lowered path and are recorded as skip reasons; the normal job still runs through `async/actions/run`.
 
 `sync.github.attest: true` adds attestation evidence steps to generated release lifecycle jobs. Pipeline still owns the release job graph, package subjects, OIDC grants, trusted-publishing setting, and release ordering; `async/actions/attest` only computes subject digests, writes SBOM evidence, scans explicit npm tarball subjects, and records bounded provenance or attestation receipts. Digest and SBOM evidence does not grant OIDC by itself. `id-token: write` is rendered only when the job declares `requires.provenance: true` or `sync.github.attest.githubAttestation: true`.
+
+`sync.github.contract` adds a generated contract evidence job through `async/actions/contract`. Pipeline owns the generated job id, event selection, mode policy, permissions, local manifest, and evidence collection; the action owns bounded API, claims, and schema evidence files. `mode: "report"` runs on pull requests as advisory evidence, while `check` and `strict` make findings block the generated job. `mode: "release"` runs on published releases for release-blocking checks. Schema evidence reads repo-local JSON files or globs and writes the configured output under `.async/contract`.
 
 Generated release lifecycle jobs add `async/actions/doctor` steps for `@async/release` package planning, package inspection, changelog checks, release-note rendering, and final doctor evidence under `.async/release`. The GitHub Release publish step uses `.async/release/release-notes.md`, and registry or GitHub writes still run through `async/actions/publish`. Pipeline owns the release job graph, package path, action command, and secret routing; `@async/release` owns deterministic package evidence and doctor checks.
 
@@ -323,6 +334,7 @@ Use `github plan` to inspect the generated job manifest that a GitHub event woul
 ```sh
 async-pipeline github plan --job verify --event pull_request --event-action opened --format json
 async-pipeline github plan --event workflow_dispatch --selected-job verify --format json
+async-pipeline github plan --job contract --event pull_request --format json
 ```
 
 The manifest records the event, selected job, runner matrix, pinned action refs, job permissions, branch/path constraints for bridge jobs, required secret names, artifact contracts, and the local mock boundary.
@@ -332,6 +344,7 @@ Use `github run` to execute that manifest through the local harness:
 ```sh
 async-pipeline github run --job verify --event pull_request --network mock
 async-pipeline github run --job package-preview --event pull_request --mock-network
+async-pipeline github run --job contract --event pull_request --network deny
 async-pipeline github run --job release --event workflow_dispatch --dry-run
 ```
 

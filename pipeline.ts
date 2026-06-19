@@ -31,6 +31,15 @@ export default definePipeline({
       dependabotAutoMerge: true,
       packagePreviews: true,
       evidence: true,
+      contract: {
+        mode: "report",
+        api: true,
+        claims: true,
+        schema: {
+          sources: ["api-contract.json", "tests/claims.json"],
+          output: ".async/contract/schema.json"
+        }
+      },
       pages: {
         target: "docs.site"
       }

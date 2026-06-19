@@ -356,6 +356,27 @@ export interface GitHubAttestConfig {
 
 export type GitHubAttestInput = boolean | GitHubAttestConfig;
 
+export type GitHubContractMode = "off" | "report" | "check" | "strict" | "release";
+
+export interface GitHubContractSchemaConfig {
+  enabled?: boolean;
+  sources?: string[];
+  output?: string;
+}
+
+export interface GitHubContractConfig {
+  mode?: GitHubContractMode;
+  job?: string;
+  api?: boolean;
+  claims?: boolean;
+  schema?: boolean | GitHubContractSchemaConfig;
+  packagePath?: string;
+  evidenceDir?: string;
+  annotations?: boolean;
+}
+
+export type GitHubContractInput = boolean | GitHubContractConfig;
+
 export interface GitHubSyncConfig {
   workflow?: string;
   lock?: string;
@@ -371,6 +392,7 @@ export interface GitHubSyncConfig {
   pages?: GitHubPagesSyncInput;
   sourceImpact?: GitHubSourceImpactInput;
   attest?: GitHubAttestInput;
+  contract?: GitHubContractInput;
 }
 
 export type GitHubSyncInput = boolean | GitHubSyncConfig;
@@ -408,6 +430,7 @@ export interface NormalizedGitHubSyncConfig {
   pages: NormalizedGitHubPagesSyncConfig;
   sourceImpact: NormalizedGitHubSourceImpactConfig;
   attest: NormalizedGitHubAttestConfig;
+  contract: NormalizedGitHubContractConfig;
 }
 
 export interface NormalizedDependabotAutoMergeConfig {
@@ -478,6 +501,24 @@ export interface NormalizedGitHubAttestConfig {
   requireNpmProvenance: boolean;
   tarballScan: boolean;
   githubAttestation: boolean;
+}
+
+export interface NormalizedGitHubContractSchemaConfig {
+  enabled: boolean;
+  sources: string[];
+  output: string;
+}
+
+export interface NormalizedGitHubContractConfig {
+  enabled: boolean;
+  mode: GitHubContractMode;
+  job: string;
+  api: boolean;
+  claims: boolean;
+  schema: NormalizedGitHubContractSchemaConfig;
+  packagePath: string;
+  evidenceDir: string;
+  annotations: boolean;
 }
 
 export interface NormalizedTaskSyncConfig {
@@ -985,7 +1026,7 @@ const GITHUB_PAGES_STATIC_BUILD_FIELDS = new Set(["kind", "path"]);
 const GITHUB_PAGES_PRERENDER_BUILD_FIELDS = new Set(["kind", "path", "spaFallback", "validateIndex"]);
 const GITHUB_PERMISSION_FIELDS = new Set(["contents", "idToken", "issues", "packages", "pullRequests"]);
 const SYNC_FIELDS = new Set(["command", "github", "tasks"]);
-const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "packagePreviews", "dependabotAutoMerge", "evidence", "bridge", "pages", "sourceImpact", "attest"]);
+const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "packagePreviews", "dependabotAutoMerge", "evidence", "bridge", "pages", "sourceImpact", "attest", "contract"]);
 const GITHUB_SETUP_PROVIDERS = new Set<GitHubSetupProvider>(["auto", "async", "pnpm", "node"]);
 const DEPENDABOT_AUTO_MERGE_FIELDS = new Set(["ecosystems"]);
 const DEPENDABOT_AUTO_MERGE_ECOSYSTEMS = new Set<DependabotAutoMergeEcosystem>(["github-actions", "npm", "deno"]);
@@ -995,6 +1036,8 @@ const GITHUB_BRIDGE_FIELDS = new Set(["mode", "schedule", "pullRequest", "branch
 const GITHUB_SYNC_PAGES_FIELDS = new Set(["artifactName", "build", "environment", "job", "target", "triggers"]);
 const GITHUB_SOURCE_IMPACT_FIELDS = new Set(["jobs"]);
 const GITHUB_ATTEST_FIELDS = new Set(["packagePath", "artifacts", "subjectManifest", "sbomPath", "evidencePath", "requireNpmProvenance", "tarballScan", "githubAttestation"]);
+const GITHUB_CONTRACT_FIELDS = new Set(["mode", "job", "api", "claims", "schema", "packagePath", "evidenceDir", "annotations"]);
+const GITHUB_CONTRACT_SCHEMA_FIELDS = new Set(["enabled", "sources", "output"]);
 const GITHUB_SYNC_PAGES_TRIGGERS_FIELDS = new Set(["manual", "main", "pullRequest"]);
 const GITHUB_SYNC_PAGES_MAIN_TRIGGER_FIELDS = new Set(["branch"]);
 const CONTAINER_PROVIDERS = new Set(["auto", "docker", "apple-container", "lima"]);
@@ -1054,6 +1097,12 @@ function validateDefinitionShape(definition: PipelineDefinition): void {
     }
     if (definition.sync.github.attest && typeof definition.sync.github.attest === "object") {
       rejectUnknownFields(GITHUB_ATTEST_FIELDS, definition.sync.github.attest, "sync.github.attest");
+    }
+    if (definition.sync.github.contract && typeof definition.sync.github.contract === "object") {
+      rejectUnknownFields(GITHUB_CONTRACT_FIELDS, definition.sync.github.contract, "sync.github.contract");
+      if (definition.sync.github.contract.schema && typeof definition.sync.github.contract.schema === "object") {
+        rejectUnknownFields(GITHUB_CONTRACT_SCHEMA_FIELDS, definition.sync.github.contract.schema, "sync.github.contract.schema");
+      }
     }
     if (definition.sync.github.pages && typeof definition.sync.github.pages === "object") {
       rejectUnknownFields(GITHUB_SYNC_PAGES_FIELDS, definition.sync.github.pages, "sync.github.pages");
@@ -1895,7 +1944,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       bridge: normalizeGitHubBridge(undefined),
       pages: normalizeGitHubPagesSync(undefined),
       sourceImpact: normalizeGitHubSourceImpact(undefined),
-      attest: normalizeGitHubAttest(undefined)
+      attest: normalizeGitHubAttest(undefined),
+      contract: normalizeGitHubContract(undefined)
     };
   }
   if (github === true) {
@@ -1914,7 +1964,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       bridge: normalizeGitHubBridge(undefined),
       pages: normalizeGitHubPagesSync(undefined),
       sourceImpact: normalizeGitHubSourceImpact(undefined),
-      attest: normalizeGitHubAttest(undefined)
+      attest: normalizeGitHubAttest(undefined),
+      contract: normalizeGitHubContract(undefined)
     };
   }
   return {
@@ -1932,7 +1983,8 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
     bridge: normalizeGitHubBridge(github.bridge),
     pages: normalizeGitHubPagesSync(github.pages),
     sourceImpact: normalizeGitHubSourceImpact(github.sourceImpact),
-    attest: normalizeGitHubAttest(github.attest)
+    attest: normalizeGitHubAttest(github.attest),
+    contract: normalizeGitHubContract(github.contract)
   };
 }
 
@@ -2208,6 +2260,130 @@ function validateSafeAttestPathLike(value: string, field: string): void {
   }
   if (value.startsWith(".github/workflows/")) {
     throw pipelineError("ASYNC_PIPELINE_GITHUB_ATTEST_INVALID", `${field} cannot include .github/workflows/**.`);
+  }
+}
+
+function normalizeGitHubContract(input: GitHubContractInput | undefined): NormalizedGitHubContractConfig {
+  const disabled: NormalizedGitHubContractConfig = {
+    enabled: false,
+    mode: "off",
+    job: "contract",
+    api: true,
+    claims: true,
+    schema: {
+      enabled: false,
+      sources: [],
+      output: ".async/contract/schema.json"
+    },
+    packagePath: ".",
+    evidenceDir: ".async/contract",
+    annotations: true
+  };
+  if (!input) return disabled;
+  if (input === true) {
+    return { ...disabled, enabled: true, mode: "report" };
+  }
+  const mode = input.mode ?? "report";
+  if (!["off", "report", "check", "strict", "release"].includes(mode)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID", `sync.github.contract.mode must be off, report, check, strict, or release. Found: ${String(mode)}.`);
+  }
+  if (mode === "off") return disabled;
+  const output: NormalizedGitHubContractConfig = {
+    enabled: true,
+    mode,
+    job: normalizeOptionalNonEmptyString(input.job, "sync.github.contract.job", "ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID") ?? "contract",
+    api: input.api ?? true,
+    claims: input.claims ?? true,
+    schema: normalizeGitHubContractSchema(input.schema),
+    packagePath: normalizeOptionalNonEmptyString(input.packagePath, "sync.github.contract.packagePath", "ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID") ?? ".",
+    evidenceDir: normalizeOptionalNonEmptyString(input.evidenceDir, "sync.github.contract.evidenceDir", "ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID") ?? ".async/contract",
+    annotations: input.annotations ?? true
+  };
+  if (typeof output.api !== "boolean") {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID", "sync.github.contract.api must be a boolean.");
+  }
+  if (typeof output.claims !== "boolean") {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID", "sync.github.contract.claims must be a boolean.");
+  }
+  if (typeof output.annotations !== "boolean") {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID", "sync.github.contract.annotations must be a boolean.");
+  }
+  validateSafeContractPathLike(output.packagePath, "sync.github.contract.packagePath", { allowDot: true, allowGlob: false });
+  validateSafeContractPathLike(output.evidenceDir, "sync.github.contract.evidenceDir", { allowDot: false, allowGlob: false });
+  validateGeneratedJobId(output.job, "sync.github.contract.job");
+  if (!output.api && !output.claims && !output.schema.enabled) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID", "sync.github.contract must enable at least one of api, claims, or schema.");
+  }
+  return output;
+}
+
+function normalizeGitHubContractSchema(input: boolean | GitHubContractSchemaConfig | undefined): NormalizedGitHubContractSchemaConfig {
+  const disabled = {
+    enabled: false,
+    sources: [],
+    output: ".async/contract/schema.json"
+  };
+  if (!input) return disabled;
+  if (input === true) {
+    return {
+      enabled: true,
+      sources: ["schemas/**/*.json", "data/**/*.json"],
+      output: ".async/contract/schema.json"
+    };
+  }
+  const enabled = input.enabled ?? true;
+  if (typeof enabled !== "boolean") {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID", "sync.github.contract.schema.enabled must be a boolean.");
+  }
+  if (!enabled) return disabled;
+  const sources = normalizeGitHubContractPaths(input.sources, "sync.github.contract.schema.sources", ["schemas/**/*.json", "data/**/*.json"]);
+  const output = normalizeOptionalNonEmptyString(input.output, "sync.github.contract.schema.output", "ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID") ?? ".async/contract/schema.json";
+  validateSafeContractPathLike(output, "sync.github.contract.schema.output", { allowDot: false, allowGlob: false });
+  return { enabled: true, sources, output };
+}
+
+function normalizeGitHubContractPaths(paths: string[] | undefined, field: string, fallback: string[]): string[] {
+  if (paths === undefined) return fallback;
+  if (!Array.isArray(paths)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID", `${field} must be an array of repo-relative paths or globs.`);
+  }
+  if (paths.length === 0) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID", `${field} cannot be empty.`);
+  }
+  const normalized = paths.map((path, index) => {
+    const value = normalizeOptionalNonEmptyString(path, `${field}[${index}]`, "ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID");
+    if (!value) {
+      throw pipelineError("ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID", `${field}[${index}] cannot be empty.`);
+    }
+    validateSafeContractPathLike(value, `${field}[${index}]`, { allowDot: false, allowGlob: true });
+    return value;
+  });
+  return [...new Set(normalized)];
+}
+
+function validateGeneratedJobId(value: string, field: string): void {
+  if (!value.trim()) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID", `${field} cannot be empty.`);
+  }
+  if (value.includes(":")) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID", `${field} cannot contain source namespace delimiter ':'.`);
+  }
+}
+
+function validateSafeContractPathLike(value: string, field: string, options: { allowDot: boolean; allowGlob: boolean }): void {
+  if (value === "." && options.allowDot) return;
+  if (value.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(value)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID", `${field} must be repo-relative.`);
+  }
+  const parts = value.split("/");
+  if (parts.some((part) => part === "" || part === "..")) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID", `${field} cannot contain empty segments or parent-directory segments.`);
+  }
+  if (!options.allowGlob && /[*?[\]{}]/u.test(value)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID", `${field} cannot contain glob characters.`);
+  }
+  if (value.startsWith(".github/workflows/")) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_CONTRACT_INVALID", `${field} cannot include .github/workflows/**.`);
   }
 }
 

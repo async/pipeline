@@ -13,8 +13,8 @@ import { checkGitHubWorkflow, jobsForGitHubEvent, planGitHubJobs, renderGitHubWo
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
 const cliPath = join(repoRoot, "packages/pipeline-node/dist/cli.js");
-const asyncActionsSha = "c08a62380ee60fa175d5c3598d41c4485c0ead98";
-const asyncActionsLabel = "v0.1.12";
+const asyncActionsSha = "87e033782ca1f84334d9e3a2543b0db064848fb7";
+const asyncActionsLabel = "v0.1.14";
 const asyncActionsRefPattern = `${asyncActionsSha} # ${asyncActionsLabel.replaceAll(".", "\\.")}`;
 const asyncActionUses = (name) => new RegExp(`uses: async/actions/${name}@${asyncActionsRefPattern}`);
 
@@ -504,6 +504,164 @@ test("renders generated package preview job from packagePreviews true", async ()
       ifNoFilesFound: "warn",
       includeSummary: true
     });
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("renders and plans generated contract evidence jobs", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-contract-"));
+  try {
+    mkdirSync(join(dir, "packages", "pipeline"), { recursive: true });
+    mkdirSync(join(dir, "schemas"), { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "workspace", private: true, packageManager: "pnpm@11.1.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    writeFileSync(join(dir, "packages", "pipeline", "package.json"), JSON.stringify({ name: "@async/pipeline", version: "0.0.0" }), "utf8");
+    writeFileSync(join(dir, "schemas", "user.json"), JSON.stringify({ $schema: "https://json-schema.org/draft/2020-12/schema", type: "object" }), "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          evidence: true,
+          contract: {
+            mode: "check",
+            packagePath: "packages/pipeline",
+            schema: {
+              sources: ["schemas/**/*.json"],
+              output: ".async/contract/schema-report.json"
+            }
+          }
+        }
+      },
+      tasks: {
+        verify: task({ run: sh`echo verify` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, /pull_request:\n    types:/);
+    assert.match(rendered.workflow, /workflow_dispatch:\n    inputs:\n      job:/);
+    assert.match(rendered.workflow, /- "contract"/);
+    assert.match(rendered.workflow, /contract:\n    name: contract/);
+    assert.match(rendered.workflow, /github\.event_name == 'pull_request' && github\.event\.pull_request\.draft == false/);
+    assert.match(rendered.workflow, asyncActionUses("contract"));
+    assert.match(rendered.workflow, /name: Run contract evidence[\s\S]+mode: check/);
+    assert.match(rendered.workflow, /checks: "api,claims,schema"/);
+    assert.match(rendered.workflow, /package-path: "packages\/pipeline"/);
+    assert.match(rendered.workflow, /schema-sources: \|\n            schemas\/\*\*\/\*\.json/);
+    assert.match(rendered.workflow, /schema-output: "\.async\/contract\/schema-report\.json"/);
+    assert.match(rendered.workflow, /evidence-dir: "\.async\/contract"/);
+    assert.match(rendered.workflow, /fail-on: blocking/);
+    assert.match(rendered.workflow, /name: Collect evidence manifest[\s\S]+paths: \|\n            \.async\/runs\n            \.async\/contract/);
+    assert.match(rendered.workflow, /evidence:\n    name: evidence\n    needs: \["contract","verify"\]\n    if: always\(\)/);
+    assert.equal(rendered.lock.actions.find((entry) => entry.id === "async.actions.contract")?.sha, asyncActionsSha);
+    assert.deepEqual(rendered.lock.contract, {
+      enabled: true,
+      mode: "check",
+      job: "contract",
+      api: true,
+      claims: true,
+      schema: {
+        enabled: true,
+        sources: ["schemas/**/*.json"],
+        output: ".async/contract/schema-report.json"
+      },
+      packagePath: "packages/pipeline",
+      evidenceDir: ".async/contract",
+      annotations: true
+    });
+
+    const checkPlan = await planGitHubJobs(pipeline, {
+      cwd: dir,
+      configPath: join(dir, "pipeline.ts"),
+      job: "contract",
+      eventName: "pull_request",
+      eventAction: "opened",
+      network: "deny"
+    });
+    assert.equal(checkPlan.manifests.length, 1);
+    const manifest = checkPlan.manifests[0];
+    assert.equal(manifest.job.id, "contract");
+    assert.deepEqual(manifest.job.permissions, { contents: "read" });
+    const contractStep = manifest.steps.find((entry) => entry.local.contract === "contract");
+    assert.ok(contractStep);
+    assert.equal(contractStep.with.mode, "check");
+    assert.equal(contractStep.with["schema-output"], ".async/contract/schema-report.json");
+    assert.equal(contractStep.local.networked, false);
+    assert.ok(manifest.steps.some((entry) => entry.local.contract === "evidence" && Array.isArray(entry.with.paths) && entry.with.paths.includes(".async/contract")));
+    const receipt = await runGitHubLocalManifest(manifest, dir);
+    assert.equal(receipt.status, "passed");
+    assert.ok(receipt.stepReceipts.some((entry) => entry.contract === "contract" && entry.decision === "mocked"));
+
+    const reportPipeline = definePipeline({
+      name: "test-report",
+      sync: {
+        github: {
+          contract: {
+            mode: "report",
+            api: true,
+            claims: false,
+            schema: false
+          }
+        }
+      },
+      tasks: {
+        verify: task({ run: sh`echo verify` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+    const reportPlan = await planGitHubJobs(reportPipeline, {
+      cwd: dir,
+      configPath: join(dir, "pipeline.ts"),
+      job: "contract",
+      eventName: "pull_request",
+      eventAction: "opened",
+      network: "deny"
+    });
+    assert.equal(reportPlan.manifests[0].steps.find((entry) => entry.local.contract === "contract")?.with.mode, "report");
+    assert.equal((await runGitHubLocalManifest(reportPlan.manifests[0], dir)).status, "passed");
+
+    const releasePipeline = definePipeline({
+      name: "test-release",
+      sync: {
+        github: {
+          contract: {
+            mode: "release",
+            api: true,
+            claims: false,
+            schema: false
+          }
+        }
+      },
+      tasks: {
+        verify: task({ run: sh`echo verify` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+    const releaseRendered = await renderGitHubWorkflow(releasePipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+    assert.match(releaseRendered.workflow, /release:\n    types:\n      - "published"/);
+    assert.match(releaseRendered.workflow, /\(github\.event_name == 'release' && github\.event\.action == 'published'\)/);
+    const releasePlan = await planGitHubJobs(releasePipeline, {
+      cwd: dir,
+      configPath: join(dir, "pipeline.ts"),
+      eventName: "release",
+      eventAction: "published"
+    });
+    assert.ok(releasePlan.manifests.some((entry) => entry.job.id === "contract"));
+    const releasePrPlan = await planGitHubJobs(releasePipeline, {
+      cwd: dir,
+      configPath: join(dir, "pipeline.ts"),
+      eventName: "pull_request"
+    });
+    assert.ok(releasePrPlan.skippedJobs.some((entry) => entry.id === "contract" && entry.reason === "event_filter"));
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
