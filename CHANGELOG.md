@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.9.30 - 2026-06-21
+
+### Features
+
+- Add Cloudflare workflow planning and mock run commands that use a shared
+  event envelope, lifecycle vocabulary, trust policy, idempotency key, and
+  deploy/report receipt shape without requiring live host credentials.
+- Add shared GitHub plan fields for event envelopes, workflow job plans, trust
+  policy, idempotency keys, and job-level report effects while preserving the
+  existing GitHub manifest output.
+- Add Cloudflare bridge planning for GitHub-origin queue messages, Cloudflare
+  result envelopes, and idempotent GitHub check, deployment, and pull request
+  report intents in local mock runs.
+- Add Cloudflare runner capability metadata and per-job command plans that
+  expose runner image, package manager, cache namespace, scoped permissions,
+  and mock runner evidence without live Cloudflare access.
+- Add explicit Cloudflare preview planning for Pages and Workers deploys,
+  including production-branch environment selection, optional pull request
+  preview comments, deployment source paths, and deterministic mock preview
+  receipts.
+- Render a Cloudflare Workflow orchestration surface with queue entry, Worker
+  Workflow binding, plan/run/deploy/report/record steps, runner/cache/evidence
+  capability calls, and an explicit external Wrangler apply boundary.
+
 ## 0.9.29 - 2026-06-19
 
 ### Fixes
