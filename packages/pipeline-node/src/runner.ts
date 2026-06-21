@@ -224,8 +224,9 @@ export function resolveExecutionContext(pipeline: NormalizedPipeline, target: Ru
     executor: target.executor ?? new HostCommandExecutor(),
     commands: target.commands
   };
-  const ref = target.sandbox ?? profile?.sandbox;
-  const provider = target.provider ?? profile?.provider;
+  const localProfile = profile?.kind === "cloudflare" ? undefined : profile;
+  const ref = target.sandbox ?? localProfile?.sandbox;
+  const provider = target.provider ?? localProfile?.provider;
   if (!ref || ref === "host") return base;
   const definition = typeof ref === "string" ? pipeline.sandboxes[ref] : ref;
   if (!definition) {

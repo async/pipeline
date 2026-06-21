@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { agent, definePipeline, env, execution, job, sandbox, sh, source, task, trigger } from "../packages/pipeline-core/dist/index.js";
+import { agent, definePipeline, env, execution, github, job, sandbox, sh, source, task, trigger } from "../packages/pipeline-core/dist/index.js";
 import { checkGitHubWorkflow, jobsForGitHubEvent, planGitHubJobs, renderGitHubWorkflow, runGitHubLocalManifest, writeGitHubWorkflow } from "../packages/pipeline-node/dist/index.js";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -871,7 +871,8 @@ test("plans github action manifests with pinned refs, matrix rows, event skips, 
         verify: job({
           target: "verify",
           trigger: ["pr"],
-          github: { runsOnMatrix: ["ubuntu-latest", ["macos-latest", "large"]] }
+          github: { runsOnMatrix: ["ubuntu-latest", ["macos-latest", "large"]] },
+          report: github.prPreview()
         })
       }
     });
@@ -883,15 +884,30 @@ test("plans github action manifests with pinned refs, matrix rows, event skips, 
       eventName: "pull_request",
       eventAction: "opened",
       prNumber: 42,
+      repository: "async/pipeline",
       headRepo: "async/pipeline",
       headSha: "abc123",
       baseRef: "main"
     });
 
     assert.equal(plan.version, 1);
+    assert.equal(plan.host, "github");
+    assert.equal(plan.pipeline, "test");
     assert.equal(plan.event.name, "pull_request");
     assert.equal(plan.event.pullRequest?.number, 42);
+    assert.equal(plan.eventEnvelope.source, "github");
+    assert.equal(plan.eventEnvelope.event, "pull_request");
+    assert.equal(plan.eventEnvelope.pullRequest?.sameRepository, true);
     assert.equal(plan.manifests.length, 1);
+    assert.equal(plan.workflowJobs.length, 1);
+    assert.equal(plan.workflowJobs[0].id, "verify");
+    assert.equal(plan.workflowJobs[0].idempotencyKey, "test/verify/pull_request/abc123");
+    assert.deepEqual(plan.workflowJobs[0].lifecycle, ["plan", "run", "report", "record"]);
+    assert.equal(plan.workflowJobs[0].trust.writeCredentials, true);
+    assert.equal(plan.workflowJobs[0].trust.cacheSave, false);
+    assert.deepEqual(plan.workflowJobs[0].effects.map((entry) => [entry.kind, entry.host, entry.receiptPath]), [
+      ["report", "github", ".async/github-local/jobs/verify/report.json"]
+    ]);
     const manifest = plan.manifests[0];
     assert.equal(manifest.version, 1);
     assert.equal(manifest.job.id, "verify");

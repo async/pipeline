@@ -177,9 +177,15 @@ export interface GitHubExecutionProfileDefinition {
   runsOnMatrix?: Array<string | string[]>;
 }
 
+export interface CloudflareExecutionProfileDefinition {
+  kind: "cloudflare";
+  runner?: CloudflareRunnerConfig;
+}
+
 export type ExecutionProfileDefinition =
   | LocalExecutionProfileDefinition
-  | GitHubExecutionProfileDefinition;
+  | GitHubExecutionProfileDefinition
+  | CloudflareExecutionProfileDefinition;
 
 export interface CommandOutputPolicy {
   maxBytes?: number;
@@ -265,6 +271,165 @@ export interface TriggerDefinition {
   paths?: string[];
   tags?: string[];
   timezone?: string;
+}
+
+export type PipelineWorkflowEventSource = "github" | "cloudflare";
+export type PipelineWorkflowEventName = "push" | "pull_request" | "release" | "schedule" | "manual";
+
+export interface PipelineEventEnvelope {
+  source: PipelineWorkflowEventSource;
+  event: PipelineWorkflowEventName;
+  ref?: string;
+  branch?: string;
+  sha?: string;
+  pullRequest?: {
+    number: number;
+    headSha: string;
+    sameRepository: boolean;
+  };
+  release?: {
+    tagName: string;
+    action: string;
+  };
+  requestedJob?: string;
+}
+
+export type PipelineWorkflowLifecycleStepKind = "plan" | "render" | "check" | "run" | "deploy" | "report" | "record";
+
+export interface PipelineWorkflowTrustPolicy {
+  event: PipelineWorkflowEventName;
+  sameRepository: boolean | null;
+  writeCredentials: boolean;
+  cacheSave: boolean;
+  reason: string;
+}
+
+export interface PipelineWorkflowEffectPlan {
+  kind: "deploy" | "report";
+  host: "cloudflare" | "github";
+  effect: DeployDefinition | ReportDefinition;
+  idempotencyKey: string;
+  receiptPath: string;
+  network: "mock" | "host";
+}
+
+export interface PipelineWorkflowJobPlan {
+  id: JobId;
+  target: TaskId[];
+  trigger: TriggerId[];
+  execution?: ExecutionProfileId;
+  lifecycle: PipelineWorkflowLifecycleStepKind[];
+  idempotencyKey: string;
+  trust: PipelineWorkflowTrustPolicy;
+  effects: PipelineWorkflowEffectPlan[];
+  receipts: {
+    run: string;
+    deploy?: string;
+    report?: string;
+  };
+}
+
+export interface PipelineWorkflowPlan {
+  version: 1;
+  generatedBy: "@async/pipeline";
+  pipeline: string;
+  event: PipelineEventEnvelope;
+  lifecycle: PipelineWorkflowLifecycleStepKind[];
+  jobs: PipelineWorkflowJobPlan[];
+  skippedJobs: Array<{
+    id: JobId;
+    reason: string;
+    trigger: TriggerId[];
+  }>;
+}
+
+export type PipelineCloudflareEventName = "push" | "pull_request" | "release" | "workflow_dispatch";
+
+export interface PipelineCloudflareEvent {
+  source: "github";
+  event: PipelineCloudflareEventName;
+  owner: string;
+  repo: string;
+  sha: string;
+  ref: string;
+  branch?: string;
+  pullRequest?: {
+    number: number;
+    headSha: string;
+    headRepoFullName: string;
+    sameRepository: boolean;
+  };
+  release?: {
+    tagName: string;
+    action: string;
+  };
+  installationId?: number;
+  requestedJob?: string;
+}
+
+export type PipelineCloudflareResultStatus = "queued" | "in_progress" | "passed" | "failed" | "cancelled";
+
+export interface PipelineCloudflareResult {
+  job: JobId;
+  status: PipelineCloudflareResultStatus;
+  sha: string;
+  evidence?: {
+    manifestPath: string;
+    summaryPath: string;
+  };
+  preview?: {
+    kind: "pages" | "worker";
+    environment: "preview" | "production";
+    urlAlias?: string;
+  };
+}
+
+export interface CloudflareRunnerExecOptions {
+  cwd?: string;
+  env?: Record<string, string>;
+  capture?: boolean;
+  timeoutMs?: number;
+}
+
+export interface CloudflareRunnerResult {
+  exitCode: number;
+  stdout?: string;
+  stderr?: string;
+  durationMs?: number;
+}
+
+export interface CloudflareRunnerCapability {
+  exec(command: string, options?: CloudflareRunnerExecOptions): Promise<CloudflareRunnerResult>;
+}
+
+export interface CloudflareRunnerCommandPlan {
+  job: JobId;
+  execution: ExecutionProfileId;
+  command: string;
+  cwd: ".";
+  runner: NormalizedCloudflareRunnerConfig;
+  cache: NormalizedCloudflareCacheConfig;
+  capabilities: {
+    github: {
+      required: boolean;
+      enabled: boolean;
+    };
+    cloudflare: {
+      required: boolean;
+      enabled: boolean;
+    };
+    artifacts: {
+      required: boolean;
+      enabled: boolean;
+    };
+  };
+  permissions: string[];
+  evidence: {
+    runPath: string;
+    resultPath: string;
+    cacheNamespace: string;
+  };
+  mockAvailable: true;
 }
 
 export type SyncRunner = "package" | "deno";
@@ -413,6 +578,83 @@ export interface GitHubSyncConfig {
 
 export type GitHubSyncInput = boolean | GitHubSyncConfig;
 
+export type CloudflareBridgeMode = "github-app" | "github-actions";
+export type CloudflareRunnerKind = "container";
+export type CloudflarePackageManager = "pnpm" | "npm" | "yarn" | "bun";
+export type CloudflareCacheKind = "artifacts" | "r2" | "kv";
+
+export interface CloudflareRunnerConfig {
+  kind?: CloudflareRunnerKind;
+  image?: string;
+  packageManager?: CloudflarePackageManager;
+  network?: boolean;
+}
+
+export interface CloudflareBridgeConfig {
+  mode?: CloudflareBridgeMode;
+}
+
+export interface CloudflareCacheConfig {
+  kind?: CloudflareCacheKind;
+  namespace?: string;
+}
+
+export interface CloudflareCapabilitiesConfig {
+  github?: boolean;
+  cloudflare?: boolean;
+  artifacts?: boolean;
+}
+
+export interface CloudflareSyncConfig {
+  worker?: string;
+  queue?: string;
+  workflow?: string;
+  outputDir?: string;
+  lock?: string;
+  bridge?: CloudflareBridgeConfig;
+  runner?: CloudflareRunnerConfig;
+  cache?: CloudflareCacheConfig;
+  capabilities?: CloudflareCapabilitiesConfig;
+}
+
+export type CloudflareSyncInput = false | CloudflareSyncConfig;
+
+export interface NormalizedCloudflareRunnerConfig {
+  kind: CloudflareRunnerKind;
+  image: string;
+  packageManager: CloudflarePackageManager;
+  network: boolean;
+}
+
+export interface NormalizedCloudflareBridgeConfig {
+  enabled: boolean;
+  mode: CloudflareBridgeMode;
+}
+
+export interface NormalizedCloudflareCacheConfig {
+  kind: CloudflareCacheKind;
+  namespace: string;
+}
+
+export interface NormalizedCloudflareCapabilitiesConfig {
+  github: boolean;
+  cloudflare: boolean;
+  artifacts: boolean;
+}
+
+export interface NormalizedCloudflareSyncConfig {
+  enabled: boolean;
+  worker: string;
+  queue: string;
+  workflow: string;
+  outputDir: string;
+  lock: string;
+  bridge: NormalizedCloudflareBridgeConfig;
+  runner: NormalizedCloudflareRunnerConfig;
+  cache: NormalizedCloudflareCacheConfig;
+  capabilities: NormalizedCloudflareCapabilitiesConfig;
+}
+
 export interface TaskSyncConfig {
   prefix?: string;
   runners?: "all" | SyncRunner[];
@@ -428,6 +670,7 @@ export interface PipelineSyncConfig {
   command?: string;
   github?: GitHubSyncInput;
   tasks?: TaskSyncInput;
+  cloudflare?: CloudflareSyncInput;
 }
 
 export interface NormalizedGitHubSyncConfig {
@@ -563,6 +806,7 @@ export interface NormalizedPipelineSync {
   command: string;
   github: NormalizedGitHubSyncConfig;
   tasks: NormalizedTaskSyncConfig;
+  cloudflare: NormalizedCloudflareSyncConfig;
 }
 
 export interface DependsOnDirective {
@@ -647,6 +891,8 @@ export interface JobDefinition {
   requires?: JobRequirements;
   execution?: ExecutionProfileId;
   github?: GitHubJobConfig;
+  deploy?: DeployDefinition;
+  report?: ReportDefinition;
 }
 
 export interface NormalizedJob extends Omit<JobDefinition, "target" | "trigger"> {
@@ -656,6 +902,38 @@ export interface NormalizedJob extends Omit<JobDefinition, "target" | "trigger">
 }
 
 export type GitHubPermission = "read" | "write" | "none";
+
+export interface CloudflarePagesDeployDefinition {
+  kind: "cloudflare.pages";
+  project: string;
+  directory: string;
+  productionBranch?: string;
+}
+
+export interface CloudflareWorkerDeployDefinition {
+  kind: "cloudflare.worker";
+  script: string;
+  alias?: string;
+  productionBranch?: string;
+}
+
+export type DeployDefinition =
+  | CloudflarePagesDeployDefinition
+  | CloudflareWorkerDeployDefinition;
+
+export interface GitHubPrPreviewReportDefinition {
+  kind: "github.prPreview";
+  comment?: boolean;
+}
+
+export interface GitHubDeploymentReportDefinition {
+  kind: "github.deployment";
+  environment?: string;
+}
+
+export type ReportDefinition =
+  | GitHubPrPreviewReportDefinition
+  | GitHubDeploymentReportDefinition;
 
 export type GitHubPagesBuild =
   | {
@@ -940,6 +1218,50 @@ export const execution = {
       runsOn: options.runsOn ? cloneRunsOnEntry(options.runsOn) : undefined,
       runsOnMatrix: options.runsOnMatrix ? options.runsOnMatrix.map(cloneRunsOnEntry) : undefined
     }, "execution.github");
+  },
+  cloudflare(options: Omit<CloudflareExecutionProfileDefinition, "kind"> = {}): CloudflareExecutionProfileDefinition {
+    return brandDeclaration({
+      kind: "cloudflare",
+      runner: options.runner ? cloneCloudflareRunner(options.runner) : undefined
+    }, "execution.cloudflare");
+  }
+};
+
+export const cloudflare = {
+  pages(options: Omit<CloudflarePagesDeployDefinition, "kind">): CloudflarePagesDeployDefinition {
+    rejectUnknownFields(CLOUDFLARE_PAGES_DEPLOY_FIELDS, options, "cloudflare.pages()");
+    return brandDeclaration({
+      kind: "cloudflare.pages",
+      project: options.project,
+      directory: options.directory,
+      productionBranch: options.productionBranch
+    }, "deploy.cloudflare.pages");
+  },
+  worker(options: Omit<CloudflareWorkerDeployDefinition, "kind">): CloudflareWorkerDeployDefinition {
+    rejectUnknownFields(CLOUDFLARE_WORKER_DEPLOY_FIELDS, options, "cloudflare.worker()");
+    return brandDeclaration({
+      kind: "cloudflare.worker",
+      script: options.script,
+      alias: options.alias,
+      productionBranch: options.productionBranch
+    }, "deploy.cloudflare.worker");
+  }
+};
+
+export const github = {
+  prPreview(options: Omit<GitHubPrPreviewReportDefinition, "kind"> = {}): GitHubPrPreviewReportDefinition {
+    rejectUnknownFields(GITHUB_PR_PREVIEW_REPORT_FIELDS, options, "github.prPreview()");
+    return brandDeclaration({
+      kind: "github.prPreview",
+      comment: options.comment
+    }, "report.github.prPreview");
+  },
+  deployment(options: Omit<GitHubDeploymentReportDefinition, "kind"> = {}): GitHubDeploymentReportDefinition {
+    rejectUnknownFields(GITHUB_DEPLOYMENT_REPORT_FIELDS, options, "github.deployment()");
+    return brandDeclaration({
+      kind: "github.deployment",
+      environment: options.environment
+    }, "report.github.deployment");
   }
 };
 
@@ -1045,16 +1367,27 @@ export function sandboxes(definitions: Record<SandboxId, SandboxDefinition>): Re
 const PIPELINE_FIELDS = new Set(["name", "env", "commands", "agents", "sandboxes", "execution", "cache", "namedInputs", "taskDefaults", "triggers", "sync", "sources", "tasks", "jobs"]);
 const AGENT_PROFILE_FIELDS = new Set(["command", "model"]);
 const TASK_FIELDS = new Set(["description", "dependsOn", "inputs", "outputs", "cache", "retry", "timeout", "requires", "run", "steps"]);
-const JOB_FIELDS = new Set(["description", "target", "trigger", "environment", "env", "requires", "execution", "github"]);
-const EXECUTION_PROFILE_FIELDS = new Set(["kind", "sandbox", "provider", "runsOn", "runsOnMatrix"]);
+const JOB_FIELDS = new Set(["description", "target", "trigger", "environment", "env", "requires", "execution", "github", "deploy", "report"]);
+const EXECUTION_PROFILE_FIELDS = new Set(["kind", "sandbox", "provider", "runsOn", "runsOnMatrix", "runner"]);
 const GITHUB_JOB_FIELDS = new Set(["environment", "pages", "permissions", "runsOn", "runsOnMatrix"]);
+const CLOUDFLARE_PAGES_DEPLOY_FIELDS = new Set(["project", "directory", "productionBranch"]);
+const CLOUDFLARE_WORKER_DEPLOY_FIELDS = new Set(["script", "alias", "productionBranch"]);
+const DEPLOY_FIELDS = new Set(["kind", "project", "directory", "script", "alias", "productionBranch"]);
+const GITHUB_PR_PREVIEW_REPORT_FIELDS = new Set(["comment"]);
+const GITHUB_DEPLOYMENT_REPORT_FIELDS = new Set(["environment"]);
+const REPORT_FIELDS = new Set(["kind", "comment", "environment"]);
 const GITHUB_PAGES_FIELDS = new Set(["artifactName", "build", "environment"]);
 const GITHUB_PAGES_JEKYLL_BUILD_FIELDS = new Set(["destination", "kind", "source"]);
 const GITHUB_PAGES_STATIC_BUILD_FIELDS = new Set(["kind", "path"]);
 const GITHUB_PAGES_PRERENDER_BUILD_FIELDS = new Set(["kind", "path", "spaFallback", "validateIndex"]);
 const GITHUB_PERMISSION_FIELDS = new Set(["contents", "idToken", "issues", "packages", "pullRequests"]);
-const SYNC_FIELDS = new Set(["command", "github", "tasks"]);
+const SYNC_FIELDS = new Set(["command", "github", "tasks", "cloudflare"]);
 const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "packagePreviews", "dependabotAutoMerge", "evidence", "bridge", "pages", "sourceImpact", "attest", "contract", "hygiene"]);
+const CLOUDFLARE_SYNC_FIELDS = new Set(["worker", "queue", "workflow", "outputDir", "lock", "bridge", "runner", "cache", "capabilities"]);
+const CLOUDFLARE_BRIDGE_FIELDS = new Set(["mode"]);
+const CLOUDFLARE_RUNNER_FIELDS = new Set(["kind", "image", "packageManager", "network"]);
+const CLOUDFLARE_CACHE_FIELDS = new Set(["kind", "namespace"]);
+const CLOUDFLARE_CAPABILITIES_FIELDS = new Set(["github", "cloudflare", "artifacts"]);
 const GITHUB_SETUP_PROVIDERS = new Set<GitHubSetupProvider>(["auto", "async", "pnpm", "node"]);
 const DEPENDABOT_AUTO_MERGE_FIELDS = new Set(["ecosystems"]);
 const DEPENDABOT_AUTO_MERGE_ECOSYSTEMS = new Set<DependabotAutoMergeEcosystem>(["github-actions", "npm", "deno"]);
@@ -1147,6 +1480,21 @@ function validateDefinitionShape(definition: PipelineDefinition): void {
       }
     }
   }
+  if (definition.sync?.cloudflare && typeof definition.sync.cloudflare === "object") {
+    rejectUnknownFields(CLOUDFLARE_SYNC_FIELDS, definition.sync.cloudflare, "sync.cloudflare");
+    if (definition.sync.cloudflare.bridge && typeof definition.sync.cloudflare.bridge === "object") {
+      rejectUnknownFields(CLOUDFLARE_BRIDGE_FIELDS, definition.sync.cloudflare.bridge, "sync.cloudflare.bridge");
+    }
+    if (definition.sync.cloudflare.runner && typeof definition.sync.cloudflare.runner === "object") {
+      rejectUnknownFields(CLOUDFLARE_RUNNER_FIELDS, definition.sync.cloudflare.runner, "sync.cloudflare.runner");
+    }
+    if (definition.sync.cloudflare.cache && typeof definition.sync.cloudflare.cache === "object") {
+      rejectUnknownFields(CLOUDFLARE_CACHE_FIELDS, definition.sync.cloudflare.cache, "sync.cloudflare.cache");
+    }
+    if (definition.sync.cloudflare.capabilities && typeof definition.sync.cloudflare.capabilities === "object") {
+      rejectUnknownFields(CLOUDFLARE_CAPABILITIES_FIELDS, definition.sync.cloudflare.capabilities, "sync.cloudflare.capabilities");
+    }
+  }
   for (const [id, profile] of Object.entries(definition.agents ?? {})) {
     rejectUnknownFields(AGENT_PROFILE_FIELDS, profile, `Agent profile "${id}"`);
     if (!Array.isArray(profile.command) || profile.command.length === 0 || profile.command.some((part) => typeof part !== "string" || part.length === 0)) {
@@ -1169,13 +1517,13 @@ function validateDefinitionShape(definition: PipelineDefinition): void {
   }
   for (const [id, profile] of Object.entries(definition.execution ?? {})) {
     rejectUnknownFields(EXECUTION_PROFILE_FIELDS, profile, `Execution profile "${id}"`);
-    if (profile.kind !== "local" && profile.kind !== "github") {
+    if (profile.kind !== "local" && profile.kind !== "github" && profile.kind !== "cloudflare") {
       throw pipelineError(
         "ASYNC_PIPELINE_EXECUTION_INVALID",
-        `Execution profile "${id}" requires kind "local" or "github".`
+        `Execution profile "${id}" requires kind "local", "github", or "cloudflare".`
       );
     }
-    if (profile.provider !== undefined && !CONTAINER_PROVIDERS.has(profile.provider)) {
+    if (profile.kind !== "cloudflare" && profile.provider !== undefined && !CONTAINER_PROVIDERS.has(profile.provider)) {
       throw pipelineError(
         "ASYNC_PIPELINE_EXECUTION_INVALID",
         `Execution profile "${id}" has unsupported provider "${profile.provider}". Use auto, docker, apple-container, or lima.`
@@ -1186,6 +1534,25 @@ function validateDefinitionShape(definition: PipelineDefinition): void {
         "ASYNC_PIPELINE_EXECUTION_INVALID",
         `Execution profile "${id}" is local and cannot set GitHub runner fields. Use execution.github(...) for runsOn or runsOnMatrix.`
       );
+    }
+    if (profile.kind === "cloudflare" && ("sandbox" in profile || "provider" in profile || "runsOn" in profile || "runsOnMatrix" in profile)) {
+      throw pipelineError(
+        "ASYNC_PIPELINE_EXECUTION_INVALID",
+        `Execution profile "${id}" is cloudflare and cannot set sandbox, provider, runsOn, or runsOnMatrix. Use runner metadata for Cloudflare execution.`
+      );
+    }
+    if (profile.kind !== "cloudflare" && "runner" in profile) {
+      throw pipelineError(
+        "ASYNC_PIPELINE_EXECUTION_INVALID",
+        `Execution profile "${id}" can only set runner when kind is "cloudflare".`
+      );
+    }
+    if (profile.kind === "cloudflare" && profile.runner !== undefined) {
+      if (!isObjectRecord(profile.runner)) {
+        throw pipelineError("ASYNC_PIPELINE_EXECUTION_INVALID", `Execution profile "${id}" runner must be an object.`);
+      }
+      rejectUnknownFields(CLOUDFLARE_RUNNER_FIELDS, profile.runner, `Execution profile "${id}" runner`);
+      normalizeCloudflareRunner(profile.runner);
     }
   }
   for (const [id, jobDefinition] of Object.entries(definition.jobs ?? {})) {
@@ -1198,6 +1565,12 @@ function validateDefinitionShape(definition: PipelineDefinition): void {
       if (jobDefinition.github.permissions) {
         rejectUnknownFields(GITHUB_PERMISSION_FIELDS, jobDefinition.github.permissions, `Job "${id}" github permissions`);
       }
+    }
+    if (jobDefinition.deploy !== undefined) {
+      validateDeployDefinition(id, jobDefinition.deploy);
+    }
+    if (jobDefinition.report !== undefined) {
+      validateReportDefinition(id, jobDefinition.report);
     }
   }
 }
@@ -1327,6 +1700,14 @@ export function normalizePipeline(definition: PipelineDefinition): NormalizedPip
   validateDefinitionShape(definition);
   const namedInputs = definition.namedInputs ?? {};
   const cacheRegistry = normalizeCacheRegistry(definition.cache);
+  const sync = normalizeSync(definition.sync);
+  const executionProfiles = normalizeExecutionProfiles(definition.execution);
+  if (sync.github.enabled && executionProfiles.github === undefined) {
+    executionProfiles.github = execution.github({ runsOn: "ubuntu-latest" });
+  }
+  if (sync.cloudflare.enabled && executionProfiles.cloudflare === undefined) {
+    executionProfiles.cloudflare = execution.cloudflare({ runner: sync.cloudflare.runner });
+  }
   const sources: Record<SourceId, NormalizedSource> = {};
 
   for (const [id, sourceDefinition] of Object.entries(definition.sources ?? {})) {
@@ -1387,11 +1768,11 @@ export function normalizePipeline(definition: PipelineDefinition): NormalizedPip
     commands: definition.commands ? normalizeCommandPolicy(definition.commands) : undefined,
     agents: normalizeAgents(definition.agents),
     sandboxes: normalizeSandboxes(definition.sandboxes),
-    execution: normalizeExecutionProfiles(definition.execution),
+    execution: executionProfiles,
     cache: cacheRegistry,
     namedInputs,
     triggers: definition.triggers ?? {},
-    sync: normalizeSync(definition.sync),
+    sync,
     sources,
     tasks,
     jobs
@@ -1462,11 +1843,21 @@ function cloneExecutionProfile(definition: ExecutionProfileDefinition): Executio
       runsOnMatrix: definition.runsOnMatrix ? definition.runsOnMatrix.map(cloneRunsOnEntry) : undefined
     };
   }
+  if (definition.kind === "cloudflare") {
+    return {
+      kind: "cloudflare",
+      runner: definition.runner ? cloneCloudflareRunner(definition.runner) : undefined
+    };
+  }
   return { ...definition };
 }
 
 function cloneRunsOnEntry(entry: string | string[]): string | string[] {
   return Array.isArray(entry) ? [...entry] : entry;
+}
+
+function cloneCloudflareRunner(runner: CloudflareRunnerConfig): CloudflareRunnerConfig {
+  return { ...runner };
 }
 
 function cloneCommandRule(rule: CommandRule): CommandRule {
@@ -1594,6 +1985,58 @@ function validateNonEmptyString(jobId: JobId, field: string, value: unknown): vo
   }
 }
 
+function validateDeployDefinition(jobId: JobId, deploy: DeployDefinition): void {
+  if (!isObjectRecord(deploy)) {
+    throw pipelineError("ASYNC_PIPELINE_DEPLOY_INVALID", `Job "${jobId}" deploy must be an object.`);
+  }
+  rejectUnknownFields(DEPLOY_FIELDS, deploy, `Job "${jobId}" deploy`);
+  if (deploy.kind === "cloudflare.pages") {
+    validateNonEmptyDeployString(jobId, "deploy.project", deploy.project);
+    validateSafeCloudflarePathLike(deploy.directory, `Job "${jobId}" deploy.directory`);
+    if (deploy.productionBranch !== undefined) {
+      validateNonEmptyDeployString(jobId, "deploy.productionBranch", deploy.productionBranch);
+    }
+    return;
+  }
+  if (deploy.kind === "cloudflare.worker") {
+    validateSafeCloudflarePathLike(deploy.script, `Job "${jobId}" deploy.script`);
+    if (deploy.alias !== undefined) {
+      validateNonEmptyDeployString(jobId, "deploy.alias", deploy.alias);
+    }
+    if (deploy.productionBranch !== undefined) {
+      validateNonEmptyDeployString(jobId, "deploy.productionBranch", deploy.productionBranch);
+    }
+    return;
+  }
+  throw pipelineError("ASYNC_PIPELINE_DEPLOY_INVALID", `Job "${jobId}" deploy.kind must be "cloudflare.pages" or "cloudflare.worker".`);
+}
+
+function validateReportDefinition(jobId: JobId, report: ReportDefinition): void {
+  if (!isObjectRecord(report)) {
+    throw pipelineError("ASYNC_PIPELINE_REPORT_INVALID", `Job "${jobId}" report must be an object.`);
+  }
+  rejectUnknownFields(REPORT_FIELDS, report, `Job "${jobId}" report`);
+  if (report.kind === "github.prPreview") {
+    if (report.comment !== undefined && typeof report.comment !== "boolean") {
+      throw pipelineError("ASYNC_PIPELINE_REPORT_INVALID", `Job "${jobId}" report.comment must be a boolean.`);
+    }
+    return;
+  }
+  if (report.kind === "github.deployment") {
+    if (report.environment !== undefined) {
+      validateNonEmptyDeployString(jobId, "report.environment", report.environment);
+    }
+    return;
+  }
+  throw pipelineError("ASYNC_PIPELINE_REPORT_INVALID", `Job "${jobId}" report.kind must be "github.prPreview" or "github.deployment".`);
+}
+
+function validateNonEmptyDeployString(jobId: JobId, field: string, value: unknown): void {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw pipelineError("ASYNC_PIPELINE_DEPLOY_INVALID", `Job "${jobId}" ${field} must be a non-empty string.`);
+  }
+}
+
 function githubConfigFromExecution(profile: ExecutionProfileDefinition | undefined): GitHubJobConfig | undefined {
   if (!profile || profile.kind !== "github") return undefined;
   return {
@@ -1613,6 +2056,9 @@ export function githubConfigForJob(pipeline: NormalizedPipeline, jobDefinition: 
 
 function validateExecutionProfiles(pipeline: NormalizedPipeline): void {
   for (const [id, profile] of Object.entries(pipeline.execution)) {
+    if (profile.kind === "cloudflare") {
+      continue;
+    }
     if (profile.sandbox !== undefined) {
       const sandboxDefinition = pipeline.sandboxes[profile.sandbox];
       if (!sandboxDefinition) {
@@ -1640,12 +2086,14 @@ function validateExecutionProfiles(pipeline: NormalizedPipeline): void {
 }
 
 function validateJobExecution(pipeline: NormalizedPipeline, jobDefinition: NormalizedJob): void {
-  if (!jobDefinition.execution) return;
-  const profile = pipeline.execution[jobDefinition.execution];
+  const profile = jobDefinition.execution ? pipeline.execution[jobDefinition.execution] : undefined;
+  if (!jobDefinition.execution && !jobDefinition.deploy) return;
   if (!profile) {
     throw pipelineError(
       "ASYNC_PIPELINE_EXECUTION_UNKNOWN",
-      `Job "${jobDefinition.id}" references unknown execution profile "${jobDefinition.execution}". Declare it under execution.`
+      jobDefinition.execution
+        ? `Job "${jobDefinition.id}" references unknown execution profile "${jobDefinition.execution}". Declare it under execution.`
+        : `Job "${jobDefinition.id}" declares deploy but does not select an execution profile.`
     );
   }
   const effectiveGithub = githubConfigForJob(pipeline, jobDefinition);
@@ -1653,6 +2101,50 @@ function validateJobExecution(pipeline: NormalizedPipeline, jobDefinition: Norma
   if (profile.kind === "github" && profile.provider === "apple-container") {
     validateAppleContainerRunsOn(jobDefinition.id, effectiveGithub);
   }
+  if (jobDefinition.deploy?.kind.startsWith("cloudflare.") && profile.kind !== "cloudflare") {
+    throw pipelineError(
+      "ASYNC_PIPELINE_DEPLOY_INVALID",
+      `Job "${jobDefinition.id}" declares a Cloudflare deploy and must use execution "cloudflare" or another cloudflare execution profile.`
+    );
+  }
+}
+
+function validateJobEffects(pipeline: NormalizedPipeline, jobDefinition: NormalizedJob): void {
+  const deploy = jobDefinition.deploy;
+  if (!deploy) return;
+  if (deploy.kind === "cloudflare.pages" && !jobDeclaresOutputPath(pipeline, jobDefinition, deploy.directory)) {
+    throw pipelineError(
+      "ASYNC_PIPELINE_DEPLOY_OUTPUT_UNKNOWN",
+      `Job "${jobDefinition.id}" deploy.directory "${deploy.directory}" must match a declared output of the selected task graph.`
+    );
+  }
+  if (deploy.kind === "cloudflare.worker" && !jobDeclaresOutputPath(pipeline, jobDefinition, deploy.script)) {
+    throw pipelineError(
+      "ASYNC_PIPELINE_DEPLOY_OUTPUT_UNKNOWN",
+      `Job "${jobDefinition.id}" deploy.script "${deploy.script}" must match a declared output of the selected task graph.`
+    );
+  }
+}
+
+function jobDeclaresOutputPath(pipeline: NormalizedPipeline, jobDefinition: NormalizedJob, path: string): boolean {
+  const selected = collectRequiredTasks(pipeline, jobDefinition.target);
+  for (const taskId of selected) {
+    const task = pipeline.tasks[taskId];
+    if (!task) continue;
+    for (const output of task.outputs) {
+      if (outputMatchesPath(output, path)) return true;
+    }
+  }
+  return false;
+}
+
+function outputMatchesPath(output: string, path: string): boolean {
+  const normalizedOutput = output.replace(/\/+$/u, "");
+  const normalizedPath = path.replace(/\/+$/u, "");
+  return normalizedOutput === normalizedPath
+    || normalizedOutput === `${normalizedPath}/**`
+    || normalizedOutput === `${normalizedPath}/**/*`
+    || normalizedOutput.startsWith(`${normalizedPath}/`);
 }
 
 function validateAppleContainerRunsOn(jobId: JobId, github: GitHubJobConfig | undefined): void {
@@ -1710,6 +2202,7 @@ export function validatePipeline(pipeline: NormalizedPipeline): void {
       }
     }
     validateJobExecution(pipeline, jobDefinition);
+    validateJobEffects(pipeline, jobDefinition);
     if (!jobDefinition.execution) validateJobRunsOn(jobDefinition.id, jobDefinition.github);
   }
 
@@ -1941,7 +2434,8 @@ function normalizeSync(sync: PipelineDefinition["sync"]): NormalizedPipelineSync
   return {
     command: normalizeSyncCommand(sync?.command),
     github: normalizeGitHubSync(sync?.github),
-    tasks: normalizeTaskSync(sync?.tasks)
+    tasks: normalizeTaskSync(sync?.tasks),
+    cloudflare: normalizeCloudflareSync(sync?.cloudflare)
   };
 }
 
@@ -1960,6 +2454,8 @@ function normalizeSyncCommand(command: string | undefined): string {
 const DEFAULT_GITHUB_NODE_VERSION = "24";
 const DEFAULT_GITHUB_WORKFLOW_PATH = ".github/workflows/async-pipeline.yml";
 const DEFAULT_GITHUB_LOCK_PATH = ".locks/pipeline/github-workflow.lock.json";
+const DEFAULT_CLOUDFLARE_OUTPUT_DIR = ".cloudflare/pipeline";
+const DEFAULT_CLOUDFLARE_LOCK_PATH = ".locks/pipeline/cloudflare.lock.json";
 
 function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGitHubSyncConfig {
   if (github === undefined || github === false) {
@@ -2043,6 +2539,96 @@ function normalizeGitHubRuntime(runtime: string | string[] | undefined): string[
     return value;
   });
   return [...new Set(normalized)];
+}
+
+function normalizeCloudflareSync(input: CloudflareSyncInput | undefined): NormalizedCloudflareSyncConfig {
+  const disabled: NormalizedCloudflareSyncConfig = {
+    enabled: false,
+    worker: "async-pipeline",
+    queue: "async-pipeline-events",
+    workflow: "ci",
+    outputDir: DEFAULT_CLOUDFLARE_OUTPUT_DIR,
+    lock: DEFAULT_CLOUDFLARE_LOCK_PATH,
+    bridge: { enabled: false, mode: "github-actions" },
+    runner: normalizeCloudflareRunner(undefined),
+    cache: normalizeCloudflareCache(undefined),
+    capabilities: normalizeCloudflareCapabilities(undefined)
+  };
+  if (!input) return disabled;
+  const outputDir = normalizeOptionalNonEmptyString(input.outputDir, "sync.cloudflare.outputDir", "ASYNC_PIPELINE_CLOUDFLARE_INVALID") ?? DEFAULT_CLOUDFLARE_OUTPUT_DIR;
+  const lock = normalizeOptionalNonEmptyString(input.lock, "sync.cloudflare.lock", "ASYNC_PIPELINE_CLOUDFLARE_INVALID") ?? DEFAULT_CLOUDFLARE_LOCK_PATH;
+  validateSafeCloudflarePathLike(outputDir, "sync.cloudflare.outputDir");
+  validateSafeCloudflarePathLike(lock, "sync.cloudflare.lock");
+  return {
+    enabled: true,
+    worker: normalizeCloudflareName(input.worker, "sync.cloudflare.worker", "async-pipeline"),
+    queue: normalizeCloudflareName(input.queue, "sync.cloudflare.queue", "async-pipeline-events"),
+    workflow: normalizeCloudflareName(input.workflow, "sync.cloudflare.workflow", "ci"),
+    outputDir,
+    lock,
+    bridge: normalizeCloudflareBridge(input.bridge),
+    runner: normalizeCloudflareRunner(input.runner),
+    cache: normalizeCloudflareCache(input.cache),
+    capabilities: normalizeCloudflareCapabilities(input.capabilities)
+  };
+}
+
+function normalizeCloudflareBridge(input: CloudflareBridgeConfig | undefined): NormalizedCloudflareBridgeConfig {
+  if (!input) return { enabled: false, mode: "github-actions" };
+  const mode = input.mode ?? "github-actions";
+  if (mode !== "github-app" && mode !== "github-actions") {
+    throw pipelineError("ASYNC_PIPELINE_CLOUDFLARE_INVALID", `sync.cloudflare.bridge.mode must be "github-app" or "github-actions". Found: ${String(mode)}.`);
+  }
+  return { enabled: true, mode };
+}
+
+function normalizeCloudflareRunner(input: CloudflareRunnerConfig | undefined): NormalizedCloudflareRunnerConfig {
+  const kind = input?.kind ?? "container";
+  if (kind !== "container") {
+    throw pipelineError("ASYNC_PIPELINE_CLOUDFLARE_INVALID", `sync.cloudflare.runner.kind must be "container". Found: ${String(kind)}.`);
+  }
+  const packageManager = input?.packageManager ?? "pnpm";
+  if (!["pnpm", "npm", "yarn", "bun"].includes(packageManager)) {
+    throw pipelineError("ASYNC_PIPELINE_CLOUDFLARE_INVALID", "sync.cloudflare.runner.packageManager must be pnpm, npm, yarn, or bun.");
+  }
+  return {
+    kind,
+    image: normalizeOptionalNonEmptyString(input?.image, "sync.cloudflare.runner.image", "ASYNC_PIPELINE_CLOUDFLARE_INVALID") ?? "node:24",
+    packageManager,
+    network: input?.network ?? true
+  };
+}
+
+function normalizeCloudflareCache(input: CloudflareCacheConfig | undefined): NormalizedCloudflareCacheConfig {
+  const kind = input?.kind ?? "artifacts";
+  if (!["artifacts", "r2", "kv"].includes(kind)) {
+    throw pipelineError("ASYNC_PIPELINE_CLOUDFLARE_INVALID", "sync.cloudflare.cache.kind must be artifacts, r2, or kv.");
+  }
+  return {
+    kind,
+    namespace: normalizeOptionalNonEmptyString(input?.namespace, "sync.cloudflare.cache.namespace", "ASYNC_PIPELINE_CLOUDFLARE_INVALID") ?? "async-pipeline"
+  };
+}
+
+function normalizeCloudflareCapabilities(input: CloudflareCapabilitiesConfig | undefined): NormalizedCloudflareCapabilitiesConfig {
+  for (const [field, value] of Object.entries(input ?? {})) {
+    if (typeof value !== "boolean") {
+      throw pipelineError("ASYNC_PIPELINE_CLOUDFLARE_INVALID", `sync.cloudflare.capabilities.${field} must be a boolean.`);
+    }
+  }
+  return {
+    github: input?.github ?? true,
+    cloudflare: input?.cloudflare ?? true,
+    artifacts: input?.artifacts ?? true
+  };
+}
+
+function normalizeCloudflareName(input: string | undefined, field: string, fallback: string): string {
+  const value = normalizeOptionalNonEmptyString(input, field, "ASYNC_PIPELINE_CLOUDFLARE_INVALID") ?? fallback;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value)) {
+    throw pipelineError("ASYNC_PIPELINE_CLOUDFLARE_INVALID", `${field} may only contain letters, numbers, dash, underscore, and dot, and must start with a letter or number.`);
+  }
+  return value;
 }
 
 function normalizeGitHubSetup(setup: GitHubSetupProvider | undefined): Exclude<GitHubSetupProvider, "auto"> {
@@ -2612,6 +3198,19 @@ function validateSafeRepoPathLike(value: string, field: string, options: { allow
   }
 }
 
+function validateSafeCloudflarePathLike(value: string, field: string): void {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw pipelineError("ASYNC_PIPELINE_CLOUDFLARE_INVALID", `${field} must be a non-empty repo-relative path.`);
+  }
+  if (value.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(value)) {
+    throw pipelineError("ASYNC_PIPELINE_CLOUDFLARE_INVALID", `${field} must be repo-relative.`);
+  }
+  const parts = value.split("/");
+  if (parts.some((part) => part === "" || part === "..")) {
+    throw pipelineError("ASYNC_PIPELINE_CLOUDFLARE_INVALID", `${field} cannot contain empty segments or parent-directory segments.`);
+  }
+}
+
 function normalizeGitHubPagesSync(input: GitHubPagesSyncInput | undefined): NormalizedGitHubPagesSyncConfig {
   const disabled: NormalizedGitHubPagesSyncConfig = {
     enabled: false,
@@ -2726,22 +3325,27 @@ function normalizeRunners(runners: "all" | SyncRunner[]): "all" | SyncRunner[] {
 
 function validateSyncConfig(pipeline: NormalizedPipeline): void {
   const taskSync = pipeline.sync.tasks;
-  if (!taskSync.enabled) return;
-  if (!taskSync.prefix.trim()) {
-    throw pipelineError("ASYNC_PIPELINE_SYNC_INVALID_PREFIX", "Task sync prefix cannot be empty.");
-  }
-  if (Array.isArray(taskSync.runners) && taskSync.runners.length === 0) {
-    throw pipelineError("ASYNC_PIPELINE_SYNC_INVALID_RUNNERS", "Task sync runners cannot be empty.");
-  }
-  if (Array.isArray(taskSync.jobs)) {
-    for (const jobId of taskSync.jobs) {
-      if (!pipeline.jobs[jobId]) throw pipelineError("ASYNC_PIPELINE_SYNC_UNKNOWN_JOB", `Task sync references missing job "${jobId}".`);
+  if (taskSync.enabled) {
+    if (!taskSync.prefix.trim()) {
+      throw pipelineError("ASYNC_PIPELINE_SYNC_INVALID_PREFIX", "Task sync prefix cannot be empty.");
+    }
+    if (Array.isArray(taskSync.runners) && taskSync.runners.length === 0) {
+      throw pipelineError("ASYNC_PIPELINE_SYNC_INVALID_RUNNERS", "Task sync runners cannot be empty.");
+    }
+    if (Array.isArray(taskSync.jobs)) {
+      for (const jobId of taskSync.jobs) {
+        if (!pipeline.jobs[jobId]) throw pipelineError("ASYNC_PIPELINE_SYNC_UNKNOWN_JOB", `Task sync references missing job "${jobId}".`);
+      }
+    }
+    if (Array.isArray(taskSync.tasks)) {
+      for (const taskId of taskSync.tasks) {
+        if (!pipeline.tasks[taskId]) throw pipelineError("ASYNC_PIPELINE_SYNC_UNKNOWN_TASK", `Task sync references missing task "${taskId}".`);
+      }
     }
   }
-  if (Array.isArray(taskSync.tasks)) {
-    for (const taskId of taskSync.tasks) {
-      if (!pipeline.tasks[taskId]) throw pipelineError("ASYNC_PIPELINE_SYNC_UNKNOWN_TASK", `Task sync references missing task "${taskId}".`);
-    }
+
+  if (pipeline.sync.cloudflare.enabled && !pipeline.execution.cloudflare) {
+    throw pipelineError("ASYNC_PIPELINE_CLOUDFLARE_INVALID", "sync.cloudflare requires a cloudflare execution profile.");
   }
 }
 

@@ -14,6 +14,7 @@ import { ensureGitHubRelease, publishGitHubPackage, publishNpmPackage, runLifecy
 import { computeTaskInputManifest, createStore, diffInputManifests, pruneCacheEntries, readCacheInputManifest, readContextPacks, readTaskBaseline, readTaskCacheReceipts, type TaskCacheReceipt, type TaskContextPack } from "./store.js";
 import { matrixForJob, readPipelineMetadata, resolveSources, sourceContext } from "./sources.js";
 import { checkTaskSync, describeTaskSync, renderTaskSync, writeTaskSync } from "./sync.js";
+import { checkCloudflareSync, describeCloudflareSync, planCloudflareWorkflow, renderCloudflareSync, runCloudflareWorkflowMock, writeCloudflareSync, type CloudflareWorkflowMockMode, type CloudflareWorkflowPlanOptions, type CloudflareWorkflowPlanResult } from "./cloudflare.js";
 
 export interface PipelineCliOptions {
   args: string[];
@@ -247,6 +248,44 @@ async function dispatchCommand(commandName: string, args: string[], context: Pip
       return result.status === "failed" ? 1 : 0;
     }
     throw new Error(`Unknown github command "${subcommand}".`);
+  }
+
+  if (commandName === "cloudflare") {
+    const subcommand = args[0] ?? "help";
+    if (subcommand === "plan") {
+      const options = cloudflarePlanOptions(args.slice(1), context);
+      const plan = await planCloudflareWorkflow(context.pipeline, options);
+      const format = cloudflareOutputFormat(args.slice(1));
+      if (format === "json") {
+        context.stdout(`${JSON.stringify(plan, null, 2)}\n`);
+      } else {
+        context.stdout(renderCloudflarePlanText(plan));
+      }
+      return 0;
+    }
+    if (subcommand === "run") {
+      const rest = args.slice(1);
+      const mode = cloudflareRunMode(rest);
+      const result = await runCloudflareWorkflowMock(context.pipeline, {
+        ...cloudflarePlanOptions(rest, context),
+        mode,
+        dryRun: context.dryRun
+      });
+      const format = cloudflareOutputFormat(rest);
+      if (format === "json") {
+        context.stdout(`${JSON.stringify(result, null, 2)}\n`);
+      } else {
+        if (result.receipts.length === 0) {
+          context.stdout(`No Cloudflare jobs matched event "${result.plan.event.event}".\n`);
+        }
+        for (const receipt of result.receipts) {
+          context.stdout(`Cloudflare ${mode} ${receipt.status}: ${receipt.job}${receipt.receiptPath ? ` (${receipt.receiptPath})` : ""}\n`);
+          for (const issue of receipt.issues) context.stderr(`${issue}\n`);
+        }
+      }
+      return result.status === "skipped" || result.status === "passed" || result.status === "planned" ? 0 : 1;
+    }
+    throw new Error(`Unknown cloudflare command "${subcommand}".`);
   }
 
   if (commandName === "list") {
@@ -593,6 +632,7 @@ async function githubPlanOptions(args: string[], context: PipelineCliContext, pa
     configPath: context.configPath,
     ...paths,
     job: optionalFlagValue(args, "--job"),
+    repository: optionalFlagValue(args, "--repository") ?? context.env.GITHUB_REPOSITORY,
     eventName: optionalFlagValue(args, "--event") ?? eventContext?.eventName,
     eventAction: optionalFlagValue(args, "--event-action") ?? eventContext?.action,
     ref: optionalFlagValue(args, "--ref") ?? eventContext?.ref,
@@ -604,6 +644,7 @@ async function githubPlanOptions(args: string[], context: PipelineCliContext, pa
     headRepo: optionalFlagValue(args, "--head-repo"),
     headSha: optionalFlagValue(args, "--head-sha"),
     baseRef: optionalFlagValue(args, "--base-ref") ?? eventContext?.baseRef,
+    sameRepository: optionalBooleanFlag(args, "--same-repository"),
     network: parseGitHubNetwork(args)
   };
 }
@@ -623,6 +664,89 @@ function parseGitHubNetwork(args: string[]): GitHubLocalNetworkMode {
     throw new Error("--network must be mock, deny, or allow.");
   }
   return network;
+}
+
+function cloudflarePlanOptions(args: string[], context: PipelineCliContext): CloudflareWorkflowPlanOptions {
+  const source = optionalFlagValue(args, "--source") ?? "github";
+  if (source !== "github" && source !== "cloudflare") {
+    throw new Error("--source must be github or cloudflare.");
+  }
+  return {
+    cwd: context.cwd,
+    configPath: context.configPath,
+    job: optionalFlagValue(args, "--job"),
+    event: optionalFlagValue(args, "--event") as CloudflareWorkflowPlanOptions["event"],
+    source,
+    action: optionalFlagValue(args, "--event-action"),
+    ref: optionalFlagValue(args, "--ref"),
+    branch: optionalFlagValue(args, "--branch") ?? optionalFlagValue(args, "--base-ref"),
+    sha: optionalFlagValue(args, "--sha"),
+    repository: optionalFlagValue(args, "--repository"),
+    owner: optionalFlagValue(args, "--owner"),
+    repo: optionalFlagValue(args, "--repo"),
+    installationId: optionalPositiveIntegerFlag(args, "--installation-id"),
+    pullRequestNumber: optionalPositiveIntegerFlag(args, "--pr-number"),
+    pullRequestHeadSha: optionalFlagValue(args, "--head-sha"),
+    pullRequestHeadRepo: optionalFlagValue(args, "--head-repo"),
+    sameRepository: optionalBooleanFlag(args, "--same-repository"),
+    releaseTag: optionalFlagValue(args, "--release-tag"),
+    releaseAction: optionalFlagValue(args, "--release-action"),
+    requestedJob: optionalFlagValue(args, "--requested-job")
+  };
+}
+
+function cloudflareOutputFormat(args: string[]): "text" | "json" {
+  const format = optionalFlagValue(args, "--format") ?? "text";
+  if (format !== "text" && format !== "json") {
+    throw new Error("--format must be text or json.");
+  }
+  return format;
+}
+
+function cloudflareRunMode(args: string[]): CloudflareWorkflowMockMode {
+  const mode = optionalFlagValue(args, "--mode") ?? "mock";
+  if (mode !== "mock") {
+    throw new Error("--mode must be mock.");
+  }
+  return mode;
+}
+
+function renderCloudflarePlanText(plan: CloudflareWorkflowPlanResult): string {
+  const lines = [
+    `Cloudflare plan for ${plan.event.source}:${plan.event.event}`,
+    `Worker: ${plan.sync.worker}`,
+    `Queue: ${plan.sync.queue}`,
+    `Workflow: ${plan.sync.workflow}`,
+    "Selected jobs:"
+  ];
+  if (plan.jobs.length === 0) {
+    lines.push("  none");
+  } else {
+    for (const job of plan.jobs) {
+      lines.push(`  ${job.id}`);
+      lines.push(`    lifecycle: ${job.lifecycle.join(" -> ")}`);
+      lines.push(`    idempotency: ${job.idempotencyKey}`);
+      lines.push(`    trust: ${job.trust.reason}; writes: ${job.trust.writeCredentials ? "enabled" : "disabled"}; cache-save: ${job.trust.cacheSave ? "enabled" : "disabled"}`);
+      lines.push(`    effects: ${job.effects.map((effect) => effect.kind).join(", ") || "none"}`);
+    }
+  }
+  if (plan.skippedJobs.length > 0) {
+    lines.push("Skipped jobs:");
+    for (const skipped of plan.skippedJobs) {
+      lines.push(`  ${skipped.id}: ${skipped.reason}`);
+    }
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function optionalBooleanFlag(args: string[], flag: string): boolean | undefined {
+  const index = args.indexOf(flag);
+  if (index < 0) return undefined;
+  const value = args[index + 1];
+  if (!value || value.startsWith("--")) return true;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new Error(`${flag} must be true or false.`);
 }
 
 function optionalPositiveIntegerFlag(args: string[], flag: string): number | undefined {
@@ -1019,20 +1143,25 @@ function printHelp(program: string): string {
   ${program} sync github list
   ${program} sync github generate [--workflow <path>] [--lock <path>]
   ${program} sync github check [--workflow <path>] [--lock <path>]
+  ${program} sync cloudflare list
+  ${program} sync cloudflare generate
+  ${program} sync cloudflare check
   ${program} sync tasks list
   ${program} sync tasks generate
   ${program} sync tasks check
   ${program} github generate [--workflow <path>] [--lock <path>]
   ${program} github check [--workflow <path>] [--lock <path>]
-  ${program} github plan [--job <id>] [--event <name>] [--event-action <action>] [--format text|json] [--check]
-  ${program} github run [--job <id>] [--event <name>] [--event-action <action>] [--network mock|deny|allow] [--dry-run] [--format text|json]
+  ${program} github plan [--job <id>] [--event <name>] [--event-action <action>] [--repository <owner/repo>] [--head-repo <owner/repo>] [--same-repository true|false] [--format text|json] [--check]
+  ${program} github run [--job <id>] [--event <name>] [--event-action <action>] [--repository <owner/repo>] [--head-repo <owner/repo>] [--same-repository true|false] [--network mock|deny|allow] [--dry-run] [--format text|json]
+  ${program} cloudflare plan [--job <id>] [--source github|cloudflare] [--event push|pull_request|release|schedule|manual] [--repository <owner/repo>] [--head-repo <owner/repo>] [--same-repository true|false] [--format text|json]
+  ${program} cloudflare run [--job <id>] [--source github|cloudflare] [--event push|pull_request|release|schedule|manual] [--repository <owner/repo>] [--head-repo <owner/repo>] [--same-repository true|false] [--mode mock] [--dry-run] [--format text|json]
   ${program} cache clear
   ${program} gc [--keep <n>] [--cache-days <n>]
   ${program} doctor\n`;
 }
 
 async function handleSyncCommand(args: string[], context: PipelineCliContext): Promise<number> {
-  const targetNames = new Set(["github", "tasks"]);
+  const targetNames = new Set(["github", "tasks", "cloudflare"]);
   const maybeTarget = args[0];
   const target = targetNames.has(maybeTarget ?? "") ? maybeTarget : undefined;
   const subcommand = target ? args[1] ?? "list" : args[0] ?? "list";
@@ -1040,6 +1169,7 @@ async function handleSyncCommand(args: string[], context: PipelineCliContext): P
 
   if (target === "github") return handleSyncGitHubCommand(subcommand, rest, context, { requireConfigured: true });
   if (target === "tasks") return handleSyncTasksCommand(subcommand, context, { requireConfigured: true });
+  if (target === "cloudflare") return handleSyncCloudflareCommand(subcommand, context, { requireConfigured: true });
 
   if (subcommand === "list") {
     let listed = false;
@@ -1050,6 +1180,10 @@ async function handleSyncCommand(args: string[], context: PipelineCliContext): P
     }
     if (context.pipeline.sync.tasks.enabled) {
       for (const line of describeTaskSync(await renderTaskSync(context.pipeline, context))) context.stdout(`${line}\n`);
+      listed = true;
+    }
+    if (context.pipeline.sync.cloudflare.enabled) {
+      for (const line of describeCloudflareSync(await renderCloudflareSync(context.pipeline, context))) context.stdout(`${line}\n`);
       listed = true;
     }
     if (!listed) context.stdout("No sync targets configured.\n");
@@ -1064,6 +1198,10 @@ async function handleSyncCommand(args: string[], context: PipelineCliContext): P
     }
     if (context.pipeline.sync.tasks.enabled) {
       await handleSyncTasksCommand("generate", context, { requireConfigured: false });
+      generated = true;
+    }
+    if (context.pipeline.sync.cloudflare.enabled) {
+      await handleSyncCloudflareCommand("generate", context, { requireConfigured: false });
       generated = true;
     }
     if (!generated) throw new Error("No sync targets configured.");
@@ -1082,6 +1220,11 @@ async function handleSyncCommand(args: string[], context: PipelineCliContext): P
     if (context.pipeline.sync.tasks.enabled) {
       const rendered = await renderTaskSync(context.pipeline, context);
       issues.push(...await checkTaskSync(rendered, context.cwd));
+      checked = true;
+    }
+    if (context.pipeline.sync.cloudflare.enabled) {
+      const rendered = await renderCloudflareSync(context.pipeline, context);
+      issues.push(...await checkCloudflareSync(rendered, context.cwd));
       checked = true;
     }
     if (!checked) throw new Error("No sync targets configured.");
@@ -1157,6 +1300,35 @@ async function handleSyncTasksCommand(
     return 0;
   }
   throw new Error(`Unknown sync tasks command "${subcommand}".`);
+}
+
+async function handleSyncCloudflareCommand(
+  subcommand: string,
+  context: PipelineCliContext,
+  options: { requireConfigured: boolean }
+): Promise<number> {
+  const rendered = await renderCloudflareSync(context.pipeline, context);
+  if (subcommand === "list") {
+    for (const line of describeCloudflareSync(rendered)) context.stdout(`${line}\n`);
+    return options.requireConfigured && !rendered.enabled ? 1 : 0;
+  }
+  if (subcommand === "generate") {
+    if (options.requireConfigured && !rendered.enabled) throw new Error("Cloudflare sync is not configured. Add sync.cloudflare to pipeline.ts.");
+    await writeCloudflareSync(rendered, context.cwd);
+    for (const file of rendered.files) context.stdout(`Generated ${file.path}\n`);
+    context.stdout(`Generated ${rendered.lockPath}\n`);
+    return 0;
+  }
+  if (subcommand === "check") {
+    const issues = await checkCloudflareSync(rendered, context.cwd, { requireConfigured: options.requireConfigured });
+    if (issues.length > 0) {
+      for (const issue of issues) context.stderr(`${issue}\n`);
+      return 1;
+    }
+    context.stdout("Cloudflare sync is current.\n");
+    return 0;
+  }
+  throw new Error(`Unknown sync cloudflare command "${subcommand}".`);
 }
 
 function parseGlobalOptions(args: string[]): ParsedGlobalOptions {

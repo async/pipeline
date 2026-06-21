@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ASYNC_PIPELINE_DECLARATION, agent, brandDeclaration, buildGraph, cache, command, composePipelines, customCache, defineCache, definePipeline, dependsOn, env, execution, fileCache, githubConfigForJob, job, jobs as jobSection, parseTaskRef, readDeclaration, sh, source, task, tasks as taskSection, tasksForJob, trigger, sandbox } from "../packages/pipeline-core/dist/index.js";
+import { ASYNC_PIPELINE_DECLARATION, agent, brandDeclaration, buildGraph, cache, cloudflare, command, composePipelines, customCache, defineCache, definePipeline, dependsOn, env, execution, fileCache, github, githubConfigForJob, job, jobs as jobSection, parseTaskRef, readDeclaration, sh, source, task, tasks as taskSection, tasksForJob, trigger, sandbox } from "../packages/pipeline-core/dist/index.js";
 
 test("declaration factories expose non-enumerable metadata without changing JSON output", () => {
   const examples = [
@@ -15,6 +15,9 @@ test("declaration factories expose non-enumerable metadata without changing JSON
     [trigger.manual(), "trigger.manual"],
     [sandbox.host(), "sandbox.host"],
     [execution.local(), "execution.local"],
+    [execution.cloudflare(), "execution.cloudflare"],
+    [cloudflare.pages({ project: "site", directory: ".async/pages" }), "deploy.cloudflare.pages"],
+    [github.prPreview(), "report.github.prPreview"],
     [command.allow(), "command.allow"],
     [cache.use("file:local"), "directive.cache"],
     [defineCache(), "cache.registry"],
@@ -28,6 +31,97 @@ test("declaration factories expose non-enumerable metadata without changing JSON
     assert.equal(descriptor?.enumerable, false);
     assert.equal(JSON.stringify(value).includes("@async/pipeline.declaration"), false);
   }
+});
+
+test("normalizes cloudflare sync, default execution profile, deploy, and report declarations", () => {
+  const pipeline = definePipeline({
+    name: "cloudflare-sync",
+    triggers: {
+      pr: trigger.github({ events: ["pull_request"] })
+    },
+    sync: {
+      github: true,
+      cloudflare: {
+        worker: "site-ci",
+        queue: "site-ci-events",
+        workflow: "ci",
+        runner: {
+          kind: "container",
+          image: "node:24",
+          packageManager: "pnpm"
+        },
+        cache: {
+          kind: "artifacts",
+          namespace: "site-ci"
+        },
+        bridge: {
+          mode: "github-app"
+        }
+      }
+    },
+    tasks: {
+      "docs.site": task({
+        outputs: [".async/pages/**"],
+        run: sh`echo docs`
+      })
+    },
+    jobs: {
+      preview: job({
+        target: "docs.site",
+        trigger: ["pr"],
+        execution: "cloudflare",
+        deploy: cloudflare.pages({
+          project: "site",
+          directory: ".async/pages",
+          productionBranch: "main"
+        }),
+        report: github.prPreview()
+      })
+    }
+  });
+
+  assert.equal(pipeline.sync.github.enabled, true);
+  assert.equal(pipeline.sync.cloudflare.enabled, true);
+  assert.equal(pipeline.sync.cloudflare.worker, "site-ci");
+  assert.equal(pipeline.sync.cloudflare.bridge.mode, "github-app");
+  assert.equal(pipeline.execution.github.kind, "github");
+  assert.equal(pipeline.execution.github.runsOn, "ubuntu-latest");
+  assert.equal(pipeline.execution.cloudflare.kind, "cloudflare");
+  assert.equal(pipeline.execution.cloudflare.runner.image, "node:24");
+  assert.equal(pipeline.jobs.preview.deploy.kind, "cloudflare.pages");
+  assert.equal(pipeline.jobs.preview.report.kind, "github.prPreview");
+});
+
+test("cloudflare deploys require cloudflare execution and declared task outputs", () => {
+  assert.throws(() => definePipeline({
+    name: "bad-execution",
+    sync: { github: true, cloudflare: { worker: "site-ci" } },
+    tasks: {
+      site: task({ outputs: [".async/pages/**"], run: sh`echo site` })
+    },
+    jobs: {
+      preview: job({
+        target: "site",
+        execution: "github",
+        deploy: cloudflare.pages({ project: "site", directory: ".async/pages" })
+      })
+    }
+  }), (error) => error.code === "ASYNC_PIPELINE_DEPLOY_INVALID");
+
+  assert.throws(() => definePipeline({
+    name: "bad-output",
+    sync: { cloudflare: { worker: "site-ci" } },
+    tasks: {
+      site: task({ outputs: ["dist/**"], run: sh`echo site` })
+    },
+    jobs: {
+      preview: job({
+        target: "site",
+        execution: "cloudflare",
+        deploy: cloudflare.pages({ project: "site", directory: ".async/pages" })
+      })
+    }
+  }), (error) => error.code === "ASYNC_PIPELINE_DEPLOY_OUTPUT_UNKNOWN");
 });
 
 test("explicit section factories are accepted and mismatched sections are rejected", () => {

@@ -228,10 +228,224 @@ export default definePipeline({
     assert.equal(run.code, 0, stderr);
     const runJson = JSON.parse(stdout);
     assert.equal(runJson.status, "passed");
+    assert.equal(runJson.plan.host, "github");
+    assert.equal(runJson.plan.eventEnvelope.event, "pull_request");
+    assert.equal(runJson.plan.workflowJobs[0].id, "verify");
+    assert.equal(existsSync(join(dir, runJson.planPath)), true);
     assert.equal(runJson.receipts[0].job, "verify");
     assert.equal(runJson.receipts[0].network, "mock");
     assert.equal(existsSync(join(dir, runJson.receipts[0].manifestPath)), true);
     assert.equal(existsSync(join(dir, ".async/github-local/jobs/verify/receipt.json")), true);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("cloudflare plan and mock run expose shared workflow event and receipt vocabulary", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "async-pipeline-cli-cloudflare-plan-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module", private: true, packageManager: "pnpm@11.1.0" }), "utf8");
+    mkdirSync(join(dir, ".async", "pages"), { recursive: true });
+    writeFileSync(join(dir, ".async", "pages", "index.html"), "<h1>preview</h1>\n", "utf8");
+    mkdirSync(join(dir, "dist"), { recursive: true });
+    writeFileSync(join(dir, "dist", "worker.js"), "export default {};\n", "utf8");
+    writeFileSync(join(dir, "pipeline.js"), `
+import { cloudflare, definePipeline, execution, github, job, sh, task, trigger } from ${JSON.stringify(packageUrl)};
+
+export default definePipeline({
+  name: "fixture",
+  sync: {
+    cloudflare: {
+      worker: "fixture-ci",
+      queue: "fixture-events",
+      workflow: "preview",
+      bridge: { mode: "github-actions" }
+    }
+  },
+  execution: {
+    cloudflare: execution.cloudflare({
+      runner: { image: "node:24", packageManager: "pnpm" }
+    })
+  },
+  triggers: {
+    pr: trigger.github({ events: ["pull_request"] }),
+    push: trigger.github({ events: ["push"] })
+  },
+  tasks: {
+    "docs.site": task({
+      outputs: [".async/pages/**"],
+      run: sh\`echo docs\`
+    }),
+    "worker.bundle": task({
+      outputs: ["dist/worker.js"],
+      run: sh\`echo worker\`
+    })
+  },
+  jobs: {
+    preview: job({
+      target: "docs.site",
+      trigger: ["pr"],
+      execution: "cloudflare",
+      deploy: cloudflare.pages({
+        project: "site",
+        directory: ".async/pages"
+      }),
+      report: github.prPreview()
+    }),
+    silentPreview: job({
+      target: "docs.site",
+      trigger: ["pr"],
+      execution: "cloudflare",
+      deploy: cloudflare.pages({
+        project: "site",
+        directory: ".async/pages",
+        productionBranch: "main"
+      }),
+      report: github.prPreview({ comment: false })
+    }),
+    workerPreview: job({
+      target: "worker.bundle",
+      trigger: ["push"],
+      execution: "cloudflare",
+      deploy: cloudflare.worker({
+        script: "dist/worker.js",
+        alias: "edge-preview",
+        productionBranch: "main"
+      }),
+      report: github.deployment({ environment: "production" })
+    })
+  }
+});
+`, "utf8");
+
+    let stdout = "";
+    let stderr = "";
+    const plan = await runPipelineCli({
+      args: ["cloudflare", "plan", "--job", "preview", "--source", "github", "--event", "pull_request", "--repository", "async/pipeline", "--head-repo", "async/pipeline", "--installation-id", "123", "--pr-number", "42", "--head-sha", "abc123", "--ref", "refs/pull/42/head", "--branch", "main", "--same-repository", "true", "--format", "json"],
+      ...({ cwd: dir, env: { PATH: process.env.PATH } }),
+      stdout(text) {
+        stdout += text;
+      },
+      stderr(text) {
+        stderr += text;
+      }
+    });
+
+    assert.equal(plan.code, 0, stderr);
+    const planJson = JSON.parse(stdout);
+    assert.equal(planJson.host, "cloudflare");
+    assert.equal(planJson.event.source, "github");
+    assert.equal(planJson.event.event, "pull_request");
+    assert.equal(planJson.event.pullRequest.number, 42);
+    assert.equal(planJson.jobs[0].id, "preview");
+    assert.equal(planJson.jobs[0].idempotencyKey, "fixture/preview/pull_request/abc123");
+    assert.deepEqual(planJson.jobs[0].lifecycle, ["plan", "run", "deploy", "report", "record"]);
+    assert.equal(planJson.jobs[0].trust.writeCredentials, true);
+    assert.deepEqual(planJson.jobs[0].effects.map((effect) => effect.kind), ["deploy", "report"]);
+    assert.equal(planJson.sync.capabilityManifest.runner.image, "node:24");
+    assert.equal(planJson.sync.capabilityManifest.runner.packageManager, "pnpm");
+    assert.equal(planJson.sync.capabilityManifest.jobs[0].command, "async-pipeline run preview --execution cloudflare");
+    assert.deepEqual(planJson.sync.capabilityManifest.jobs[0].permissions, ["runner.exec", "github.report", "cloudflare.deploy", "artifacts.readWrite"]);
+    assert.equal(planJson.sync.jobs[0].runner.mockAvailable, true);
+    assert.equal(planJson.sync.jobs[0].runner.evidence.cacheNamespace, "async-pipeline");
+    assert.equal(planJson.sync.apply.mode, "external");
+    assert.equal(planJson.sync.apply.command, "wrangler deploy --config .cloudflare/pipeline/wrangler.jsonc");
+    assert.equal(planJson.bridge.enabled, true);
+    assert.equal(planJson.bridge.mode, "github-actions");
+    assert.equal(planJson.bridge.queueMessage.owner, "async");
+    assert.equal(planJson.bridge.queueMessage.repo, "pipeline");
+    assert.equal(planJson.bridge.queueMessage.sha, "abc123");
+    assert.equal(planJson.bridge.queueMessage.pullRequest.headRepoFullName, "async/pipeline");
+    assert.equal(planJson.bridge.queueMessage.pullRequest.sameRepository, true);
+    assert.equal(planJson.bridge.queueMessage.installationId, 123);
+    assert.equal(JSON.stringify(planJson.bridge.queueMessage).includes("TOKEN"), false);
+    assert.equal(planJson.bridge.reports[0].result.status, "queued");
+    assert.equal(planJson.bridge.reports[0].result.preview.kind, "pages");
+    assert.equal(planJson.bridge.reports[0].result.preview.environment, "preview");
+    assert.equal(planJson.bridge.reports[0].result.preview.urlAlias, "site");
+    assert.equal(planJson.bridge.reports[0].github.check.externalId, "fixture/preview/pull_request/abc123/check");
+    assert.equal(planJson.bridge.reports[0].github.deployment.environment, "preview");
+    assert.equal(planJson.bridge.reports[0].github.deployment.kind, "pages");
+    assert.equal(planJson.bridge.reports[0].github.deployment.sourcePath, ".async/pages");
+    assert.equal(planJson.bridge.reports[0].github.deployment.transientEnvironment, true);
+    assert.equal(planJson.bridge.reports[0].github.prComment.marker, "async-pipeline-preview:preview");
+
+    stdout = "";
+    stderr = "";
+    const silentPlan = await runPipelineCli({
+      args: ["cloudflare", "plan", "--job", "silentPreview", "--source", "github", "--event", "pull_request", "--repository", "async/pipeline", "--head-repo", "async/pipeline", "--installation-id", "123", "--pr-number", "43", "--head-sha", "abc124", "--ref", "refs/pull/43/head", "--branch", "main", "--same-repository", "true", "--format", "json"],
+      ...({ cwd: dir, env: { PATH: process.env.PATH } }),
+      stdout(text) {
+        stdout += text;
+      },
+      stderr(text) {
+        stderr += text;
+      }
+    });
+    assert.equal(silentPlan.code, 0, stderr);
+    const silentPlanJson = JSON.parse(stdout);
+    assert.equal(silentPlanJson.bridge.reports[0].result.preview.environment, "preview");
+    assert.equal(silentPlanJson.bridge.reports[0].github.prComment, undefined);
+
+    stdout = "";
+    stderr = "";
+    const workerPlan = await runPipelineCli({
+      args: ["cloudflare", "plan", "--job", "workerPreview", "--source", "github", "--event", "push", "--repository", "async/pipeline", "--sha", "def456", "--ref", "refs/heads/main", "--branch", "main", "--format", "json"],
+      ...({ cwd: dir, env: { PATH: process.env.PATH } }),
+      stdout(text) {
+        stdout += text;
+      },
+      stderr(text) {
+        stderr += text;
+      }
+    });
+    assert.equal(workerPlan.code, 0, stderr);
+    const workerPlanJson = JSON.parse(stdout);
+    assert.equal(workerPlanJson.jobs[0].id, "workerPreview");
+    assert.equal(workerPlanJson.bridge.reports[0].result.preview.kind, "worker");
+    assert.equal(workerPlanJson.bridge.reports[0].result.preview.environment, "production");
+    assert.equal(workerPlanJson.bridge.reports[0].result.preview.urlAlias, "edge-preview");
+    assert.equal(workerPlanJson.bridge.reports[0].github.deployment.environment, "production");
+    assert.equal(workerPlanJson.bridge.reports[0].github.deployment.kind, "worker");
+    assert.equal(workerPlanJson.bridge.reports[0].github.deployment.sourcePath, "dist/worker.js");
+    assert.equal(workerPlanJson.bridge.reports[0].github.deployment.transientEnvironment, false);
+    assert.equal(workerPlanJson.bridge.reports[0].github.prComment, undefined);
+
+    stdout = "";
+    stderr = "";
+    const run = await runPipelineCli({
+      args: ["cloudflare", "run", "--job", "preview", "--source", "github", "--event", "pull_request", "--repository", "async/pipeline", "--head-repo", "patrick/fork", "--installation-id", "123", "--pr-number", "42", "--head-sha", "abc123", "--ref", "refs/pull/42/head", "--branch", "main", "--same-repository", "false", "--mode", "mock", "--format", "json"],
+      ...({ cwd: dir, env: { PATH: process.env.PATH } }),
+      stdout(text) {
+        stdout += text;
+      },
+      stderr(text) {
+        stderr += text;
+      }
+    });
+
+    assert.equal(run.code, 0, stderr);
+    const runJson = JSON.parse(stdout);
+    assert.equal(runJson.status, "passed");
+    assert.equal(runJson.receipts[0].job, "preview");
+    assert.equal(runJson.receipts[0].trust.writeCredentials, false);
+    assert.deepEqual(runJson.receipts[0].effects.map((effect) => effect.status), ["skipped_untrusted", "skipped_untrusted"]);
+    assert.equal(runJson.receipts[0].effects[0].sourcePath, ".async/pages");
+    assert.equal(runJson.receipts[0].effects[0].sourceExists, true);
+    assert.equal(runJson.receipts[0].effects[0].preview.kind, "pages");
+    assert.equal(runJson.receipts[0].effects[0].preview.environment, "preview");
+    assert.equal(runJson.bridge.eventPath, ".async/cloudflare-local/bridge/event.json");
+    assert.equal(runJson.bridge.reports[0].resultPath, ".async/cloudflare-local/jobs/preview/result.json");
+    assert.equal(runJson.bridge.reports[0].reportPath, ".async/cloudflare-local/jobs/preview/github-report.json");
+    assert.equal(runJson.runner.plans[0].path, ".async/cloudflare-local/jobs/preview/runner.json");
+    assert.equal(existsSync(join(dir, ".async/cloudflare-local/jobs/preview/plan.json")), true);
+    assert.equal(existsSync(join(dir, ".async/cloudflare-local/jobs/preview/deploy.json")), true);
+    assert.equal(existsSync(join(dir, ".async/cloudflare-local/jobs/preview/report.json")), true);
+    assert.equal(existsSync(join(dir, ".async/cloudflare-local/jobs/preview/runner.json")), true);
+    assert.equal(existsSync(join(dir, ".async/cloudflare-local/bridge/event.json")), true);
+    assert.equal(existsSync(join(dir, ".async/cloudflare-local/jobs/preview/result.json")), true);
+    assert.equal(existsSync(join(dir, ".async/cloudflare-local/jobs/preview/github-report.json")), true);
+    assert.equal(existsSync(join(dir, ".async/cloudflare-local/jobs/preview/receipt.json")), true);
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }

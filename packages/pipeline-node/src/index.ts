@@ -7,5 +7,6 @@ export * from "./doctor.js";
 export * from "./sources.js";
 export * from "./github.js";
 export * from "./sync.js";
+export * from "./cloudflare.js";
 export * from "./package-lifecycle.js";
 export * from "./lifecycle-audit.js";

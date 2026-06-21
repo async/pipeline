@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import type { EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubAttestConfig, NormalizedGitHubBridgeSyncConfig, NormalizedGitHubContractConfig, NormalizedGitHubEvidenceConfig, NormalizedGitHubHygieneConfig, NormalizedGitHubPagesSyncConfig, NormalizedGitHubSourceImpactConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, TriggerDefinition, TriggerId } from "@async/pipeline-core";
+import type { DeployDefinition, EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubAttestConfig, NormalizedGitHubBridgeSyncConfig, NormalizedGitHubContractConfig, NormalizedGitHubEvidenceConfig, NormalizedGitHubHygieneConfig, NormalizedGitHubPagesSyncConfig, NormalizedGitHubSourceImpactConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, PipelineEventEnvelope, PipelineWorkflowJobPlan, PipelineWorkflowLifecycleStepKind, PipelineWorkflowTrustPolicy, ReportDefinition, TriggerDefinition, TriggerId } from "@async/pipeline-core";
 import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 import { sourceImpactPlanForJob, type SourceImpactPlan } from "./sources.js";
 
@@ -176,6 +176,8 @@ interface RenderJobModel {
   requires?: JobRequirements;
   execution?: ExecutionProfileId;
   github?: GitHubJobConfig;
+  deploy?: DeployDefinition;
+  report?: ReportDefinition;
   if?: string;
 }
 
@@ -301,6 +303,7 @@ export interface GitHubJobManifest {
 
 export interface GitHubPlanOptions extends GitHubRenderOptions {
   job?: string;
+  repository?: string;
   eventName?: string;
   eventAction?: string;
   ref?: string;
@@ -312,15 +315,21 @@ export interface GitHubPlanOptions extends GitHubRenderOptions {
   headRepo?: string;
   headSha?: string;
   baseRef?: string;
+  sameRepository?: boolean;
   network?: GitHubLocalNetworkMode;
 }
 
 export interface GitHubPlanResult {
   version: 1;
   generatedBy: "@async/pipeline";
+  host: "github";
+  pipeline: string;
   workflow: string;
   lock: string;
   event: GitHubManifestEvent;
+  eventEnvelope: PipelineEventEnvelope;
+  lifecycle: PipelineWorkflowLifecycleStepKind[];
+  workflowJobs: PipelineWorkflowJobPlan[];
   manifests: GitHubJobManifest[];
   skippedJobs: Array<{
     id: string;
@@ -352,6 +361,7 @@ export interface GitHubLocalRunReceipt {
 export interface GitHubLocalRunResult {
   status: "passed" | "failed" | "skipped" | "planned";
   plan: GitHubPlanResult;
+  planPath?: string;
   receipts: GitHubLocalRunReceipt[];
 }
 
@@ -561,12 +571,18 @@ export async function planGitHubJobs(pipeline: NormalizedPipeline, options: GitH
     throw pipelineError("ASYNC_PIPELINE_GITHUB_PLAN_UNKNOWN_JOB", `Unknown generated GitHub job "${options.job}".`);
   }
   const selectedIds = new Set(selected.map((candidate) => candidate.manifest.job.id));
+  const eventEnvelope = eventEnvelopeFromManifestEvent(event, options);
   return {
     version: 1,
     generatedBy: "@async/pipeline",
+    host: "github",
+    pipeline: pipeline.name,
     workflow: rendered.workflowPath,
     lock: rendered.lockPath,
     event,
+    eventEnvelope,
+    lifecycle: ["plan", "render", "check", "run", "deploy", "report", "record"],
+    workflowJobs: selected.map((candidate) => githubWorkflowJobPlan(pipeline, candidate.manifest, eventEnvelope)),
     manifests: selected.map((candidate) => candidate.manifest),
     skippedJobs: candidates
       .filter((candidate) => !selectedIds.has(candidate.manifest.job.id))
@@ -587,6 +603,22 @@ export async function runGitHubLocalPlan(
   if (plan.manifests.length === 0) {
     return { status: "skipped", plan, receipts: [] };
   }
+  let planPath: string | undefined;
+  if (!options.dryRun) {
+    planPath = ".async/github-local/workflow-plan.json";
+    const planFile = resolve(options.cwd, planPath);
+    await mkdir(dirname(planFile), { recursive: true });
+    await writeFile(planFile, `${JSON.stringify({
+      version: plan.version,
+      generatedBy: plan.generatedBy,
+      host: plan.host,
+      pipeline: plan.pipeline,
+      event: plan.eventEnvelope,
+      lifecycle: plan.lifecycle,
+      jobs: plan.workflowJobs,
+      skippedJobs: plan.skippedJobs
+    }, null, 2)}\n`, "utf8");
+  }
   const receipts: GitHubLocalRunReceipt[] = [];
   for (const manifest of plan.manifests) {
     receipts.push(await runGitHubLocalManifest(manifest, options.cwd, {
@@ -599,7 +631,7 @@ export async function runGitHubLocalPlan(
     : receipts.some((receipt) => receipt.status === "failed")
       ? "failed"
       : "passed";
-  return { status, plan, receipts };
+  return { status, plan, ...(planPath ? { planPath } : {}), receipts };
 }
 
 export async function runGitHubLocalManifest(
@@ -693,6 +725,53 @@ function manifestEventFromOptions(options: GitHubPlanOptions): GitHubManifestEve
   };
 }
 
+function eventEnvelopeFromManifestEvent(event: GitHubManifestEvent, options: GitHubPlanOptions): PipelineEventEnvelope {
+  const workflowEvent = workflowEventName(event.name);
+  return {
+    source: "github",
+    event: workflowEvent,
+    ...(event.ref ? { ref: event.ref } : {}),
+    ...(branchFromManifestEvent(event) ? { branch: branchFromManifestEvent(event) } : {}),
+    ...(event.sha ? { sha: event.sha } : {}),
+    ...(event.pullRequest !== undefined
+      ? {
+          pullRequest: {
+            number: event.pullRequest.number ?? 0,
+            headSha: event.pullRequest.headSha ?? event.sha ?? "",
+            sameRepository: options.sameRepository ?? sameRepositoryFromOptions(options)
+          }
+        }
+      : {}),
+    ...(event.name === "release"
+      ? {
+          release: {
+            tagName: event.ref?.startsWith("refs/tags/") ? event.ref.slice("refs/tags/".length) : "",
+            action: event.action ?? ""
+          }
+        }
+      : {}),
+    ...(event.selectedJob ? { requestedJob: event.selectedJob } : {})
+  };
+}
+
+function workflowEventName(name: string): PipelineEventEnvelope["event"] {
+  if (name === "workflow_dispatch") return "manual";
+  if (name === "pull_request_target") return "pull_request";
+  if (name === "push" || name === "pull_request" || name === "release" || name === "schedule") return name;
+  return "manual";
+}
+
+function branchFromManifestEvent(event: GitHubManifestEvent): string | undefined {
+  if (event.pullRequest?.baseRef) return event.pullRequest.baseRef;
+  if (event.ref?.startsWith("refs/heads/")) return event.ref.slice("refs/heads/".length);
+  return undefined;
+}
+
+function sameRepositoryFromOptions(options: GitHubPlanOptions): boolean {
+  if (!options.repository || !options.headRepo) return false;
+  return options.repository === options.headRepo;
+}
+
 function eventContextFromManifestEvent(event: GitHubManifestEvent): GitHubEventContext {
   return {
     eventName: event.name,
@@ -702,6 +781,125 @@ function eventContextFromManifestEvent(event: GitHubManifestEvent): GitHubEventC
     schedule: event.schedule,
     selectedJob: event.selectedJob
   };
+}
+
+function githubWorkflowJobPlan(
+  pipeline: NormalizedPipeline,
+  manifest: GitHubJobManifest,
+  event: PipelineEventEnvelope
+): PipelineWorkflowJobPlan {
+  const pipelineJob = pipeline.jobs[manifest.job.id];
+  const idempotencyKey = workflowId(pipeline.name, manifest.job.id, event);
+  const effects = githubWorkflowEffects(pipelineJob, manifest, idempotencyKey);
+  return {
+    id: manifest.job.id,
+    target: [...manifest.job.target],
+    trigger: [...manifest.job.trigger],
+    ...(pipelineJob?.execution ? { execution: pipelineJob.execution } : {}),
+    lifecycle: githubWorkflowLifecycle(manifest, effects),
+    idempotencyKey,
+    trust: githubTrustPolicyForEvent(event),
+    effects,
+    receipts: {
+      run: `${manifest.local.stateDirectory}/receipt.json`,
+      ...(effects.some((effect) => effect.kind === "deploy") ? { deploy: `${manifest.local.stateDirectory}/deploy.json` } : {}),
+      ...(effects.some((effect) => effect.kind === "report") ? { report: `${manifest.local.stateDirectory}/report.json` } : {})
+    }
+  };
+}
+
+function githubWorkflowEffects(
+  pipelineJob: NormalizedJob | undefined,
+  manifest: GitHubJobManifest,
+  idempotencyKey: string
+): PipelineWorkflowJobPlan["effects"] {
+  const effects: PipelineWorkflowJobPlan["effects"] = [];
+  if (pipelineJob?.deploy) {
+    effects.push({
+      kind: "deploy",
+      host: pipelineJob.deploy.kind.startsWith("cloudflare.") ? "cloudflare" : "github",
+      effect: pipelineJob.deploy,
+      idempotencyKey,
+      receiptPath: `${manifest.local.stateDirectory}/deploy.json`,
+      network: "mock"
+    });
+  }
+  if (pipelineJob?.report) {
+    effects.push({
+      kind: "report",
+      host: "github",
+      effect: pipelineJob.report,
+      idempotencyKey,
+      receiptPath: `${manifest.local.stateDirectory}/report.json`,
+      network: "mock"
+    });
+  }
+  return effects;
+}
+
+function githubWorkflowLifecycle(
+  manifest: GitHubJobManifest,
+  effects: PipelineWorkflowJobPlan["effects"]
+): PipelineWorkflowLifecycleStepKind[] {
+  const contracts = new Set(manifest.steps.map((step) => step.local.contract));
+  const hasDeploy = effects.some((effect) => effect.kind === "deploy")
+    || ["pages", "preview", "publish", "release"].some((contract) => contracts.has(contract));
+  const hasReport = effects.some((effect) => effect.kind === "report")
+    || ["comment", "evidence", "agent-evidence", "contract", "hygiene", "source-impact", "attest"].some((contract) => contracts.has(contract));
+  return [
+    "plan",
+    "run",
+    ...(hasDeploy ? ["deploy" as const] : []),
+    ...(hasReport ? ["report" as const] : []),
+    "record"
+  ];
+}
+
+function githubTrustPolicyForEvent(event: PipelineEventEnvelope): PipelineWorkflowTrustPolicy {
+  if (event.event === "pull_request") {
+    const sameRepository = event.pullRequest?.sameRepository ?? false;
+    return {
+      event: event.event,
+      sameRepository,
+      writeCredentials: sameRepository,
+      cacheSave: false,
+      reason: sameRepository ? "same_repository_pull_request" : "fork_pull_request_read_only"
+    };
+  }
+  if (event.event === "release") {
+    return {
+      event: event.event,
+      sameRepository: null,
+      writeCredentials: true,
+      cacheSave: true,
+      reason: "release_event"
+    };
+  }
+  if (event.event === "manual") {
+    return {
+      event: event.event,
+      sameRepository: null,
+      writeCredentials: false,
+      cacheSave: false,
+      reason: "manual_mock_read_only"
+    };
+  }
+  return {
+    event: event.event,
+    sameRepository: null,
+    writeCredentials: true,
+    cacheSave: true,
+    reason: `${event.event}_event`
+  };
+}
+
+function workflowId(pipelineName: string, jobId: string, event: PipelineEventEnvelope): string {
+  const ref = event.pullRequest?.headSha || event.sha || event.ref || event.branch || event.release?.tagName || event.requestedJob || "manual";
+  return [pipelineName, jobId, event.event, ref].map(safeKeyPart).join("/");
+}
+
+function safeKeyPart(value: string): string {
+  return value.replaceAll(/[^a-zA-Z0-9._:-]/g, "_") || "unknown";
 }
 
 function buildManifestCandidates(
@@ -1960,6 +2158,8 @@ function buildRenderModel(
       requires: job.requires,
       execution: job.execution,
       github: githubConfigForJob(pipeline, job),
+      deploy: job.deploy,
+      report: job.report,
       if: renderGitHubJobCondition(job, pipeline.triggers)
     }))
     .sort((left, right) => left.id.localeCompare(right.id));

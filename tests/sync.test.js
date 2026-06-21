@@ -317,7 +317,7 @@ test("sync CLI generates and checks configured targets", () => {
       }
     });
     writeFileSync(join(dir, "pipeline.js"), `
-import { definePipeline, job, sh, task, trigger } from ${JSON.stringify(packageUrl)};
+import { cloudflare, definePipeline, github, job, sh, task, trigger } from ${JSON.stringify(packageUrl)};
 
 export default definePipeline({
   name: "fixture",
@@ -326,13 +326,33 @@ export default definePipeline({
   },
   sync: {
     github: true,
+    cloudflare: {
+      worker: "site-ci",
+      queue: "site-ci-events",
+      workflow: "ci",
+      runner: {
+        kind: "container",
+        image: "node:24",
+        packageManager: "pnpm"
+      }
+    },
     tasks: true
   },
   tasks: {
-    verify: task({ run: sh\`node -e 'console.log("ok")'\` })
+    verify: task({
+      outputs: [".async/pages/**"],
+      run: sh\`node -e 'console.log("ok")'\`
+    })
   },
   jobs: {
-    verify: job({ target: "verify", trigger: ["main"] })
+    verify: job({ target: "verify", trigger: ["main"] }),
+    preview: job({
+      target: "verify",
+      trigger: ["main"],
+      execution: "cloudflare",
+      deploy: cloudflare.pages({ project: "site", directory: ".async/pages" }),
+      report: github.prPreview()
+    })
   }
 });
 `, "utf8");
@@ -342,6 +362,23 @@ export default definePipeline({
     assert.equal(existsSync(join(dir, ".github/workflows/async-pipeline.yml")), true);
     assert.equal(existsSync(join(dir, ".locks/pipeline/github-workflow.lock.json")), true);
     assert.equal(existsSync(join(dir, ".locks/pipeline/tasks.lock.json")), true);
+    assert.equal(existsSync(join(dir, ".cloudflare/pipeline/worker.ts")), true);
+    assert.equal(existsSync(join(dir, ".cloudflare/pipeline/workflow.ts")), true);
+    assert.equal(existsSync(join(dir, ".cloudflare/pipeline/queue.ts")), true);
+    assert.equal(existsSync(join(dir, ".cloudflare/pipeline/wrangler.jsonc")), true);
+    assert.equal(existsSync(join(dir, ".locks/pipeline/cloudflare.lock.json")), true);
+    const cloudflareWorkflow = readFileSync(join(dir, ".cloudflare/pipeline/workflow.ts"), "utf8");
+    assert.equal(cloudflareWorkflow.includes("class PipelineWorkflow extends WorkflowEntrypoint"), true);
+    assert.equal(cloudflareWorkflow.includes('step.do("plan"'), true);
+    assert.equal(cloudflareWorkflow.includes("PIPELINE_RUNNER"), true);
+    assert.equal(cloudflareWorkflow.includes("PIPELINE_CLOUDFLARE"), true);
+    assert.equal(cloudflareWorkflow.includes("PIPELINE_GITHUB"), true);
+    assert.equal(cloudflareWorkflow.includes("recordPipelineEvidence"), true);
+    const wrangler = JSON.parse(readFileSync(join(dir, ".cloudflare/pipeline/wrangler.jsonc"), "utf8"));
+    assert.equal(wrangler.workflows[0].class_name, "PipelineWorkflow");
+    const cloudflareLock = JSON.parse(readFileSync(join(dir, ".locks/pipeline/cloudflare.lock.json"), "utf8"));
+    assert.equal(cloudflareLock.plan.apply.mode, "external");
+    assert.equal(cloudflareLock.plan.apply.command, "wrangler deploy --config .cloudflare/pipeline/wrangler.jsonc");
 
     const check = spawnSync("node", [cliPath, "sync", "check"], { cwd: dir, encoding: "utf8" });
     assert.equal(check.status, 0, check.stderr);
@@ -351,6 +388,9 @@ export default definePipeline({
 
     const githubCheck = spawnSync("node", [cliPath, "sync", "github", "check"], { cwd: dir, encoding: "utf8" });
     assert.equal(githubCheck.status, 0, githubCheck.stderr);
+
+    const cloudflareCheck = spawnSync("node", [cliPath, "sync", "cloudflare", "check"], { cwd: dir, encoding: "utf8" });
+    assert.equal(cloudflareCheck.status, 0, cloudflareCheck.stderr);
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
