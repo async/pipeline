@@ -1404,6 +1404,132 @@
       ]
     },
     {
+      "id": "npm-release-mvp.lifecycle-lowering",
+      "source": "docs/npm-release-mvp.md",
+      "anchor": "When a task contains the exact whole command `pnpm async-pipeline publish npm --package .`, the GitHub workflow lowers it into Async publish action steps, runs `@async/release` plan, inspect, changelog, and notes evidence first, then publishes npm through `async/actions/publish`.",
+      "tests": [
+        "renders lifecycle publish tasks as async action steps"
+      ]
+    },
+    {
+      "id": "npm-release-mvp.lifecycle-fallback",
+      "source": "docs/npm-release-mvp.md",
+      "anchor": "If the command is compound shell, retry-wrapped, or timeout-wrapped, it stays in the normal pipeline runner path instead of being lowered.",
+      "tests": [
+        "keeps lifecycle publish commands in the pipeline runner when shell semantics are not equivalent"
+      ]
+    },
+    {
+      "id": "npm-release-mvp.provenance-grant",
+      "source": "docs/npm-release-mvp.md",
+      "anchor": "`requires.provenance: true` gives the publish job GitHub `id-token: write` for npm provenance.",
+      "tests": [
+        "renders github job environment and secret env wiring"
+      ]
+    },
+    {
+      "id": "npm-release-mvp.npm-publish-token-auth",
+      "source": "docs/npm-release-mvp.md",
+      "anchor": "When `NODE_AUTH_TOKEN` or `NPM_TOKEN` is present, `async-pipeline publish npm --package .` writes a temporary npmjs auth config for that publish.",
+      "tests": [
+        "lifecycle CLI token-backed npm publish uses a temporary npmjs auth config"
+      ]
+    },
+    {
+      "id": "npm-release-mvp.npm-publish-tokenless",
+      "source": "docs/npm-release-mvp.md",
+      "anchor": "Without a token, `async-pipeline publish npm --package .` leaves auth to npm trusted publishing and skips npm access changes that tokenless OIDC cannot perform.",
+      "tests": [
+        "lifecycle CLI tokenless npm publish leaves auth to trusted publishing and skips access"
+      ]
+    },
+    {
+      "id": "npm-release-mvp.already-published-skip",
+      "source": "docs/npm-release-mvp.md",
+      "anchor": "If the same package version is already on npm, the lifecycle publish command skips the publish instead of failing.",
+      "tests": [
+        "lifecycle CLI skips npm publish for an already published package and keeps public access"
+      ]
+    },
+    {
+      "id": "preview-packages-mvp.package-selection",
+      "source": "docs/preview-packages-mvp.md",
+      "anchor": "`sync.github.packagePreviews: true` needs one public package to preview. It selects the public root package, or the single public `packages/*` package when the root package is private. If there are multiple public packages, set `sync.github.packagePreviews.package` explicitly.",
+      "tests": [
+        "renders generated package preview job from packagePreviews true",
+        "packagePreviews true requires explicit package when multiple public packages exist"
+      ]
+    },
+    {
+      "id": "preview-packages-mvp.preview-job",
+      "source": "docs/preview-packages-mvp.md",
+      "anchor": "With `sync.github.packagePreviews: true`, sync writes a `package-preview` job for pull requests. The job selects the public root package or the single public `packages/*` package when the root is private, runs `pack` when present, runs `@async/release` preview plan, stage, and inspect evidence before publishing, then calls `async/actions/preview` for the selected package path.",
+      "tests": [
+        "renders generated package preview job from packagePreviews true"
+      ]
+    },
+    {
+      "id": "preview-packages-mvp.fork-guard",
+      "source": "docs/preview-packages-mvp.md",
+      "anchor": "Same-repo pull requests publish immutable `0.0.0-pr.<n>.sha.<sha>` previews and can receive one install comment. Fork pull requests skip preview publishing and skip preview comments.",
+      "tests": [
+        "same-repo PRs publish an immutable preview version, move the pr tag, and upsert one comment",
+        "PROMISE: fork pull requests never publish preview packages"
+      ]
+    },
+    {
+      "id": "github-pages-mvp.sync-pages",
+      "source": "docs/github-pages-mvp.md",
+      "anchor": "`sync.github.pages: true` infers a target from `pages`, `docs.site`, `docs`, then `build-pages`, uploads `.async/pages` as a static artifact, builds on pull requests, and deploys from `main` or selected manual dispatch. Object form lets the repo set `target`, `job`, `build`, `artifactName`, `environment`, and trigger settings explicitly.",
+      "tests": [
+        "renders generated github pages jobs from sync github pages",
+        "generated github pages rejects missing targets and job conflicts"
+      ]
+    },
+    {
+      "id": "github-pages-mvp.pages-action",
+      "source": "docs/github-pages-mvp.md",
+      "anchor": "The sync-level Pages job runs `async-pipeline run-task <target>` before calling `async/actions/pages`. The paired deploy job is skipped on pull requests and uses the `github-pages` environment on non-PR events.",
+      "tests": [
+        "renders generated github pages jobs from sync github pages"
+      ]
+    },
+    {
+      "id": "github-pages-mvp.prerender",
+      "source": "docs/github-pages-mvp.md",
+      "anchor": "Use `build.kind: \"prerender\"` when the task already rendered static HTML from an app route tree:",
+      "tests": [
+        "renders prerender github pages build through async pages action"
+      ]
+    },
+    {
+      "id": "package-repo-mvp.preview-lane",
+      "source": "docs/package-repo-mvp.md",
+      "anchor": "`package-preview` runs on pull requests, uses the same `pack` target, runs `@async/release` preview evidence, publishes trusted same-repo PR previews to GitHub Packages, and skips forks.",
+      "tests": [
+        "renders generated package preview job from packagePreviews true",
+        "PROMISE: fork pull requests never publish preview packages"
+      ]
+    },
+    {
+      "id": "package-repo-mvp.pages-lane",
+      "source": "docs/package-repo-mvp.md",
+      "anchor": "`pages` builds the static Pages artifact on pull requests and deploys it from `main` or selected manual dispatch.",
+      "tests": [
+        "renders generated github pages jobs from sync github pages"
+      ]
+    },
+    {
+      "id": "package-repo-mvp.release-publish-lane",
+      "source": "docs/package-repo-mvp.md",
+      "anchor": "`release ensure` creates or verifies the `v<version>` Git tag and GitHub Release for the package version. The exact `publish npm` command is lowered into Async publish action steps, with `@async/release` evidence before npm publishing.",
+      "tests": [
+        "lifecycle CLI release ensure creates a missing tag and GitHub Release",
+        "lifecycle CLI release ensure refuses to move an existing release tag",
+        "renders lifecycle publish tasks as async action steps"
+      ]
+    },
+    {
       "id": "api.github-permissions-unknown-fields",
       "source": "docs/api.md",
       "anchor": "Unknown permission fields fail with `ASYNC_PIPELINE_UNKNOWN_FIELD`.",

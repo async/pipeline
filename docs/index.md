@@ -93,6 +93,10 @@ Tasks, jobs, and triggers describe your workflow. Sync is the explicit boundary:
 ## Docs
 
 - [Getting started](getting-started.md) — install, first pipeline, what to commit.
+- [npm release MVP](npm-release-mvp.md) — the smallest Pipeline setup for publishing one package to npm.
+- [Preview packages MVP](preview-packages-mvp.md) — the smallest generated PR package preview setup.
+- [GitHub Pages MVP](github-pages-mvp.md) — the smallest generated Pages build and deploy setup.
+- [Package repo MVP](package-repo-mvp.md) — releases, preview packages, and Pages together.
 - [Sync: choose what GitHub and package managers see](sync.md) — the boundary explained.
 - [How it works](how-it-works.md) — define, generate, resolve, run, record.
 - [Running locally](local-runs.md) — commands, cache behavior, `gc`, retries.
