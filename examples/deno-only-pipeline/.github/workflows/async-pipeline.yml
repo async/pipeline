@@ -42,14 +42,14 @@ jobs:
 
       - name: Restore Async task cache
         id: async-cache-restore
-        uses: async/actions/cache@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
+        uses: async/actions/cache@8e63d1f4bf6a136b428035aa810a15ddc987c068 # v0.1.22
         with:
           mode: restore
           manifest: .async/actions/cache/verify-cache-manifest.json
           trust: read-only
 
       - name: Run pipeline job
-        uses: async/actions/run@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
+        uses: async/actions/run@8e63d1f4bf6a136b428035aa810a15ddc987c068 # v0.1.22
         with:
           command: "deno run -A ../../packages/pipeline/dist/cli.js github check && deno run -A ../../packages/pipeline/dist/cli.js run verify"
           check-generated: false
@@ -59,7 +59,7 @@ jobs:
 
       - name: Save Async task cache
         if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
-        uses: async/actions/cache@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
+        uses: async/actions/cache@8e63d1f4bf6a136b428035aa810a15ddc987c068 # v0.1.22
         with:
           mode: save
           manifest: .async/actions/cache/verify-cache-manifest.json

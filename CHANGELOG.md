@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.33 - 2026-07-02
+
+### Fixes
+
+- Pin generated workflows to `async/actions@v0.1.22` so token-backed npm
+  publishes repair scoped package public access before registry verification.
+
 ## 0.9.32 - 2026-07-01
 
 ### Features

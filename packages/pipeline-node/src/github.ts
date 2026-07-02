@@ -33,8 +33,8 @@ function defineActionRef(id: string, uses: string, sha: string, label: string): 
   };
 }
 
-const ASYNC_ACTIONS_SHA = "0beebaf9f54402f67980e225803de2f8addc4b4f";
-const ASYNC_ACTIONS_LABEL = "v0.1.21";
+const ASYNC_ACTIONS_SHA = "8e63d1f4bf6a136b428035aa810a15ddc987c068";
+const ASYNC_ACTIONS_LABEL = "v0.1.22";
 const ASYNC_RELEASE_PACKAGE = "github:async/release#v0.1.5";
 const ASYNC_RELEASE_COMMAND = `pnpm dlx ${ASYNC_RELEASE_PACKAGE}`;
 

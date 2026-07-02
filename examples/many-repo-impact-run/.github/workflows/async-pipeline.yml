@@ -45,14 +45,14 @@ jobs:
 
       - name: Restore Async task cache
         id: async-cache-restore
-        uses: async/actions/cache@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
+        uses: async/actions/cache@8e63d1f4bf6a136b428035aa810a15ddc987c068 # v0.1.22
         with:
           mode: restore
           manifest: .async/actions/cache/verifyImpact-cache-manifest.json
           trust: read-only
 
       - name: Run pipeline job
-        uses: async/actions/run@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
+        uses: async/actions/run@8e63d1f4bf6a136b428035aa810a15ddc987c068 # v0.1.22
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run verifyImpact"
           check-generated: false
@@ -62,7 +62,7 @@ jobs:
 
       - name: Save Async task cache
         if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
-        uses: async/actions/cache@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
+        uses: async/actions/cache@8e63d1f4bf6a136b428035aa810a15ddc987c068 # v0.1.22
         with:
           mode: save
           manifest: .async/actions/cache/verifyImpact-cache-manifest.json
@@ -70,7 +70,7 @@ jobs:
 
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
+        uses: async/actions/evidence@8e63d1f4bf6a136b428035aa810a15ddc987c068 # v0.1.22
         with:
           mode: collect
           paths: |
@@ -158,7 +158,7 @@ jobs:
 
       - name: Plan source impact matrix
         id: source-plan
-        uses: async/actions/source-impact@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
+        uses: async/actions/source-impact@8e63d1f4bf6a136b428035aa810a15ddc987c068 # v0.1.22
         with:
           mode: plan
           source-plan: .async/actions/source-impact/verifyImpact-source-plan.json
@@ -166,7 +166,7 @@ jobs:
 
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
+        uses: async/actions/evidence@8e63d1f4bf6a136b428035aa810a15ddc987c068 # v0.1.22
         with:
           mode: collect
           paths: |
@@ -257,7 +257,7 @@ jobs:
           ASYNC_SOURCE_PLAN
 
       - name: Validate source checkout
-        uses: async/actions/source-impact@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
+        uses: async/actions/source-impact@8e63d1f4bf6a136b428035aa810a15ddc987c068 # v0.1.22
         with:
           mode: checkout
           source-plan: .async/actions/source-impact/verifyImpact-source-plan.json
@@ -266,7 +266,7 @@ jobs:
           path: ${{ matrix.path }}
 
       - name: Prepare source checkout
-        uses: async/actions/source-impact@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
+        uses: async/actions/source-impact@8e63d1f4bf6a136b428035aa810a15ddc987c068 # v0.1.22
         with:
           mode: prepare
           source-plan: .async/actions/source-impact/verifyImpact-source-plan.json
@@ -278,14 +278,14 @@ jobs:
 
       - name: Restore Async task cache
         id: async-cache-restore
-        uses: async/actions/cache@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
+        uses: async/actions/cache@8e63d1f4bf6a136b428035aa810a15ddc987c068 # v0.1.22
         with:
           mode: restore
           manifest: .async/actions/cache/${{ matrix.source }}-${{ matrix.taskId }}-cache-manifest.json
           trust: read-only
 
       - name: Run source task
-        uses: async/actions/run@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
+        uses: async/actions/run@8e63d1f4bf6a136b428035aa810a15ddc987c068 # v0.1.22
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run-task \"${{ matrix.task }}\""
           check-generated: false
@@ -295,7 +295,7 @@ jobs:
 
       - name: Save Async task cache
         if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
-        uses: async/actions/cache@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
+        uses: async/actions/cache@8e63d1f4bf6a136b428035aa810a15ddc987c068 # v0.1.22
         with:
           mode: save
           manifest: .async/actions/cache/${{ matrix.source }}-${{ matrix.taskId }}-cache-manifest.json
@@ -303,7 +303,7 @@ jobs:
 
       - name: Collect evidence manifest
         if: ${{ always() }}
-        uses: async/actions/evidence@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
+        uses: async/actions/evidence@8e63d1f4bf6a136b428035aa810a15ddc987c068 # v0.1.22
         with:
           mode: collect
           paths: |
@@ -326,7 +326,7 @@ jobs:
       contents: read
     steps:
       - name: Merge evidence manifests
-        uses: async/actions/evidence@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
+        uses: async/actions/evidence@8e63d1f4bf6a136b428035aa810a15ddc987c068 # v0.1.22
         with:
           mode: merge
           artifact-pattern: async-evidence-*
