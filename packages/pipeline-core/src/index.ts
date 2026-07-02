@@ -557,6 +557,35 @@ export interface GitHubHygieneConfig {
 
 export type GitHubHygieneInput = boolean | GitHubHygieneConfig;
 
+export interface GitHubUpdateTrainConfig {
+  job?: string;
+  package?: string;
+  repositories?: string[];
+  event?: string;
+  tokenEnv?: string;
+  after?: string;
+}
+
+export type GitHubUpdateTrainInput = boolean | GitHubUpdateTrainConfig;
+
+export type GitHubDependencyBumpLanding = "pull-request" | "push" | "none";
+export type GitHubDependencyBumpPackageManager = "auto" | "pnpm" | "npm" | "yarn" | "bun";
+
+export interface GitHubDependencyBumpConfig {
+  job?: string;
+  packages?: string[];
+  event?: string;
+  tokenEnv?: string;
+  packageManager?: GitHubDependencyBumpPackageManager;
+  verify?: string | string[];
+  success?: GitHubDependencyBumpLanding;
+  failure?: Exclude<GitHubDependencyBumpLanding, "push">;
+  branchPrefix?: string;
+  baseBranch?: string;
+}
+
+export type GitHubDependencyBumpInput = boolean | GitHubDependencyBumpConfig;
+
 export interface GitHubSyncConfig {
   workflow?: string;
   lock?: string;
@@ -574,6 +603,8 @@ export interface GitHubSyncConfig {
   attest?: GitHubAttestInput;
   contract?: GitHubContractInput;
   hygiene?: GitHubHygieneInput;
+  updateTrain?: GitHubUpdateTrainInput;
+  dependencyBump?: GitHubDependencyBumpInput;
 }
 
 export type GitHubSyncInput = boolean | GitHubSyncConfig;
@@ -691,6 +722,8 @@ export interface NormalizedGitHubSyncConfig {
   attest: NormalizedGitHubAttestConfig;
   contract: NormalizedGitHubContractConfig;
   hygiene: NormalizedGitHubHygieneConfig;
+  updateTrain: NormalizedGitHubUpdateTrainConfig;
+  dependencyBump: NormalizedGitHubDependencyBumpConfig;
 }
 
 export interface NormalizedDependabotAutoMergeConfig {
@@ -706,6 +739,30 @@ export interface NormalizedPackagePreviewsConfig {
   namespace?: string;
   tokenEnv: string;
   comment: boolean;
+}
+
+export interface NormalizedGitHubUpdateTrainConfig {
+  enabled: boolean;
+  job: string;
+  packagePath: string;
+  repositories: string[];
+  event: string;
+  tokenEnv: string;
+  after?: string;
+}
+
+export interface NormalizedGitHubDependencyBumpConfig {
+  enabled: boolean;
+  job: string;
+  packages: string[];
+  event: string;
+  tokenEnv: string;
+  packageManager: GitHubDependencyBumpPackageManager;
+  verify: string[];
+  success: GitHubDependencyBumpLanding;
+  failure: Exclude<GitHubDependencyBumpLanding, "push">;
+  branchPrefix: string;
+  baseBranch: string;
 }
 
 export interface NormalizedGitHubEvidenceConfig {
@@ -1392,7 +1449,7 @@ const GITHUB_PAGES_STATIC_BUILD_FIELDS = new Set(["kind", "path"]);
 const GITHUB_PAGES_PRERENDER_BUILD_FIELDS = new Set(["kind", "path", "spaFallback", "validateIndex"]);
 const GITHUB_PERMISSION_FIELDS = new Set(["contents", "idToken", "issues", "packages", "pullRequests"]);
 const SYNC_FIELDS = new Set(["command", "github", "tasks", "cloudflare"]);
-const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "packagePreviews", "dependabotAutoMerge", "evidence", "bridge", "pages", "sourceImpact", "attest", "contract", "hygiene"]);
+const GITHUB_SYNC_FIELDS = new Set(["workflow", "lock", "setup", "nodeVersion", "runtime", "cache", "dependencyCache", "packagePreviews", "dependabotAutoMerge", "evidence", "bridge", "pages", "sourceImpact", "attest", "contract", "hygiene", "updateTrain", "dependencyBump"]);
 const CLOUDFLARE_SYNC_FIELDS = new Set(["worker", "queue", "workflow", "outputDir", "lock", "bridge", "runner", "cache", "capabilities"]);
 const CLOUDFLARE_BRIDGE_FIELDS = new Set(["mode"]);
 const CLOUDFLARE_RUNNER_FIELDS = new Set(["kind", "image", "packageManager", "network"]);
@@ -1410,6 +1467,8 @@ const GITHUB_ATTEST_FIELDS = new Set(["packagePath", "artifacts", "subjectManife
 const GITHUB_CONTRACT_FIELDS = new Set(["mode", "job", "api", "claims", "schema", "packagePath", "evidenceDir", "annotations"]);
 const GITHUB_CONTRACT_SCHEMA_FIELDS = new Set(["enabled", "sources", "output"]);
 const GITHUB_HYGIENE_FIELDS = new Set(["mode", "job", "profiles", "releaseGate", "packagePath", "evidenceDir", "annotations"]);
+const GITHUB_UPDATE_TRAIN_FIELDS = new Set(["job", "package", "repositories", "event", "tokenEnv", "after"]);
+const GITHUB_DEPENDENCY_BUMP_FIELDS = new Set(["job", "packages", "event", "tokenEnv", "packageManager", "verify", "success", "failure", "branchPrefix", "baseBranch"]);
 const GITHUB_SYNC_PAGES_TRIGGERS_FIELDS = new Set(["manual", "main", "pullRequest"]);
 const GITHUB_SYNC_PAGES_MAIN_TRIGGER_FIELDS = new Set(["branch"]);
 const CONTAINER_PROVIDERS = new Set(["auto", "docker", "apple-container", "lima"]);
@@ -1478,6 +1537,12 @@ function validateDefinitionShape(definition: PipelineDefinition): void {
     }
     if (definition.sync.github.hygiene && typeof definition.sync.github.hygiene === "object") {
       rejectUnknownFields(GITHUB_HYGIENE_FIELDS, definition.sync.github.hygiene, "sync.github.hygiene");
+    }
+    if (definition.sync.github.updateTrain && typeof definition.sync.github.updateTrain === "object") {
+      rejectUnknownFields(GITHUB_UPDATE_TRAIN_FIELDS, definition.sync.github.updateTrain, "sync.github.updateTrain");
+    }
+    if (definition.sync.github.dependencyBump && typeof definition.sync.github.dependencyBump === "object") {
+      rejectUnknownFields(GITHUB_DEPENDENCY_BUMP_FIELDS, definition.sync.github.dependencyBump, "sync.github.dependencyBump");
     }
     if (definition.sync.github.pages && typeof definition.sync.github.pages === "object") {
       rejectUnknownFields(GITHUB_SYNC_PAGES_FIELDS, definition.sync.github.pages, "sync.github.pages");
@@ -2486,7 +2551,9 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       sourceImpact: normalizeGitHubSourceImpact(undefined),
       attest: normalizeGitHubAttest(undefined),
       contract: normalizeGitHubContract(undefined),
-      hygiene: normalizeGitHubHygiene(undefined)
+      hygiene: normalizeGitHubHygiene(undefined),
+      updateTrain: normalizeGitHubUpdateTrain(undefined),
+      dependencyBump: normalizeGitHubDependencyBump(undefined)
     };
   }
   if (github === true) {
@@ -2507,7 +2574,9 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
       sourceImpact: normalizeGitHubSourceImpact(undefined),
       attest: normalizeGitHubAttest(undefined),
       contract: normalizeGitHubContract(undefined),
-      hygiene: normalizeGitHubHygiene(undefined)
+      hygiene: normalizeGitHubHygiene(undefined),
+      updateTrain: normalizeGitHubUpdateTrain(undefined),
+      dependencyBump: normalizeGitHubDependencyBump(undefined)
     };
   }
   return {
@@ -2527,7 +2596,9 @@ function normalizeGitHubSync(github: GitHubSyncInput | undefined): NormalizedGit
     sourceImpact: normalizeGitHubSourceImpact(github.sourceImpact),
     attest: normalizeGitHubAttest(github.attest),
     contract: normalizeGitHubContract(github.contract),
-    hygiene: normalizeGitHubHygiene(github.hygiene)
+    hygiene: normalizeGitHubHygiene(github.hygiene),
+    updateTrain: normalizeGitHubUpdateTrain(github.updateTrain),
+    dependencyBump: normalizeGitHubDependencyBump(github.dependencyBump)
   };
 }
 
@@ -2714,6 +2785,226 @@ function normalizePackagePreviews(input: PackagePreviewsInput | undefined): Norm
     throw pipelineError("ASYNC_PIPELINE_PACKAGE_PREVIEWS_INVALID", `sync.github.packagePreviews.tokenEnv must be an environment variable name. Found: ${output.tokenEnv}.`);
   }
   return output;
+}
+
+function normalizeGitHubUpdateTrain(input: GitHubUpdateTrainInput | undefined): NormalizedGitHubUpdateTrainConfig {
+  const disabled: NormalizedGitHubUpdateTrainConfig = {
+    enabled: false,
+    job: "update-train",
+    packagePath: ".",
+    repositories: [],
+    event: "async-dep-bump",
+    tokenEnv: "ASYNC_UPDATE_TRAIN_TOKEN"
+  };
+  if (!input) return disabled;
+  if (input === true) {
+    throw pipelineError(
+      "ASYNC_PIPELINE_GITHUB_UPDATE_TRAIN_INVALID",
+      "sync.github.updateTrain requires repositories. Use object form with repositories: [\"owner/repo\"]."
+    );
+  }
+  const output: NormalizedGitHubUpdateTrainConfig = {
+    enabled: true,
+    job: normalizeOptionalNonEmptyString(input.job, "sync.github.updateTrain.job", "ASYNC_PIPELINE_GITHUB_UPDATE_TRAIN_INVALID") ?? "update-train",
+    packagePath: normalizeOptionalNonEmptyString(input.package, "sync.github.updateTrain.package", "ASYNC_PIPELINE_GITHUB_UPDATE_TRAIN_INVALID") ?? ".",
+    repositories: normalizeGitHubRepositoryList(input.repositories, "sync.github.updateTrain.repositories", "ASYNC_PIPELINE_GITHUB_UPDATE_TRAIN_INVALID"),
+    event: normalizeGitHubDispatchEvent(input.event, "sync.github.updateTrain.event", "ASYNC_PIPELINE_GITHUB_UPDATE_TRAIN_INVALID"),
+    tokenEnv: normalizeGitHubEnvName(input.tokenEnv, "sync.github.updateTrain.tokenEnv", "ASYNC_UPDATE_TRAIN_TOKEN", "ASYNC_PIPELINE_GITHUB_UPDATE_TRAIN_INVALID"),
+    after: normalizeOptionalNonEmptyString(input.after, "sync.github.updateTrain.after", "ASYNC_PIPELINE_GITHUB_UPDATE_TRAIN_INVALID")
+  };
+  validateGitHubGeneratedJobId(output.job, "sync.github.updateTrain.job", "ASYNC_PIPELINE_GITHUB_UPDATE_TRAIN_INVALID");
+  validateSafeGeneratedPathLike(output.packagePath, "sync.github.updateTrain.package", "ASYNC_PIPELINE_GITHUB_UPDATE_TRAIN_INVALID", { allowDot: true, allowTrailingSlash: false });
+  if (output.after) {
+    validateGitHubGeneratedJobId(output.after, "sync.github.updateTrain.after", "ASYNC_PIPELINE_GITHUB_UPDATE_TRAIN_INVALID");
+  }
+  return output;
+}
+
+function normalizeGitHubDependencyBump(input: GitHubDependencyBumpInput | undefined): NormalizedGitHubDependencyBumpConfig {
+  const disabled: NormalizedGitHubDependencyBumpConfig = {
+    enabled: false,
+    job: "dependency-bump",
+    packages: [],
+    event: "async-dep-bump",
+    tokenEnv: "GITHUB_TOKEN",
+    packageManager: "auto",
+    verify: [],
+    success: "pull-request",
+    failure: "pull-request",
+    branchPrefix: "async/dependency-bump/",
+    baseBranch: "main"
+  };
+  if (!input) return disabled;
+  if (input === true) return { ...disabled, enabled: true };
+  const output: NormalizedGitHubDependencyBumpConfig = {
+    enabled: true,
+    job: normalizeOptionalNonEmptyString(input.job, "sync.github.dependencyBump.job", "ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID") ?? "dependency-bump",
+    packages: normalizeGitHubPackageList(input.packages, "sync.github.dependencyBump.packages", "ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID"),
+    event: normalizeGitHubDispatchEvent(input.event, "sync.github.dependencyBump.event", "ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID"),
+    tokenEnv: normalizeGitHubEnvName(input.tokenEnv, "sync.github.dependencyBump.tokenEnv", "GITHUB_TOKEN", "ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID"),
+    packageManager: normalizeGitHubDependencyBumpPackageManager(input.packageManager),
+    verify: normalizeGitHubVerifyCommands(input.verify),
+    success: normalizeGitHubDependencyBumpLanding(input.success, "sync.github.dependencyBump.success", true),
+    failure: normalizeGitHubDependencyBumpLanding(input.failure, "sync.github.dependencyBump.failure", false),
+    branchPrefix: normalizeOptionalNonEmptyString(input.branchPrefix, "sync.github.dependencyBump.branchPrefix", "ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID") ?? "async/dependency-bump/",
+    baseBranch: normalizeOptionalNonEmptyString(input.baseBranch, "sync.github.dependencyBump.baseBranch", "ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID") ?? "main"
+  };
+  validateGitHubGeneratedJobId(output.job, "sync.github.dependencyBump.job", "ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID");
+  validateGitHubBranchLike(output.branchPrefix, "sync.github.dependencyBump.branchPrefix", true);
+  validateGitHubBranchLike(output.baseBranch, "sync.github.dependencyBump.baseBranch", false);
+  return output;
+}
+
+function normalizeGitHubDispatchEvent(input: string | undefined, field: string, code: string): string {
+  const value = normalizeOptionalNonEmptyString(input, field, code) ?? "async-dep-bump";
+  if (!/^[A-Za-z0-9_.:-]+$/.test(value) || value.length > 100) {
+    throw pipelineError(code, `${field} may only contain letters, numbers, dash, underscore, dot, and colon, and must be at most 100 characters.`);
+  }
+  return value;
+}
+
+function normalizeGitHubEnvName(input: string | undefined, field: string, fallback: string, code: string): string {
+  const value = normalizeOptionalNonEmptyString(input, field, code) ?? fallback;
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
+    throw pipelineError(code, `${field} must be an environment variable name. Found: ${value}.`);
+  }
+  return value;
+}
+
+function normalizeGitHubRepositoryList(input: string[] | undefined, field: string, code: string): string[] {
+  if (!Array.isArray(input) || input.length === 0) {
+    throw pipelineError(code, `${field} must be a non-empty array of owner/repo names.`);
+  }
+  const repositories = input.map((repo, index) => {
+    const value = normalizeOptionalNonEmptyString(repo, `${field}[${index}]`, code);
+    if (!value) throw pipelineError(code, `${field}[${index}] cannot be empty.`);
+    validateGitHubRepository(value, `${field}[${index}]`, code);
+    return value;
+  });
+  return [...new Set(repositories)].sort((left, right) => left.localeCompare(right));
+}
+
+function validateGitHubRepository(value: string, field: string, code: string): void {
+  const parts = value.split("/");
+  if (parts.length !== 2) {
+    throw pipelineError(code, `${field} must use owner/repo format.`);
+  }
+  const [owner, repo] = parts;
+  if (!owner || !repo || owner === "." || owner === ".." || repo === "." || repo === "..") {
+    throw pipelineError(code, `${field} must use a concrete owner/repo name.`);
+  }
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$/.test(owner) || !/^[A-Za-z0-9._-]+$/.test(repo)) {
+    throw pipelineError(code, `${field} must use a valid GitHub owner/repo name.`);
+  }
+}
+
+function normalizeGitHubPackageList(input: string[] | undefined, field: string, code: string): string[] {
+  if (input === undefined) return [];
+  if (!Array.isArray(input)) {
+    throw pipelineError(code, `${field} must be an array of package names.`);
+  }
+  if (input.length === 0) {
+    throw pipelineError(code, `${field} cannot be empty when provided.`);
+  }
+  const packages = input.map((name, index) => {
+    const value = normalizeOptionalNonEmptyString(name, `${field}[${index}]`, code);
+    if (!value) throw pipelineError(code, `${field}[${index}] cannot be empty.`);
+    validateNpmPackageName(value, `${field}[${index}]`, code);
+    return value;
+  });
+  return [...new Set(packages)].sort((left, right) => left.localeCompare(right));
+}
+
+function validateNpmPackageName(value: string, field: string, code: string): void {
+  if (!/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/.test(value)) {
+    throw pipelineError(code, `${field} must be an npm package name such as @async/pipeline.`);
+  }
+}
+
+function normalizeGitHubDependencyBumpPackageManager(input: GitHubDependencyBumpPackageManager | undefined): GitHubDependencyBumpPackageManager {
+  const value = input ?? "auto";
+  if (!["auto", "pnpm", "npm", "yarn", "bun"].includes(value)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID", "sync.github.dependencyBump.packageManager must be auto, pnpm, npm, yarn, or bun.");
+  }
+  return value;
+}
+
+function normalizeGitHubVerifyCommands(input: string | string[] | undefined): string[] {
+  if (input === undefined) return [];
+  const entries = Array.isArray(input) ? input : [input];
+  if (entries.length === 0) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID", "sync.github.dependencyBump.verify cannot be empty when provided.");
+  }
+  const normalized = entries.map((entry, index) => {
+    const value = normalizeOptionalNonEmptyString(entry, `sync.github.dependencyBump.verify[${index}]`, "ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID");
+    if (!value) {
+      throw pipelineError("ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID", `sync.github.dependencyBump.verify[${index}] cannot be empty.`);
+    }
+    return value;
+  });
+  return [...new Set(normalized)];
+}
+
+function normalizeGitHubDependencyBumpLanding(input: GitHubDependencyBumpLanding | undefined, field: string, allowPush: true): GitHubDependencyBumpLanding;
+function normalizeGitHubDependencyBumpLanding(input: GitHubDependencyBumpLanding | undefined, field: string, allowPush: false): Exclude<GitHubDependencyBumpLanding, "push">;
+function normalizeGitHubDependencyBumpLanding(input: GitHubDependencyBumpLanding | undefined, field: string, allowPush: boolean): GitHubDependencyBumpLanding {
+  const value = input ?? "pull-request";
+  if (!["pull-request", "push", "none"].includes(value)) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID", `${field} must be pull-request, push, or none.`);
+  }
+  if (!allowPush && value === "push") {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID", `${field} cannot be push.`);
+  }
+  return value;
+}
+
+function validateGitHubGeneratedJobId(value: string, field: string, code: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(value)) {
+    throw pipelineError(code, `${field} may only contain letters, numbers, dash, and underscore, and must start with a letter or number.`);
+  }
+  if (value.includes(":")) {
+    throw pipelineError(code, `${field} cannot contain source namespace delimiter ':'.`);
+  }
+}
+
+function validateSafeGeneratedPathLike(value: string, field: string, code: string, options: { allowDot: boolean; allowTrailingSlash: boolean }): void {
+  if (value === "." && options.allowDot) return;
+  if (value.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(value)) {
+    throw pipelineError(code, `${field} must be repo-relative.`);
+  }
+  const parts = value.split("/");
+  const lastPart = parts.at(-1);
+  if (!options.allowTrailingSlash && lastPart === "") {
+    throw pipelineError(code, `${field} cannot end with /.`);
+  }
+  const checkedParts = options.allowTrailingSlash && lastPart === "" ? parts.slice(0, -1) : parts;
+  if (checkedParts.some((part) => part === "" || part === "." || part === "..")) {
+    throw pipelineError(code, `${field} cannot contain empty, dot, or parent-directory segments.`);
+  }
+  if (checkedParts.some((part) => /[*?[\]{}]/u.test(part))) {
+    throw pipelineError(code, `${field} cannot contain glob characters.`);
+  }
+  if (value.startsWith(".github/workflows/")) {
+    throw pipelineError(code, `${field} cannot include .github/workflows/**.`);
+  }
+}
+
+function validateGitHubBranchLike(value: string, field: string, allowTrailingSlash: boolean): void {
+  if (value.startsWith("/") || value.endsWith(".lock")) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID", `${field} must be a branch name or branch prefix.`);
+  }
+  const parts = value.split("/");
+  const lastPart = parts.at(-1);
+  if (!allowTrailingSlash && lastPart === "") {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID", `${field} cannot end with /.`);
+  }
+  const checkedParts = allowTrailingSlash && lastPart === "" ? parts.slice(0, -1) : parts;
+  if (checkedParts.some((part) => part === "" || part === "." || part === "..")) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID", `${field} cannot contain empty, dot, or parent-directory segments.`);
+  }
+  if (/[\\\s~^:?*[\]]/u.test(value) || value.includes("//") || value.includes("@{")) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_INVALID", `${field} is not a valid branch name or branch prefix.`);
+  }
 }
 
 function normalizeGitHubEvidence(input: GitHubEvidenceInput | undefined): NormalizedGitHubEvidenceConfig {

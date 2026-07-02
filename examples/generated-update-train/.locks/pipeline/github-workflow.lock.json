@@ -3,8 +3,8 @@
   "generator": "@async/pipeline",
   "config": "pipeline.ts",
   "workflow": ".github/workflows/async-pipeline.yml",
-  "hash": "sha256:ff19b87102ae22d44457f43c8c21645a33a86681235b0c74cc854a518eb9827b",
-  "generatedAt": "2026-07-02T05:46:15.520Z",
+  "hash": "sha256:85d6ba313232ae778d19665071d33828fd6e7cd2d23dd977a38993cab06c18e8",
+  "generatedAt": "2026-07-02T05:35:31.558Z",
   "actions": [
     {
       "id": "actions.checkout",
@@ -162,31 +162,15 @@
     }
   ],
   "triggers": {
-    "pull_request": {
-      "types": [
-        "opened",
-        "ready_for_review",
-        "reopened",
-        "synchronize"
-      ]
-    },
-    "push": {
-      "branches": [
-        "main"
-      ]
-    },
     "release": {
       "types": [
         "published"
       ]
     },
     "workflow_dispatch": {},
-    "pull_request_target": {
+    "repository_dispatch": {
       "types": [
-        "opened",
-        "ready_for_review",
-        "reopened",
-        "synchronize"
+        "async-dep-bump"
       ]
     }
   },
@@ -197,102 +181,33 @@
         "publish"
       ],
       "trigger": [
-        "manual",
-        "release"
+        "release",
+        "manual"
       ],
-      "env": {
-        "NODE_AUTH_TOKEN": {
-          "kind": "async-pipeline.env.secret",
-          "name": "NPM_TOKEN"
-        },
-        "GITHUB_TOKEN": {
-          "kind": "async-pipeline.env.secret",
-          "name": "GITHUB_TOKEN"
-        }
-      },
-      "environment": {
-        "name": "npm-publish",
-        "url": "https://www.npmjs.com/package/@async/pipeline"
-      },
-      "requires": {
-        "provenance": true
-      },
-      "github": {
-        "permissions": {
-          "contents": "write",
-          "packages": "write"
-        }
-      },
-      "if": "(github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'publish') || (github.event_name == 'release' && (github.event.action == 'published'))"
-    },
-    {
-      "id": "snapshot",
-      "target": [
-        "snapshot"
-      ],
-      "trigger": [
-        "main"
-      ],
-      "env": {
-        "GITHUB_TOKEN": {
-          "kind": "async-pipeline.env.secret",
-          "name": "GITHUB_TOKEN"
-        }
-      },
-      "github": {
-        "permissions": {
-          "packages": "write"
-        }
-      },
-      "if": "github.event_name == 'push' && (github.ref == 'refs/heads/main')"
+      "env": {},
+      "if": "(github.event_name == 'release' && (github.event.action == 'published')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'publish')"
     },
     {
       "id": "verify",
       "target": [
-        "pack"
+        "verify"
       ],
-      "trigger": [
-        "pr",
-        "main",
-        "release"
-      ],
-      "env": {},
-      "github": {
-        "runsOnMatrix": [
-          "ubuntu-latest",
-          "macos-latest"
-        ]
-      },
-      "if": "(github.event_name == 'pull_request') || (github.event_name == 'push' && (github.ref == 'refs/heads/main')) || (github.event_name == 'release' && (github.event.action == 'published'))"
-    },
-    {
-      "id": "verifyImpact",
-      "target": [
-        "impact"
-      ],
-      "trigger": [
-        "pr",
-        "manual"
-      ],
-      "env": {},
-      "if": "(github.event_name == 'pull_request') || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'verifyImpact')"
+      "trigger": [],
+      "env": {}
     }
   ],
   "packageManager": "pnpm",
   "packageManagerVersion": "11.1.0",
-  "buildCommand": "pnpm build",
   "command": "pnpm async-pipeline",
   "setup": "async",
   "nodeVersion": "24",
   "runtime": [
-    "node@24",
-    "deno@2"
+    "node@24"
   ],
   "taskCache": true,
   "dependencyCache": true,
-  "dependencyCachePath": "pnpm-lock.yaml",
   "dependabotAutoMerge": {
-    "enabled": true,
+    "enabled": false,
     "ecosystems": [
       "github-actions",
       "npm",
@@ -300,15 +215,13 @@
     ]
   },
   "packagePreviews": {
-    "enabled": true,
+    "enabled": false,
     "registry": "https://npm.pkg.github.com",
     "tokenEnv": "GITHUB_TOKEN",
-    "comment": true,
-    "package": "packages/pipeline",
-    "target": "pack"
+    "comment": true
   },
   "evidence": {
-    "enabled": true,
+    "enabled": false,
     "job": "evidence",
     "paths": [
       ".async/runs"
@@ -322,22 +235,9 @@
     "includeSummary": true
   },
   "sourceImpact": {
-    "enabled": true,
-    "jobs": [
-      "verifyImpact"
-    ],
-    "generatedJobs": [
-      {
-        "job": "verifyImpact",
-        "planJob": "verifyimpact-source-plan",
-        "matrixJob": "verifyimpact-sources",
-        "matrixRows": 3,
-        "sources": [
-          "flow",
-          "framework"
-        ]
-      }
-    ]
+    "enabled": false,
+    "jobs": [],
+    "generatedJobs": []
   },
   "attest": {
     "enabled": false,
@@ -350,17 +250,14 @@
     "githubAttestation": false
   },
   "contract": {
-    "enabled": true,
-    "mode": "report",
+    "enabled": false,
+    "mode": "off",
     "job": "contract",
     "api": true,
     "claims": true,
     "schema": {
-      "enabled": true,
-      "sources": [
-        "api-contract.json",
-        "tests/claims.json"
-      ],
+      "enabled": false,
+      "sources": [],
       "output": ".async/contract/schema.json"
     },
     "packagePath": ".",
@@ -368,16 +265,15 @@
     "annotations": true
   },
   "hygiene": {
-    "enabled": true,
-    "mode": "report",
+    "enabled": false,
+    "mode": "off",
     "job": "hygiene",
     "profiles": [
       "package",
       "github",
-      "docs",
-      "release"
+      "docs"
     ],
-    "releaseGate": true,
+    "releaseGate": false,
     "packagePath": ".",
     "evidenceDir": ".async/hygiene",
     "annotations": true
@@ -385,7 +281,7 @@
   "updateTrain": {
     "enabled": true,
     "job": "update-train",
-    "packagePath": "packages/pipeline",
+    "packagePath": ".",
     "repositories": [
       "async/flow",
       "async/framework"
@@ -395,14 +291,19 @@
     "after": "publish"
   },
   "dependencyBump": {
-    "enabled": false,
+    "enabled": true,
     "job": "dependency-bump",
-    "packages": [],
+    "packages": [
+      "@async/pipeline"
+    ],
     "event": "async-dep-bump",
     "tokenEnv": "GITHUB_TOKEN",
     "packageManager": "auto",
-    "verify": [],
-    "success": "pull-request",
+    "verify": [
+      "pnpm async-pipeline sync generate",
+      "pnpm test"
+    ],
+    "success": "push",
     "failure": "pull-request",
     "branchPrefix": "async/dependency-bump/",
     "baseBranch": "main"
@@ -425,8 +326,7 @@
     }
   },
   "pages": {
-    "enabled": true,
-    "target": "docs.site",
+    "enabled": false,
     "job": "pages",
     "build": {
       "kind": "static",
@@ -441,12 +341,9 @@
     }
   },
   "manualDispatchJobs": [
-    "contract",
-    "hygiene",
-    "pages",
+    "dependency-bump",
     "publish",
-    "update-train",
-    "verifyImpact"
+    "update-train"
   ],
   "manualDispatchInputs": [
     {

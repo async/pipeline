@@ -47,6 +47,19 @@ sync: {
     packagePreviews: true,
     evidence: true,
     sourceImpact: true,
+    updateTrain: {
+      package: "packages/pipeline",
+      repositories: ["async/flow", "async/framework"],
+      event: "async-dep-bump",
+      tokenEnv: "ASYNC_RELEASE_TRAIN_TOKEN",
+      after: "publish"
+    },
+    dependencyBump: {
+      packages: ["@async/pipeline"],
+      verify: ["pnpm async-pipeline sync generate", "pnpm test"],
+      success: "push",
+      failure: "pull-request"
+    },
     attest: true,
     contract: {
       mode: "report",
@@ -92,6 +105,10 @@ Generated jobs with agent steps call `async/actions/agent-evidence` after the pi
 
 `sync.github.hygiene` adds a generated hygiene evidence job through `async/actions/hygiene`. Pipeline owns the generated job id, selected profiles, event selection, release-gate policy, permissions, local manifest, and evidence collection; the action owns bounded manifest, findings, summary, and JSON report evidence under `.async/hygiene`. `mode: "report"` runs on pull requests as advisory evidence, `check` and `strict` make findings block the generated job, `mode: "release"` runs on published releases, and `releaseGate: true` makes report-mode hygiene also run as a blocking published-release job.
 
+`sync.github.updateTrain` adds a generated release-train producer job through `async/actions/update-train`. Pipeline owns the published-release trigger, optional `needs` dependency such as `after: "publish"`, manual dispatch inputs, explicit repository list, event type, secret mapping, lock fields, and local manifest; the action reads the released package path and dispatches the configured repository event with package, version, and source repository payload. When `after` is set, the generated job runs after that job succeeds on published releases and can still be re-announced manually through `workflow_dispatch`.
+
+`sync.github.dependencyBump` adds a generated receiver job through `async/actions/dependency-bump`. Pipeline owns the `repository_dispatch` event type, manual dispatch inputs, permissions, package allowlist, verify commands, landing policy, secret mapping, lock fields, and local manifest; the action validates the requested package/version, updates the direct dependency and lockfile with the configured package manager, runs the explicit verify commands, then pushes or opens a pull request according to `success` and `failure`. Boolean form defaults to direct-dependency validation and pull-request landing.
+
 Generated release lifecycle jobs add `async/actions/doctor` steps for `@async/release` package planning, package inspection, changelog checks, release-note rendering, and final doctor evidence under `.async/release`. The GitHub Release publish step uses `.async/release/release-notes.md`, and registry or GitHub writes still run through `async/actions/publish`. Pipeline owns the release job graph, package path, action command, and secret routing; `@async/release` owns deterministic package evidence and doctor checks.
 
 Generated comment and annotation steps call `async/actions/comment`. Pipeline owns whether a job may comment, the target issue or pull request number, the marker id, fork pull request policy, and the explicit token expression. The comment action owns marker upserts, markdown body loading, summary appends, annotation rendering, bounded bodies, and comment id/url outputs.
@@ -119,6 +136,43 @@ sync: {
 ```
 
 `sync.github.dependabotAutoMerge: true` generates a separate `dependabot-auto-merge` job on `pull_request_target`. It only runs for `dependabot[bot]`, fetches Dependabot metadata, then calls `async/actions/dependabot-merge` with the allowed ecosystems. The action approves, waits for non-self checks, then schedules a squash merge with branch deletion.
+
+## Generated Update Trains And Dependency Bumps
+
+Use `sync.github.updateTrain` in a producer repo when a successful release should announce a package/version to explicit downstream repositories:
+
+```ts
+sync: {
+  github: {
+    updateTrain: {
+      package: "packages/pipeline",
+      repositories: ["async/flow", "async/framework"],
+      event: "async-dep-bump",
+      tokenEnv: "ASYNC_RELEASE_TRAIN_TOKEN",
+      after: "publish"
+    }
+  }
+}
+```
+
+The generated `update-train` job runs on published releases after the configured job reports success, and it can be selected manually through `workflow_dispatch` with optional `package` and `version` inputs. The workflow passes only the configured secret to `async/actions/update-train`; repositories, event type, package path, and source repository are committed in the generated workflow and lock.
+
+Use `sync.github.dependencyBump` in receiver repos to accept those dispatches:
+
+```ts
+sync: {
+  github: {
+    dependencyBump: {
+      packages: ["@async/pipeline"],
+      verify: ["pnpm async-pipeline sync generate", "pnpm test"],
+      success: "push",
+      failure: "pull-request"
+    }
+  }
+}
+```
+
+The generated `dependency-bump` job listens for `repository_dispatch` with the configured event type and supports manual dispatch with `package` and `version` inputs. Boolean form allows any existing direct dependency and lands through a pull request. Object form can restrict package names, choose a package manager, run explicit post-bump verification commands, and use `success: "push"` with `failure: "pull-request"` for trusted repos.
 
 ## Generated Actions Bridge
 

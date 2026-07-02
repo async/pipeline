@@ -30,6 +30,10 @@
           "value": "async-pipeline run verify"
         },
         {
+          "name": "pipeline:verifyImpact",
+          "value": "async-pipeline run verifyImpact"
+        },
+        {
           "name": "pipeline:task:docs.site",
           "value": "async-pipeline run-task docs.site"
         },
@@ -98,6 +102,10 @@
       "value": "async-pipeline run verify"
     },
     {
+      "name": "pipeline:verifyImpact",
+      "value": "async-pipeline run verifyImpact"
+    },
+    {
       "name": "pipeline:task:docs.site",
       "value": "async-pipeline run-task docs.site"
     },
@@ -150,6 +158,6 @@
       "value": "async-pipeline sync check"
     }
   ],
-  "hash": "sha256:fbf70e3c44ba4ea2d190d50be7bd95d1f61fc903282da6e801794ce2b0cb6a14",
-  "generatedAt": "2026-06-19T23:41:48.953Z"
+  "hash": "sha256:28468114618c1b9c685bfff665f19c6982151513b64ebc4bdda681689e2c8a74",
+  "generatedAt": "2026-07-02T05:46:15.541Z"
 }

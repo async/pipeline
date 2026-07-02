@@ -1,4 +1,4 @@
-import { agent, definePipeline, env, job, sh, task, trigger } from "./packages/pipeline/dist/index.js";
+import { agent, definePipeline, env, job, sh, source, task, trigger } from "./packages/pipeline/dist/index.js";
 import { hygieneTask } from "@async/hygiene/pipeline";
 import hygieneConfig from "./hygiene.config.ts";
 
@@ -30,6 +30,14 @@ export default definePipeline({
       runtime: ["node@24", "deno@2"],
       dependabotAutoMerge: true,
       packagePreviews: true,
+      sourceImpact: { jobs: ["verifyImpact"] },
+      updateTrain: {
+        package: "packages/pipeline",
+        repositories: ["async/flow", "async/framework"],
+        event: "async-dep-bump",
+        tokenEnv: "ASYNC_RELEASE_TRAIN_TOKEN",
+        after: "publish"
+      },
       evidence: true,
       contract: {
         mode: "report",
@@ -53,7 +61,7 @@ export default definePipeline({
       prefix: "pipeline",
       runners: ["package"],
       targets: [{ package: "async-pipeline-workspace" }],
-      jobs: ["publish", "snapshot", "verify"],
+      jobs: ["publish", "snapshot", "verify", "verifyImpact"],
       tasks: ["docs.site"],
       scripts: {
         "api-surface": "run-task api-surface",
@@ -70,6 +78,33 @@ export default definePipeline({
         "sync:check": "sync check"
       }
     }
+  },
+  // Declared dependents for many-repo impact runs (docs/many-repo-impact-runs.md).
+  // Explicit by design: this list, not lockfile scanning, decides which repos a
+  // candidate change is checked against. `ref: "main"` intentionally tracks the
+  // dependents' latest committed state; pin a SHA when reproducing a past run.
+  // Each prepare builds this checkout's CLI, then points the dependent's
+  // @async/pipeline pin at it via file:, so dependent suites run against the
+  // candidate change without any release or registry publish.
+  sources: {
+    flow: source.git({
+      url: "https://github.com/async/flow.git",
+      ref: "main",
+      prepare: [
+        sh`pnpm install --frozen-lockfile`,
+        sh((ctx) => sh`pnpm --dir ${ctx.candidate.dir} run build`),
+        sh((ctx) => sh`pnpm add -D @async/pipeline@file:${ctx.candidate.dir}/packages/pipeline`)
+      ]
+    }),
+    framework: source.git({
+      url: "https://github.com/async/framework.git",
+      ref: "main",
+      prepare: [
+        sh`pnpm install --frozen-lockfile`,
+        sh((ctx) => sh`pnpm --dir ${ctx.candidate.dir} run build`),
+        sh((ctx) => sh`pnpm add -D @async/pipeline@file:${ctx.candidate.dir}/packages/pipeline`)
+      ]
+    })
   },
   namedInputs: {
     default: [
@@ -238,6 +273,10 @@ export default definePipeline({
       cache: true,
       run: sh`node --test tests/examples/examples.test.js`
     }),
+    impact: task({
+      description: "Aggregate: the candidate change must keep declared dependent repos green. Runs flow and framework runtime suites (test/typecheck) against this checkout via file: installs; dependents' own sync/github checks are deliberately excluded because the post-release Dep Bump workflow regenerates those surfaces.",
+      dependsOn: ["build", "flow:test", "flow:typecheck", "framework:test"]
+    }),
     pack: task({
       dependsOn: ["test", "drift", "claims", "docs", "api-surface", "sync-check", "examples", "hygiene"],
       inputs: ["production", "package.json", "packages/*/package.json", "scripts/check-exports.mjs"],
@@ -291,6 +330,11 @@ export default definePipeline({
         // Silicon) are supported too; see docs/github-actions.md.
         runsOnMatrix: ["ubuntu-latest", "macos-latest"]
       }
+    }),
+    verifyImpact: job({
+      description: "Run declared dependent repos against the candidate change before a release exists.",
+      target: "impact",
+      trigger: ["pr", "manual"]
     }),
     snapshot: job({
       target: "snapshot",

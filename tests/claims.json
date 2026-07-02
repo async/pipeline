@@ -1037,6 +1037,41 @@
       ]
     },
     {
+      "id": "api.generated-update-train-dependency-bump",
+      "source": "docs/api.md",
+      "anchor": "`updateTrain` object form generates an `update-train` job that runs on published releases after an optional configured job succeeds, dispatches the configured event to explicit downstream repositories through `async/actions/update-train`, records package path, repositories, event, token env, and `after` in the workflow lock, and supports manual re-announcement with optional `package` and `version` inputs. `dependencyBump: true` generates a receiver job for the default `async-dep-bump` `repository_dispatch` event, allows existing direct dependencies, and lands through a pull request. `dependencyBump` object form can restrict package names, choose a package manager, run explicit verify commands, set the base branch and branch prefix, and use `success: \"push\"` with `failure: \"pull-request\"` for trusted repos.",
+      "tests": [
+        "renders and plans generated update train jobs",
+        "renders and plans generated dependency bump receiver jobs"
+      ]
+    },
+    {
+      "id": "github-actions.generated-update-train",
+      "source": "docs/github-actions.md",
+      "anchor": "`sync.github.updateTrain` adds a generated release-train producer job through `async/actions/update-train`. Pipeline owns the published-release trigger, optional `needs` dependency such as `after: \"publish\"`, manual dispatch inputs, explicit repository list, event type, secret mapping, lock fields, and local manifest; the action reads the released package path and dispatches the configured repository event with package, version, and source repository payload. When `after` is set, the generated job runs after that job succeeds on published releases and can still be re-announced manually through `workflow_dispatch`.",
+      "tests": [
+        "renders and plans generated update train jobs"
+      ]
+    },
+    {
+      "id": "github-actions.generated-dependency-bump",
+      "source": "docs/github-actions.md",
+      "anchor": "`sync.github.dependencyBump` adds a generated receiver job through `async/actions/dependency-bump`. Pipeline owns the `repository_dispatch` event type, manual dispatch inputs, permissions, package allowlist, verify commands, landing policy, secret mapping, lock fields, and local manifest; the action validates the requested package/version, updates the direct dependency and lockfile with the configured package manager, runs the explicit verify commands, then pushes or opens a pull request according to `success` and `failure`. Boolean form defaults to direct-dependency validation and pull-request landing.",
+      "tests": [
+        "renders and plans generated dependency bump receiver jobs"
+      ]
+    },
+    {
+      "id": "changelog.generated-update-train-dependency-bump",
+      "source": "CHANGELOG.md",
+      "anchor": "Add generated `sync.github.updateTrain` and `sync.github.dependencyBump` jobs backed by pinned `async/actions@v0.1.21` step primitives so producer repos can dispatch release trains after publish and receiver repos can apply allowlisted dependency bumps through verified push or pull-request landing.",
+      "tests": [
+        "renders and plans generated update train jobs",
+        "renders and plans generated dependency bump receiver jobs",
+        "PROMISE: the release chain publishes GitHub Packages before npm, and package previews/snapshots are wired to their triggers"
+      ]
+    },
+    {
       "id": "github-actions.generated-release-doctor-evidence",
       "source": "docs/github-actions.md",
       "anchor": "Generated release lifecycle jobs add `async/actions/doctor` steps for `@async/release` package planning, package inspection, changelog checks, release-note rendering, and final doctor evidence under `.async/release`. The GitHub Release publish step uses `.async/release/release-notes.md`, and registry or GitHub writes still run through `async/actions/publish`. Pipeline owns the release job graph, package path, action command, and secret routing; `@async/release` owns deterministic package evidence and doctor checks.",

@@ -13,8 +13,8 @@ import { checkGitHubWorkflow, jobsForGitHubEvent, planGitHubJobs, renderGitHubWo
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageUrl = pathToFileURL(join(repoRoot, "packages/pipeline/dist/index.js")).href;
 const cliPath = join(repoRoot, "packages/pipeline-node/dist/cli.js");
-const asyncActionsSha = "41e79159e12a7a2092c6911d850450082a8add09";
-const asyncActionsLabel = "v0.1.20";
+const asyncActionsSha = "1590fc528b0cb0e3634af121f9ee92948aa72e24";
+const asyncActionsLabel = "v0.1.21";
 const asyncActionsRefPattern = `${asyncActionsSha} # ${asyncActionsLabel.replaceAll(".", "\\.")}`;
 const asyncActionUses = (name) => new RegExp(`uses: async/actions/${name}@${asyncActionsRefPattern}`);
 
@@ -432,6 +432,190 @@ test("renders generated Dependabot auto-merge workflow job", async () => {
       enabled: true,
       ecosystems: ["github-actions", "npm", "deno"]
     });
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("renders and plans generated update train jobs", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-update-train-"));
+  try {
+    mkdirSync(join(dir, "packages", "pipeline"), { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "workspace", private: true, packageManager: "pnpm@11.1.0" }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    writeFileSync(join(dir, "packages", "pipeline", "package.json"), JSON.stringify({ name: "@async/pipeline", version: "0.9.31" }), "utf8");
+    const pipeline = definePipeline({
+      name: "test",
+      sync: {
+        github: {
+          updateTrain: {
+            package: "packages/pipeline",
+            repositories: ["async/flow", "async/framework"],
+            event: "async-dep-bump",
+            tokenEnv: "ASYNC_RELEASE_TRAIN_TOKEN",
+            after: "publish"
+          },
+          evidence: true
+        }
+      },
+      triggers: {
+        release: trigger.github({ events: ["release"], types: ["published"] }),
+        manual: trigger.manual()
+      },
+      tasks: {
+        publish: task({ run: sh`pnpm async-pipeline publish npm --package packages/pipeline` })
+      },
+      jobs: {
+        publish: job({ target: "publish", trigger: ["release", "manual"] })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, /release:\n    types:\n      - "published"/);
+    assert.match(rendered.workflow, /workflow_dispatch:\n    inputs:\n      job:[\s\S]+- "publish"\n          - "update-train"[\s\S]+package:\n        description: "Package path or dependency package"[\s\S]+version:\n        description: "Package version"/);
+    assert.match(rendered.workflow, /update-train:\n    name: update-train\n    needs: \["publish"\]\n    if: always\(\) && \(\(github\.event_name == 'release' && github\.event\.action == 'published' && needs\['publish'\]\.result == 'success'\) \|\| \(github\.event_name == 'workflow_dispatch' && github\.event\.inputs\.job == 'update-train'\)\)/);
+    assert.match(rendered.workflow, asyncActionUses("update-train"));
+    assert.match(rendered.workflow, /package-path: \$\{\{ github\.event\.inputs\.package \|\| 'packages\/pipeline' \}\}/);
+    assert.match(rendered.workflow, /repositories: \|\n            async\/flow\n            async\/framework/);
+    assert.match(rendered.workflow, /event-type: "async-dep-bump"/);
+    assert.match(rendered.workflow, /github-token: \$\{\{ secrets\.ASYNC_RELEASE_TRAIN_TOKEN \}\}/);
+    assert.match(rendered.workflow, /evidence:\n    name: evidence\n    needs: \["publish","update-train"\]\n    if: always\(\)/);
+    assert.deepEqual(rendered.lock.updateTrain, {
+      enabled: true,
+      job: "update-train",
+      packagePath: "packages/pipeline",
+      repositories: ["async/flow", "async/framework"],
+      event: "async-dep-bump",
+      tokenEnv: "ASYNC_RELEASE_TRAIN_TOKEN",
+      after: "publish"
+    });
+    assert.equal(rendered.lock.actions.find((entry) => entry.id === "async.actions.update-train")?.sha, asyncActionsSha);
+    assert.deepEqual(rendered.lock.manualDispatchInputs, [
+      { id: "package", description: "Package path or dependency package", required: false, type: "string" },
+      { id: "version", description: "Package version", required: false, type: "string" }
+    ]);
+
+    const releasePlan = await planGitHubJobs(pipeline, {
+      cwd: dir,
+      configPath: join(dir, "pipeline.ts"),
+      eventName: "release",
+      eventAction: "published"
+    });
+    const trainManifest = releasePlan.manifests.find((entry) => entry.job.id === "update-train");
+    assert.ok(trainManifest);
+    const trainStep = trainManifest.steps.find((entry) => entry.local.contract === "update-train");
+    assert.ok(trainStep);
+    assert.equal(trainStep.uses, `async/actions/update-train@${asyncActionsSha}`);
+    assert.deepEqual(trainStep.secrets, ["ASYNC_RELEASE_TRAIN_TOKEN"]);
+    assert.equal(trainStep.local.networked, true);
+    assert.equal(trainStep.local.dangerous, true);
+    assert.equal(trainStep.with.repositories, "async/flow\nasync/framework");
+
+    const manualPlan = await planGitHubJobs(pipeline, {
+      cwd: dir,
+      configPath: join(dir, "pipeline.ts"),
+      eventName: "workflow_dispatch",
+      selectedJob: "update-train"
+    });
+    assert.ok(manualPlan.manifests.some((entry) => entry.job.id === "update-train"));
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("renders and plans generated dependency bump receiver jobs", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "async-pipeline-github-dependency-bump-"));
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({
+      name: "receiver",
+      private: true,
+      packageManager: "pnpm@11.1.0",
+      devDependencies: {
+        "@async/pipeline": "0.9.30"
+      }
+    }), "utf8");
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    const pipeline = definePipeline({
+      name: "receiver",
+      sync: {
+        github: {
+          setup: "async",
+          dependencyBump: {
+            packages: ["@async/pipeline"],
+            verify: ["pnpm async-pipeline sync generate", "pnpm test"],
+            success: "push",
+            failure: "pull-request",
+            tokenEnv: "ASYNC_DEP_BUMP_TOKEN"
+          },
+          evidence: true
+        }
+      },
+      tasks: {
+        verify: task({ run: sh`echo verify` })
+      },
+      jobs: {
+        verify: job({ target: "verify" })
+      }
+    });
+
+    const rendered = await renderGitHubWorkflow(pipeline, { cwd: dir, configPath: join(dir, "pipeline.ts") });
+
+    assert.match(rendered.workflow, /repository_dispatch:\n    types:\n      - "async-dep-bump"/);
+    assert.match(rendered.workflow, /workflow_dispatch:\n    inputs:\n      job:[\s\S]+- "dependency-bump"[\s\S]+package:\n        description: "Package path or dependency package"[\s\S]+version:\n        description: "Package version"/);
+    assert.match(rendered.workflow, /dependency-bump:\n    name: dependency-bump\n    if: \(github\.event_name == 'repository_dispatch' && github\.event\.action == 'async-dep-bump'\) \|\| \(github\.event_name == 'workflow_dispatch' && github\.event\.inputs\.job == 'dependency-bump'\)/);
+    assert.match(rendered.workflow, /permissions:\n      contents: write\n      pull-requests: write/);
+    assert.match(rendered.workflow, /token: \$\{\{ secrets\.ASYNC_DEP_BUMP_TOKEN \}\}/);
+    assert.match(rendered.workflow, asyncActionUses("dependency-bump"));
+    assert.match(rendered.workflow, /package-name: \$\{\{ github\.event\.client_payload\.package \|\| github\.event\.inputs\.package \|\| '' \}\}/);
+    assert.match(rendered.workflow, /version: \$\{\{ github\.event\.client_payload\.version \|\| github\.event\.inputs\.version \|\| '' \}\}/);
+    assert.match(rendered.workflow, /allowed-packages: \|\n            @async\/pipeline/);
+    assert.match(rendered.workflow, /package-manager: "pnpm"/);
+    assert.match(rendered.workflow, /verify: \|\n            pnpm async-pipeline sync generate\n            pnpm test/);
+    assert.match(rendered.workflow, /success-mode: push/);
+    assert.match(rendered.workflow, /failure-mode: pull-request/);
+    assert.match(rendered.workflow, /github-token: \$\{\{ secrets\.ASYNC_DEP_BUMP_TOKEN \}\}/);
+    assert.match(rendered.workflow, /evidence:\n    name: evidence\n    needs: \["dependency-bump","verify"\]\n    if: always\(\)/);
+    assert.deepEqual(rendered.lock.dependencyBump, {
+      enabled: true,
+      job: "dependency-bump",
+      packages: ["@async/pipeline"],
+      event: "async-dep-bump",
+      tokenEnv: "ASYNC_DEP_BUMP_TOKEN",
+      packageManager: "auto",
+      verify: ["pnpm async-pipeline sync generate", "pnpm test"],
+      success: "push",
+      failure: "pull-request",
+      branchPrefix: "async/dependency-bump/",
+      baseBranch: "main"
+    });
+    assert.equal(rendered.lock.actions.find((entry) => entry.id === "async.actions.dependency-bump")?.sha, asyncActionsSha);
+
+    const dispatchPlan = await planGitHubJobs(pipeline, {
+      cwd: dir,
+      configPath: join(dir, "pipeline.ts"),
+      eventName: "repository_dispatch",
+      eventAction: "async-dep-bump"
+    });
+    const bumpManifest = dispatchPlan.manifests.find((entry) => entry.job.id === "dependency-bump");
+    assert.ok(bumpManifest);
+    const bumpStep = bumpManifest.steps.find((entry) => entry.local.contract === "dependency-bump");
+    assert.ok(bumpStep);
+    assert.equal(bumpStep.uses, `async/actions/dependency-bump@${asyncActionsSha}`);
+    assert.deepEqual(bumpStep.permissions, { contents: "write", "pull-requests": "write" });
+    assert.deepEqual(bumpStep.secrets, ["ASYNC_DEP_BUMP_TOKEN"]);
+    assert.equal(bumpStep.local.networked, true);
+    assert.equal(bumpStep.local.dangerous, true);
+    assert.equal(bumpStep.with["allowed-packages"], "@async/pipeline");
+    assert.equal(bumpStep.with.verify, "pnpm async-pipeline sync generate\npnpm test");
+
+    const manualPlan = await planGitHubJobs(pipeline, {
+      cwd: dir,
+      configPath: join(dir, "pipeline.ts"),
+      eventName: "workflow_dispatch",
+      selectedJob: "dependency-bump"
+    });
+    assert.ok(manualPlan.manifests.some((entry) => entry.job.id === "dependency-bump"));
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }

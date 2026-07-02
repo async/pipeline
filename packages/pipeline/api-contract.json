@@ -98,6 +98,24 @@
           "docsUrl": "https://github.com/async/pipeline/blob/main/docs/github-actions.md"
         },
         {
+          "id": "config.sync.github.updateTrain",
+          "title": "Generated release train dispatch job declaration",
+          "releaseTag": "beta",
+          "stability": "preview",
+          "lifecycle": "active",
+          "group": "config",
+          "docsUrl": "https://github.com/async/pipeline/blob/main/docs/github-actions.md"
+        },
+        {
+          "id": "config.sync.github.dependencyBump",
+          "title": "Generated dependency bump receiver job declaration",
+          "releaseTag": "beta",
+          "stability": "preview",
+          "lifecycle": "active",
+          "group": "config",
+          "docsUrl": "https://github.com/async/pipeline/blob/main/docs/github-actions.md"
+        },
+        {
           "id": "config.sync.github.pages",
           "title": "Generated GitHub Pages sync declaration",
           "releaseTag": "beta",

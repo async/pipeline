@@ -501,6 +501,19 @@ sync: {
     packagePreviews: true,
     evidence: true,
     sourceImpact: true,
+    updateTrain: {
+      package: "packages/pipeline",
+      repositories: ["async/flow", "async/framework"],
+      event: "async-dep-bump",
+      tokenEnv: "ASYNC_RELEASE_TRAIN_TOKEN",
+      after: "publish"
+    },
+    dependencyBump: {
+      packages: ["@async/pipeline"],
+      verify: ["pnpm async-pipeline sync generate", "pnpm test"],
+      success: "push",
+      failure: "pull-request"
+    },
     attest: true,
     contract: {
       mode: "report",
@@ -525,6 +538,8 @@ sync: {
 `sync.command` defaults to `async-pipeline` and is used by generated task commands and generated GitHub workflow commands. `setup: "auto"` currently resolves to the default pinned `pnpm/setup` provider; explicit `setup: "async"` selects `async/actions/setup`. Package projects default generated GitHub workflows to `node@<nodeVersion>`; Deno-only projects with `deno.json` or `deno.jsonc` and no `package.json` default to `deno@2`; explicit `runtime` accepts a string or array such as `["node@24", "deno@2"]`. Use `setup: "node"` when you explicitly want the older `actions/setup-node` + Corepack bootloader for a single Node runtime. `nodeVersion` selects the default Node runtime installed by the generated workflow (default `24`). `cache: true` (the default) writes a generated task-cache manifest and calls `async/actions/cache` to restore matching `.async/cache/tasks/<key>` paths; trusted non-PR jobs save with the same manifest after success. `dependencyCache: true` (the default) passes the recognized lockfile to the selected setup provider for dependency-store caching. Set `cache: false` to keep task execution cold, and set `dependencyCache: false` for a fully cold dependency install.
 
 `dependabotAutoMerge: true` generates a guarded Dependabot approval-and-merge job for npm, Deno, and GitHub Actions dependency updates through `async/actions/dependabot-merge`. `packagePreviews: true` generates a pull-request package preview job: it finds the public root package or single public `packages/*` workspace package, runs `pack` or `build`, runs `@async/release` preview plan, stage, and inspect evidence before publishing through `async/actions/preview`, runs preview doctor after publish when the action reports a package spec, comments install instructions on same-repo PRs, and collects `.async/release` when evidence fan-in is enabled. `evidence: true` adds manifest-backed evidence collection to generated jobs and a fan-in evidence job that merges downloaded manifests through `async/actions/evidence`. `sourceImpact: true` adds generated `<job>-source-plan` and `<job>-sources` jobs for source-backed jobs; the plan job writes static source metadata, `async/actions/source-impact` emits the source matrix, and the matrix job validates checkout and prepare metadata before running namespaced source tasks. `attest: true` adds digest, SBOM, tarball-scan, and optional GitHub attestation receipt steps to generated release lifecycle jobs through `async/actions/attest`; OIDC is granted only for provenance or explicit GitHub attestation. `contract` object form generates a contract evidence job through `async/actions/contract`; `report`, `check`, and `strict` run on pull requests, `release` runs on published releases, and schema sources write bounded JSON evidence under the configured `.async/contract` path. `hygiene` object form generates a hygiene evidence job through `async/actions/hygiene`; selected profiles write bounded manifest, findings, summary, and JSON report evidence under the configured `.async/hygiene` path, pull-request report mode is advisory, check and strict modes are blocking, and `releaseGate: true` makes report-mode hygiene also run as a blocking published-release job. Generated release lifecycle jobs add `async/actions/doctor` steps for `@async/release` package planning, package inspection, changelog checks, release-note rendering, and final doctor evidence under `.async/release` while registry and GitHub writes stay in `async/actions/publish`. `bridge` object form generates an `async-bridge` job that pulls approved Async change sets through `@async/github-app`, enforces the configured branch prefix and path allowlist, and scopes the project token to the bridge pull step. `pages: true` generates GitHub Pages build/deploy jobs from an existing docs task, defaulting to `.async/pages` and pull request, `main`, and manual triggers; `build.kind: "prerender"` validates static prerender output for GitHub Pages.
+
+`updateTrain` object form generates an `update-train` job that runs on published releases after an optional configured job succeeds, dispatches the configured event to explicit downstream repositories through `async/actions/update-train`, records package path, repositories, event, token env, and `after` in the workflow lock, and supports manual re-announcement with optional `package` and `version` inputs. `dependencyBump: true` generates a receiver job for the default `async-dep-bump` `repository_dispatch` event, allows existing direct dependencies, and lands through a pull request. `dependencyBump` object form can restrict package names, choose a package manager, run explicit verify commands, set the base branch and branch prefix, and use `success: "push"` with `failure: "pull-request"` for trusted repos.
 
 ```ts
 sync: {

@@ -27,9 +27,11 @@ Contract: `@async/pipeline.declaration`
 | `config.sync.github` | Generated GitHub Actions sync declaration | public | stable | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/sync.md) |
 | `config.sync.github.bridge` | Generated GitHub Actions storage bridge declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
 | `config.sync.github.cache` | Generated GitHub Actions task-cache manifest declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
+| `config.sync.github.dependencyBump` | Generated dependency bump receiver job declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
 | `config.sync.github.evidence` | Generated GitHub Actions evidence fan-in declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
 | `config.sync.github.pages` | Generated GitHub Pages sync declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
 | `config.sync.github.sourceImpact` | Generated source impact matrix job declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
+| `config.sync.github.updateTrain` | Generated release train dispatch job declaration | beta | preview | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/github-actions.md) |
 | `config.sync.tasks` | Generated package script and task sync declaration | public | stable | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/sync.md) |
 | `config.task` | Task declaration | public | stable | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#task) |
 | `config.trigger.github` | GitHub trigger declaration | public | stable | active |  | [docs](https://github.com/async/pipeline/blob/main/docs/api.md#trigger) |

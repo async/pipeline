@@ -12,8 +12,8 @@
       "field": "scripts",
       "commands": [
         {
-          "name": "pipeline:nightly",
-          "value": "async-pipeline run nightly"
+          "name": "pipeline:publish",
+          "value": "async-pipeline run publish"
         },
         {
           "name": "pipeline:verify",
@@ -24,14 +24,14 @@
   ],
   "commands": [
     {
-      "name": "pipeline:nightly",
-      "value": "async-pipeline run nightly"
+      "name": "pipeline:publish",
+      "value": "async-pipeline run publish"
     },
     {
       "name": "pipeline:verify",
       "value": "async-pipeline run verify"
     }
   ],
-  "hash": "sha256:c4c8628d110ab7a682e121b31a9d14774427c1876050ab0096d81892de3250cb",
-  "generatedAt": "2026-07-02T05:36:30.771Z"
+  "hash": "sha256:cae0199d9ccbd8541c4143848d91c7dad04afe3b0fb477b120e4474630c40210",
+  "generatedAt": "2026-07-02T05:35:31.560Z"
 }

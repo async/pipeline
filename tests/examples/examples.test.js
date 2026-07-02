@@ -55,6 +55,11 @@ test("generated-package-previews: verify runs and sync artifacts are current", (
   assertSyncCurrent("generated-package-previews");
 });
 
+test("generated-update-train: verify runs and sync artifacts are current", () => {
+  assertJobPasses("generated-update-train", "verify");
+  assertSyncCurrent("generated-update-train");
+});
+
 test("agent-claims-repair: verify is green, the stale fixture fails, and the mock agent proposes an applicable patch", () => {
   const dir = exampleDir("agent-claims-repair");
   rmSync(join(dir, "claims.patch"), { force: true });

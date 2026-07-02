@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import type { DeployDefinition, EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubAttestConfig, NormalizedGitHubBridgeSyncConfig, NormalizedGitHubContractConfig, NormalizedGitHubEvidenceConfig, NormalizedGitHubHygieneConfig, NormalizedGitHubPagesSyncConfig, NormalizedGitHubSourceImpactConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, PipelineEventEnvelope, PipelineWorkflowJobPlan, PipelineWorkflowLifecycleStepKind, PipelineWorkflowTrustPolicy, ReportDefinition, TriggerDefinition, TriggerId } from "@async/pipeline-core";
+import type { DeployDefinition, EnvValue, ExecutionProfileId, GitHubJobConfig, GitHubPagesConfig, GitHubRuntimeName, JobEnvironment, JobRequirements, JobId, NormalizedGitHubAttestConfig, NormalizedGitHubBridgeSyncConfig, NormalizedGitHubContractConfig, NormalizedGitHubDependencyBumpConfig, NormalizedGitHubEvidenceConfig, NormalizedGitHubHygieneConfig, NormalizedGitHubPagesSyncConfig, NormalizedGitHubSourceImpactConfig, NormalizedGitHubUpdateTrainConfig, NormalizedJob, NormalizedPackagePreviewsConfig, NormalizedPipeline, NormalizedTask, PipelineEventEnvelope, PipelineWorkflowJobPlan, PipelineWorkflowLifecycleStepKind, PipelineWorkflowTrustPolicy, ReportDefinition, TriggerDefinition, TriggerId } from "@async/pipeline-core";
 import { githubConfigForJob, pipelineError } from "@async/pipeline-core";
 import { sourceImpactPlanForJob, type SourceImpactPlan } from "./sources.js";
 
@@ -33,8 +33,8 @@ function defineActionRef(id: string, uses: string, sha: string, label: string): 
   };
 }
 
-const ASYNC_ACTIONS_SHA = "41e79159e12a7a2092c6911d850450082a8add09";
-const ASYNC_ACTIONS_LABEL = "v0.1.20";
+const ASYNC_ACTIONS_SHA = "1590fc528b0cb0e3634af121f9ee92948aa72e24";
+const ASYNC_ACTIONS_LABEL = "v0.1.21";
 const ASYNC_RELEASE_PACKAGE = "github:async/release#v0.1.5";
 const ASYNC_RELEASE_COMMAND = `pnpm dlx ${ASYNC_RELEASE_PACKAGE}`;
 
@@ -54,6 +54,8 @@ const GENERATED_ACTIONS = [
   defineActionRef("async.actions.attest", "async/actions/attest", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.contract", "async/actions/contract", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("async.actions.hygiene", "async/actions/hygiene", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("async.actions.update-train", "async/actions/update-train", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
+  defineActionRef("async.actions.dependency-bump", "async/actions/dependency-bump", ASYNC_ACTIONS_SHA, ASYNC_ACTIONS_LABEL),
   defineActionRef("actions.checkout", "actions/checkout", "de0fac2e4500dabe0009e67214ff5f5447ce83dd", "v6.0.2"),
   defineActionRef("pnpm.setup", "pnpm/setup", "cf03a9b516e09bc5a90f041fc26fc930c9dc631b", "v1.0.0"),
   defineActionRef("deno.setup", "denoland/setup-deno", "667a34cdef165d8d2b2e98dde39547c9daac7282", "v2.0.4"),
@@ -79,6 +81,8 @@ const ASYNC_CACHE_ACTION = actionRef("async.actions.cache");
 const ASYNC_ATTEST_ACTION = actionRef("async.actions.attest");
 const ASYNC_CONTRACT_ACTION = actionRef("async.actions.contract");
 const ASYNC_HYGIENE_ACTION = actionRef("async.actions.hygiene");
+const ASYNC_UPDATE_TRAIN_ACTION = actionRef("async.actions.update-train");
+const ASYNC_DEPENDENCY_BUMP_ACTION = actionRef("async.actions.dependency-bump");
 const CHECKOUT_ACTION = actionRef("actions.checkout");
 const PNPM_SETUP_ACTION = actionRef("pnpm.setup");
 const DENO_SETUP_ACTION = actionRef("deno.setup");
@@ -140,6 +144,8 @@ export interface GitHubLock {
   attest: NormalizedGitHubAttestConfig;
   contract: NormalizedGitHubContractConfig;
   hygiene: NormalizedGitHubHygieneConfig;
+  updateTrain: NormalizedGitHubUpdateTrainConfig;
+  dependencyBump: NormalizedGitHubDependencyBumpConfig;
   bridge: NormalizedGitHubBridgeSyncConfig & {
     job: "async-bridge";
     actionsJob: {
@@ -150,6 +156,14 @@ export interface GitHubLock {
   };
   pages: NormalizedGitHubPagesSyncConfig;
   manualDispatchJobs?: string[];
+  manualDispatchInputs?: ManualDispatchInput[];
+}
+
+interface ManualDispatchInput {
+  id: string;
+  description: string;
+  required: boolean;
+  type: "string";
 }
 
 interface PackageInfo {
@@ -399,9 +413,12 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     attest: renderModel.attest,
     contract: renderModel.contract,
     hygiene: renderModel.hygiene,
+    updateTrain: renderModel.updateTrain,
+    dependencyBump: renderModel.dependencyBump,
     bridge: renderModel.bridge,
     pages: renderModel.pages,
     manualDispatchJobs: renderModel.manualDispatchJobs,
+    manualDispatchInputs: renderModel.manualDispatchInputs,
     actions: ACTION_LOCKS
   });
   const lock: GitHubLock = {
@@ -431,9 +448,12 @@ export async function renderGitHubWorkflow(pipeline: NormalizedPipeline, options
     attest: renderModel.attest,
     contract: renderModel.contract,
     hygiene: renderModel.hygiene,
+    updateTrain: renderModel.updateTrain,
+    dependencyBump: renderModel.dependencyBump,
     bridge: renderModel.bridge,
     pages: renderModel.pages,
-    manualDispatchJobs: renderModel.manualDispatchJobs
+    manualDispatchJobs: renderModel.manualDispatchJobs,
+    manualDispatchInputs: renderModel.manualDispatchInputs
   };
   return {
     workflowPath,
@@ -1022,6 +1042,22 @@ function buildGeneratedJobManifests(
       skipReason: selected ? "" : skipReasonForGeneratedJob(event, manualIds)
     });
   }
+  if (model.updateTrain.enabled) {
+    const selected = updateTrainSelected(model.updateTrain, event);
+    candidates.push({
+      manifest: buildUpdateTrainManifest(model, rendered, event, network),
+      selected,
+      skipReason: selected ? "" : skipReasonForGeneratedJob(event, [model.updateTrain.job])
+    });
+  }
+  if (model.dependencyBump.enabled) {
+    const selected = dependencyBumpSelected(model.dependencyBump, event);
+    candidates.push({
+      manifest: buildDependencyBumpManifest(model, rendered, event, network),
+      selected,
+      skipReason: selected ? "" : skipReasonForGeneratedJob(event, [model.dependencyBump.job])
+    });
+  }
   if (model.dependabotAutoMerge.enabled) {
     const selected = event.name === "pull_request_target";
     candidates.push({
@@ -1124,7 +1160,9 @@ function makeJobManifest(
         "agent-evidence",
         "source-impact",
         "cache",
-        "attest"
+        "attest",
+        "update-train",
+        "dependency-bump"
       ]
     }
   };
@@ -1162,6 +1200,12 @@ function cleanPermissions(permissions: Record<string, string | undefined>): Reco
 
 function checkoutStep(): GitHubManifestStep {
   return actionManifestStep("checkout", "Checkout", CHECKOUT_ACTION, {}, "checkout");
+}
+
+function checkoutWithTokenStep(tokenEnv: string): GitHubManifestStep {
+  return actionManifestStep("checkout", "Checkout", CHECKOUT_ACTION, {
+    token: `\${{ secrets.${tokenEnv} }}`
+  }, "checkout", { secrets: [tokenEnv] });
 }
 
 function setupManifestSteps(model: ReturnType<typeof buildRenderModel>): GitHubManifestStep[] {
@@ -1385,6 +1429,36 @@ function hygieneActionInput(hygiene: NormalizedGitHubHygieneConfig): Record<stri
     annotations: hygiene.annotations,
     "fail-on": hygiene.mode === "report" ? "generated-policy" : "blocking",
     "release-gate": hygiene.releaseGate
+  });
+}
+
+function updateTrainActionInput(updateTrain: NormalizedGitHubUpdateTrainConfig): Record<string, unknown> {
+  return sortObject({
+    "package-path": `\${{ github.event.inputs.package || '${escapeExpressionString(updateTrain.packagePath)}' }}`,
+    repositories: updateTrain.repositories.join("\n"),
+    "event-type": updateTrain.event,
+    "source-repository": "${{ github.repository }}",
+    version: "${{ github.event.inputs.version || '' }}",
+    "github-token": `\${{ secrets.${updateTrain.tokenEnv} }}`
+  });
+}
+
+function dependencyBumpActionInput(
+  dependencyBump: NormalizedGitHubDependencyBumpConfig,
+  packageManager: string
+): Record<string, unknown> {
+  return sortObject({
+    "package-name": "${{ github.event.client_payload.package || github.event.inputs.package || '' }}",
+    version: "${{ github.event.client_payload.version || github.event.inputs.version || '' }}",
+    "allowed-packages": dependencyBump.packages.join("\n"),
+    "package-manager": dependencyBump.packageManager === "auto" ? packageManager : dependencyBump.packageManager,
+    verify: dependencyBump.verify.join("\n"),
+    "success-mode": dependencyBump.success,
+    "failure-mode": dependencyBump.failure,
+    "branch-prefix": dependencyBump.branchPrefix,
+    "base-branch": dependencyBump.baseBranch,
+    repository: "${{ github.repository }}",
+    "github-token": `\${{ secrets.${dependencyBump.tokenEnv} }}`
   });
 }
 
@@ -1888,6 +1962,71 @@ function buildHygieneManifest(
   });
 }
 
+function buildUpdateTrainManifest(
+  model: ReturnType<typeof buildRenderModel>,
+  rendered: GitHubRenderResult,
+  event: GitHubManifestEvent,
+  network: GitHubLocalNetworkMode
+): GitHubJobManifest {
+  const updateTrain = model.updateTrain;
+  const steps = [
+    checkoutStep(),
+    actionManifestStep("dispatch-update-train", "Dispatch update train", ASYNC_UPDATE_TRAIN_ACTION, updateTrainActionInput(updateTrain), "update-train", {
+      secrets: [updateTrain.tokenEnv],
+      networked: true,
+      dangerous: true
+    }),
+    ...evidenceCollectManifestSteps(model)
+  ];
+  return makeJobManifest(model, rendered, event, {
+    id: updateTrain.job,
+    kind: "generated",
+    target: [],
+    runsOn: "ubuntu-latest",
+    permissions: { contents: "read" },
+    environment: null,
+    concurrency: null,
+    if: renderUpdateTrainCondition(updateTrain),
+    trigger: ["release", "workflow_dispatch"],
+    steps,
+    network
+  });
+}
+
+function buildDependencyBumpManifest(
+  model: ReturnType<typeof buildRenderModel>,
+  rendered: GitHubRenderResult,
+  event: GitHubManifestEvent,
+  network: GitHubLocalNetworkMode
+): GitHubJobManifest {
+  const dependencyBump = model.dependencyBump;
+  const steps = [
+    checkoutWithTokenStep(dependencyBump.tokenEnv),
+    ...setupManifestSteps(model),
+    ...dependencyInstallManifestSteps(model),
+    actionManifestStep("apply-dependency-bump", "Apply dependency bump", ASYNC_DEPENDENCY_BUMP_ACTION, dependencyBumpActionInput(dependencyBump, model.packageManager), "dependency-bump", {
+      permissions: { contents: "write", "pull-requests": "write" },
+      secrets: [dependencyBump.tokenEnv],
+      networked: true,
+      dangerous: true
+    }),
+    ...evidenceCollectManifestSteps(model)
+  ];
+  return makeJobManifest(model, rendered, event, {
+    id: dependencyBump.job,
+    kind: "generated",
+    target: [],
+    runsOn: "ubuntu-latest",
+    permissions: { contents: "write", "pull-requests": "write" },
+    environment: null,
+    concurrency: null,
+    if: renderDependencyBumpCondition(dependencyBump),
+    trigger: ["repository_dispatch", "workflow_dispatch"],
+    steps,
+    network
+  });
+}
+
 function buildEvidenceFanInManifest(
   model: ReturnType<typeof buildRenderModel>,
   rendered: GitHubRenderResult,
@@ -2038,6 +2177,16 @@ function hygieneSelected(model: ReturnType<typeof buildRenderModel>, event: GitH
   return event.name === "pull_request";
 }
 
+function updateTrainSelected(updateTrain: NormalizedGitHubUpdateTrainConfig, event: GitHubManifestEvent): boolean {
+  if (event.name === "workflow_dispatch") return event.selectedJob === updateTrain.job;
+  return event.name === "release" && (!event.action || event.action === "published");
+}
+
+function dependencyBumpSelected(dependencyBump: NormalizedGitHubDependencyBumpConfig, event: GitHubManifestEvent): boolean {
+  if (event.name === "workflow_dispatch") return event.selectedJob === dependencyBump.job;
+  return event.name === "repository_dispatch" && (!event.action || event.action === dependencyBump.event);
+}
+
 function skipReasonForJob(event: GitHubManifestEvent, trigger: string[]): string {
   if (event.name === "workflow_dispatch" && !event.selectedJob && trigger.some((id) => id === "manual")) return "manual_selector_missing";
   return "event_filter";
@@ -2099,6 +2248,8 @@ function buildRenderModel(
   const bridge = resolveGitHubBridge(pipeline);
   const contract = resolveGitHubContract(pipeline, { pages, bridge });
   const hygiene = resolveGitHubHygiene(pipeline, { pages, bridge, contract });
+  const updateTrain = resolveGitHubUpdateTrain(pipeline, { pages, bridge, contract, hygiene });
+  const dependencyBump = resolveGitHubDependencyBump(pipeline, { pages, bridge, contract, hygiene, updateTrain });
   if (pages.enabled) {
     if (pages.triggers.pullRequest) {
       addGitHubEventTrigger(triggers, "pull_request");
@@ -2125,25 +2276,58 @@ function buildRenderModel(
       addReleasePublishedTrigger(triggers);
     }
   }
+  if (updateTrain.enabled) {
+    addReleasePublishedTrigger(triggers);
+  }
+  if (dependencyBump.enabled) {
+    addRepositoryDispatchTrigger(triggers, dependencyBump.event);
+  }
   const manualDispatchJobs = Object.values(pipeline.jobs)
     .filter((job) => job.trigger.some((triggerId) => pipeline.triggers[triggerId]?.type === "manual"))
     .map((job) => job.id)
     .sort((left, right) => left.localeCompare(right));
   if (pages.enabled && pages.triggers.manual) {
-    manualDispatchJobs.push(pages.job);
-    manualDispatchJobs.sort((left, right) => left.localeCompare(right));
+    addManualDispatchJob(manualDispatchJobs, pages.job);
   }
   if (bridge.actionsJob.manual) {
-    manualDispatchJobs.push(bridge.job);
-    manualDispatchJobs.sort((left, right) => left.localeCompare(right));
+    addManualDispatchJob(manualDispatchJobs, bridge.job);
   }
   if (contract.enabled) {
-    manualDispatchJobs.push(contract.job);
-    manualDispatchJobs.sort((left, right) => left.localeCompare(right));
+    addManualDispatchJob(manualDispatchJobs, contract.job);
   }
   if (hygiene.enabled) {
-    manualDispatchJobs.push(hygiene.job);
-    manualDispatchJobs.sort((left, right) => left.localeCompare(right));
+    addManualDispatchJob(manualDispatchJobs, hygiene.job);
+  }
+  const manualDispatchInputs: ManualDispatchInput[] = [];
+  if (updateTrain.enabled) {
+    addManualDispatchJob(manualDispatchJobs, updateTrain.job);
+    addManualDispatchInput(manualDispatchInputs, {
+      id: "package",
+      description: "Package path or dependency package",
+      required: false,
+      type: "string"
+    });
+    addManualDispatchInput(manualDispatchInputs, {
+      id: "version",
+      description: "Package version",
+      required: false,
+      type: "string"
+    });
+  }
+  if (dependencyBump.enabled) {
+    addManualDispatchJob(manualDispatchJobs, dependencyBump.job);
+    addManualDispatchInput(manualDispatchInputs, {
+      id: "package",
+      description: "Package path or dependency package",
+      required: false,
+      type: "string"
+    });
+    addManualDispatchInput(manualDispatchInputs, {
+      id: "version",
+      description: "Package version",
+      required: false,
+      type: "string"
+    });
   }
   const nodeVersion = pipeline.sync.github.nodeVersion ?? DEFAULT_NODE_VERSION;
   const runtime = resolveRuntimeSpecs(pipeline.sync.github.runtime, options.projectKind, nodeVersion);
@@ -2200,9 +2384,12 @@ function buildRenderModel(
     attest: pipeline.sync.github.attest,
     contract,
     hygiene,
+    updateTrain,
+    dependencyBump,
     bridge,
     pages,
-    manualDispatchJobs
+    manualDispatchJobs,
+    manualDispatchInputs
   };
 }
 
@@ -2297,6 +2484,73 @@ function resolveGitHubHygiene(
   return config;
 }
 
+function resolveGitHubUpdateTrain(
+  pipeline: NormalizedPipeline,
+  generated: {
+    pages: NormalizedGitHubPagesSyncConfig;
+    bridge: ReturnType<typeof resolveGitHubBridge>;
+    contract: NormalizedGitHubContractConfig;
+    hygiene: NormalizedGitHubHygieneConfig;
+  }
+): NormalizedGitHubUpdateTrainConfig {
+  const config = pipeline.sync.github.updateTrain;
+  if (!config.enabled) return config;
+  assertGeneratedGitHubJobAvailable(pipeline, config.job, "sync.github.updateTrain.job", "ASYNC_PIPELINE_GITHUB_UPDATE_TRAIN_JOB_CONFLICT", [
+    pipeline.sync.github.packagePreviews.enabled ? "package-preview" : "",
+    pipeline.sync.github.dependabotAutoMerge.enabled ? "dependabot-auto-merge" : "",
+    pipeline.sync.github.evidence.enabled ? pipeline.sync.github.evidence.job : "",
+    generated.pages.enabled ? generated.pages.job : "",
+    generated.bridge.actionsJob.enabled ? generated.bridge.job : "",
+    generated.contract.enabled ? generated.contract.job : "",
+    generated.hygiene.enabled ? generated.hygiene.job : ""
+  ]);
+  if (config.after && !pipeline.jobs[config.after]) {
+    throw pipelineError("ASYNC_PIPELINE_GITHUB_UPDATE_TRAIN_INVALID", `sync.github.updateTrain.after references missing job "${config.after}".`);
+  }
+  return config;
+}
+
+function resolveGitHubDependencyBump(
+  pipeline: NormalizedPipeline,
+  generated: {
+    pages: NormalizedGitHubPagesSyncConfig;
+    bridge: ReturnType<typeof resolveGitHubBridge>;
+    contract: NormalizedGitHubContractConfig;
+    hygiene: NormalizedGitHubHygieneConfig;
+    updateTrain: NormalizedGitHubUpdateTrainConfig;
+  }
+): NormalizedGitHubDependencyBumpConfig {
+  const config = pipeline.sync.github.dependencyBump;
+  if (!config.enabled) return config;
+  assertGeneratedGitHubJobAvailable(pipeline, config.job, "sync.github.dependencyBump.job", "ASYNC_PIPELINE_GITHUB_DEPENDENCY_BUMP_JOB_CONFLICT", [
+    pipeline.sync.github.packagePreviews.enabled ? "package-preview" : "",
+    pipeline.sync.github.dependabotAutoMerge.enabled ? "dependabot-auto-merge" : "",
+    pipeline.sync.github.evidence.enabled ? pipeline.sync.github.evidence.job : "",
+    generated.pages.enabled ? generated.pages.job : "",
+    generated.bridge.actionsJob.enabled ? generated.bridge.job : "",
+    generated.contract.enabled ? generated.contract.job : "",
+    generated.hygiene.enabled ? generated.hygiene.job : "",
+    generated.updateTrain.enabled ? generated.updateTrain.job : ""
+  ]);
+  return config;
+}
+
+function assertGeneratedGitHubJobAvailable(
+  pipeline: NormalizedPipeline,
+  job: string,
+  field: string,
+  code: string,
+  generatedJobs: string[]
+): void {
+  const jobId = job.toLowerCase();
+  if (Object.keys(pipeline.jobs).some((id) => id.toLowerCase() === jobId)) {
+    throw pipelineError(code, `${field} "${job}" conflicts with an existing pipeline job. Remove the explicit job or set ${field} to a different id.`);
+  }
+  if (generatedJobs.filter(Boolean).some((id) => id.toLowerCase() === jobId)) {
+    throw pipelineError(code, `${field} "${job}" conflicts with a generated GitHub job. Set ${field} to a different id.`);
+  }
+}
+
 function resolveGitHubSourceImpactJobs(pipeline: NormalizedPipeline, cwd: string, jobs: RenderJobModel[]): SourceImpactRenderJob[] {
   const config = pipeline.sync.github.sourceImpact;
   if (!config.enabled) return [];
@@ -2311,6 +2565,8 @@ function resolveGitHubSourceImpactJobs(pipeline: NormalizedPipeline, cwd: string
     pipeline.sync.github.evidence.job,
     pipeline.sync.github.contract.enabled ? pipeline.sync.github.contract.job : "",
     pipeline.sync.github.hygiene.enabled ? pipeline.sync.github.hygiene.job : "",
+    pipeline.sync.github.updateTrain.enabled ? pipeline.sync.github.updateTrain.job : "",
+    pipeline.sync.github.dependencyBump.enabled ? pipeline.sync.github.dependencyBump.job : "",
     pipeline.sync.github.pages.job
   ].filter(Boolean).map((id) => id.toLowerCase()));
   const existingJobIds = new Set(Object.keys(pipeline.jobs).map((id) => id.toLowerCase()));
@@ -2442,10 +2698,31 @@ function addReleasePublishedTrigger(triggers: Record<string, unknown>): void {
   });
 }
 
+function addRepositoryDispatchTrigger(triggers: Record<string, unknown>, eventType: string): void {
+  const existing = triggers.repository_dispatch && typeof triggers.repository_dispatch === "object" && !Array.isArray(triggers.repository_dispatch)
+    ? triggers.repository_dispatch as Record<string, unknown>
+    : {};
+  const existingTypes = Array.isArray(existing.types) ? existing.types.filter((value): value is string => typeof value === "string") : [];
+  triggers.repository_dispatch = sortObject({
+    ...existing,
+    types: [...new Set([...existingTypes, eventType])].sort()
+  });
+}
+
 function addGitHubEventTrigger(triggers: Record<string, unknown>, event: string): void {
   if (triggers[event] === undefined) {
     triggers[event] = {};
   }
+}
+
+function addManualDispatchJob(jobs: string[], job: string): void {
+  if (!jobs.includes(job)) jobs.push(job);
+  jobs.sort((left, right) => left.localeCompare(right));
+}
+
+function addManualDispatchInput(inputs: ManualDispatchInput[], input: ManualDispatchInput): void {
+  if (!inputs.some((entry) => entry.id === input.id)) inputs.push(input);
+  inputs.sort((left, right) => left.id.localeCompare(right.id));
 }
 
 function addPushBranchTrigger(triggers: Record<string, unknown>, branch: string): void {
@@ -2548,7 +2825,7 @@ function renderWorkflow(model: ReturnType<typeof buildRenderModel>): string {
     "",
     "on:"
   ];
-  renderOn(lines, model.triggers, model.manualDispatchJobs);
+  renderOn(lines, model.triggers, model.manualDispatchJobs, model.manualDispatchInputs);
   lines.push(
     "",
     "permissions:",
@@ -2593,6 +2870,12 @@ function renderWorkflow(model: ReturnType<typeof buildRenderModel>): string {
   }
   if (model.hygiene.enabled) {
     renderHygieneJob(lines, model);
+  }
+  if (model.updateTrain.enabled) {
+    renderUpdateTrainJob(lines, model);
+  }
+  if (model.dependencyBump.enabled) {
+    renderDependencyBumpJob(lines, model);
   }
   if (model.evidence.enabled) {
     renderEvidenceFanInJob(lines, model);
@@ -3744,6 +4027,82 @@ function renderHygieneActionStep(lines: string[], hygiene: NormalizedGitHubHygie
   );
 }
 
+function renderUpdateTrainJob(lines: string[], model: ReturnType<typeof buildRenderModel>): void {
+  const updateTrain = model.updateTrain;
+  lines.push(
+    `  ${yamlKey(updateTrain.job)}:`,
+    `    name: ${updateTrain.job}`,
+    ...(updateTrain.after ? [`    needs: ${JSON.stringify([updateTrain.after])}`] : []),
+    `    if: ${renderUpdateTrainCondition(updateTrain)}`,
+    "    runs-on: ubuntu-latest",
+    "    permissions:",
+    "      contents: read",
+    "    steps:",
+    "      - name: Checkout",
+    `        uses: ${CHECKOUT_ACTION}`,
+    "",
+    "      - name: Dispatch update train",
+    `        uses: ${ASYNC_UPDATE_TRAIN_ACTION}`,
+    "        with:",
+    `          package-path: \${{ github.event.inputs.package || '${escapeExpressionString(updateTrain.packagePath)}' }}`,
+    "          repositories: |",
+    ...updateTrain.repositories.map((repository) => `            ${repository}`),
+    `          event-type: ${JSON.stringify(updateTrain.event)}`,
+    "          source-repository: ${{ github.repository }}",
+    "          version: ${{ github.event.inputs.version || '' }}",
+    `          github-token: \${{ secrets.${updateTrain.tokenEnv} }}`
+  );
+  renderEvidenceCollectStep(lines, model);
+  lines.push("");
+}
+
+function renderDependencyBumpJob(lines: string[], model: ReturnType<typeof buildRenderModel>): void {
+  const dependencyBump = model.dependencyBump;
+  lines.push(
+    `  ${yamlKey(dependencyBump.job)}:`,
+    `    name: ${dependencyBump.job}`,
+    `    if: ${renderDependencyBumpCondition(dependencyBump)}`,
+    "    runs-on: ubuntu-latest",
+    "    permissions:",
+    "      contents: write",
+    "      pull-requests: write",
+    "    steps:",
+    "      - name: Checkout",
+    `        uses: ${CHECKOUT_ACTION}`,
+    "        with:",
+    `          token: \${{ secrets.${dependencyBump.tokenEnv} }}`,
+    "",
+    ...renderSetupSteps(model),
+    ...renderDependencyInstallSteps(model),
+    "      - name: Apply dependency bump",
+    `        uses: ${ASYNC_DEPENDENCY_BUMP_ACTION}`,
+    "        with:",
+    "          package-name: ${{ github.event.client_payload.package || github.event.inputs.package || '' }}",
+    "          version: ${{ github.event.client_payload.version || github.event.inputs.version || '' }}",
+    ...(dependencyBump.packages.length > 0
+      ? [
+          "          allowed-packages: |",
+          ...dependencyBump.packages.map((name) => `            ${name}`)
+        ]
+      : []),
+    `          package-manager: ${JSON.stringify(dependencyBump.packageManager === "auto" ? model.packageManager : dependencyBump.packageManager)}`,
+    ...(dependencyBump.verify.length > 0
+      ? [
+          "          verify: |",
+          ...dependencyBump.verify.map((command) => `            ${command}`)
+        ]
+      : []),
+    `          success-mode: ${dependencyBump.success}`,
+    `          failure-mode: ${dependencyBump.failure}`,
+    `          branch-prefix: ${JSON.stringify(dependencyBump.branchPrefix)}`,
+    `          base-branch: ${JSON.stringify(dependencyBump.baseBranch)}`,
+    "          repository: ${{ github.repository }}",
+    `          github-token: \${{ secrets.${dependencyBump.tokenEnv} }}`
+  );
+  renderEvidenceCollectStep(lines, model);
+  lines.push("");
+}
+
 function renderHygieneCondition(model: ReturnType<typeof buildRenderModel>): string {
   const hygiene = model.hygiene;
   const manualJobs = hygieneManualJobIds(model);
@@ -3759,6 +4118,23 @@ function renderHygieneCondition(model: ReturnType<typeof buildRenderModel>): str
     return `(${pullRequest}) || (${release}) || (${manual})`;
   }
   return `(${pullRequest}) || (${manual})`;
+}
+
+function renderUpdateTrainCondition(updateTrain: NormalizedGitHubUpdateTrainConfig): string {
+  const manual = `github.event_name == 'workflow_dispatch' && github.event.inputs.job == '${escapeExpressionString(updateTrain.job)}'`;
+  const release = updateTrain.after
+    ? `github.event_name == 'release' && github.event.action == 'published' && needs['${escapeExpressionString(updateTrain.after)}'].result == 'success'`
+    : "github.event_name == 'release' && github.event.action == 'published'";
+  if (updateTrain.after) {
+    return `always() && ((${release}) || (${manual}))`;
+  }
+  return `(${release}) || (${manual})`;
+}
+
+function renderDependencyBumpCondition(dependencyBump: NormalizedGitHubDependencyBumpConfig): string {
+  const manual = `github.event_name == 'workflow_dispatch' && github.event.inputs.job == '${escapeExpressionString(dependencyBump.job)}'`;
+  const dispatch = `github.event_name == 'repository_dispatch' && github.event.action == '${escapeExpressionString(dependencyBump.event)}'`;
+  return `(${dispatch}) || (${manual})`;
 }
 
 function hygieneTriggers(hygiene: NormalizedGitHubHygieneConfig): string[] {
@@ -3830,6 +4206,8 @@ function evidenceProducerJobIds(model: ReturnType<typeof buildRenderModel>): str
   if (model.bridge.actionsJob.enabled) ids.add(model.bridge.job);
   if (model.contract.enabled) ids.add(model.contract.job);
   if (model.hygiene.enabled) ids.add(model.hygiene.job);
+  if (model.updateTrain.enabled) ids.add(model.updateTrain.job);
+  if (model.dependencyBump.enabled) ids.add(model.dependencyBump.job);
   ids.delete(model.evidence.job);
   return [...ids].sort((left, right) => left.localeCompare(right));
 }
@@ -4160,7 +4538,7 @@ function renderGitHubEnvValue(value: EnvValue): string | undefined {
   return undefined;
 }
 
-function renderOn(lines: string[], triggers: Record<string, unknown>, manualDispatchJobs: string[]): void {
+function renderOn(lines: string[], triggers: Record<string, unknown>, manualDispatchJobs: string[], manualDispatchInputs: ManualDispatchInput[] = []): void {
   for (const [event, value] of Object.entries(triggers)) {
     if (event === "schedule" && Array.isArray(value)) {
       lines.push("  schedule:");
@@ -4183,6 +4561,14 @@ function renderOn(lines: string[], triggers: Record<string, unknown>, manualDisp
         );
         for (const jobId of manualDispatchJobs) {
           lines.push(`          - ${JSON.stringify(jobId)}`);
+        }
+        for (const input of manualDispatchInputs) {
+          lines.push(
+            `      ${input.id}:`,
+            `        description: ${JSON.stringify(input.description)}`,
+            `        required: ${input.required ? "true" : "false"}`,
+            `        type: ${input.type}`
+          );
         }
       }
       continue;

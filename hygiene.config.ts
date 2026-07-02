@@ -176,6 +176,12 @@ export default defineConfig({
             "src/**/*.js"
           ]
         },
+        "examples/generated-update-train": {
+          entry: [
+            "pipeline.ts"
+          ],
+          project: []
+        },
         "examples/many-repo-impact-run": {
           entry: [
             "pipeline.ts",

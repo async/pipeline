@@ -365,6 +365,15 @@ test("PROMISE: the release chain publishes GitHub Packages before npm, and packa
 
   assert.equal(pipeline.sync.github.packagePreviews.enabled, true);
   assert.equal(pipeline.sync.github.dependabotAutoMerge.enabled, true);
+  assert.deepEqual(pipeline.sync.github.updateTrain, {
+    enabled: true,
+    job: "update-train",
+    packagePath: "packages/pipeline",
+    repositories: ["async/flow", "async/framework"],
+    event: "async-dep-bump",
+    tokenEnv: "ASYNC_RELEASE_TRAIN_TOKEN",
+    after: "publish"
+  });
   assert.equal(pipeline.tasks.preview, undefined);
   assert.equal(pipeline.jobs.preview, undefined);
   assert.deepEqual(pipeline.jobs["snapshot"].trigger, ["main"]);
