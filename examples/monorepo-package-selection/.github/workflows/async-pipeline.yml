@@ -45,14 +45,14 @@ jobs:
 
       - name: Restore Async task cache
         id: async-cache-restore
-        uses: async/actions/cache@1590fc528b0cb0e3634af121f9ee92948aa72e24 # v0.1.21
+        uses: async/actions/cache@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
         with:
           mode: restore
           manifest: .async/actions/cache/verify-cache-manifest.json
           trust: read-only
 
       - name: Run pipeline job
-        uses: async/actions/run@1590fc528b0cb0e3634af121f9ee92948aa72e24 # v0.1.21
+        uses: async/actions/run@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
         with:
           command: "pnpm async-pipeline github check && pnpm async-pipeline run verify"
           check-generated: false
@@ -62,7 +62,7 @@ jobs:
 
       - name: Save Async task cache
         if: ${{ success() && github.event_name != 'pull_request' && steps.async-cache-restore.outputs.cache-hit != 'true' }}
-        uses: async/actions/cache@1590fc528b0cb0e3634af121f9ee92948aa72e24 # v0.1.21
+        uses: async/actions/cache@0beebaf9f54402f67980e225803de2f8addc4b4f # v0.1.21
         with:
           mode: save
           manifest: .async/actions/cache/verify-cache-manifest.json
