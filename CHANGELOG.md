@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.31 - 2026-07-01
+
+### Features
+
+- Add `async-pipeline signoff create/status/revoke/check` for advisory local
+  signoff statuses. New run records include bounded git commit metadata so a
+  signoff can require a passed local Pipeline run for the selected SHA, publish
+  an `async/local/<job>` commit status through the local `gh` CLI, and write a
+  local receipt under `.async/signoff/<sha>/` without changing branch
+  protection.
+
 ## 0.9.30 - 2026-06-21
 
 ### Features
