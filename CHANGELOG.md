@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.32 - 2026-07-01
+
+### Features
+
+- Add generated `sync.github.updateTrain` and `sync.github.dependencyBump` jobs backed by pinned `async/actions@v0.1.21` step primitives so producer repos can dispatch release trains after publish and receiver repos can apply allowlisted dependency bumps through verified push or pull-request landing.
+
 ## 0.9.31 - 2026-07-01
 
 ### Features
