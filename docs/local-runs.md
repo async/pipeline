@@ -100,6 +100,19 @@ pnpm async-pipeline gc --keep 20 --cache-days 30
 
 `gc` keeps the newest run records and prunes task-cache entries unused for `--cache-days` days. Cache hits refresh their last-used time, and `--cache-days 0` disables cache pruning.
 
+Publish an advisory local signoff after a passed run:
+
+```sh
+pnpm async-pipeline run verify --force
+pnpm async-pipeline signoff create --job verify
+pnpm async-pipeline signoff status --job verify
+pnpm async-pipeline signoff check --job verify
+```
+
+`signoff create` posts an advisory `async/local/<job>` GitHub commit status only after it finds a passed local Pipeline run recorded for the selected commit SHA. It refuses dirty or unpushed commits by default, writes a bounded local receipt under `.async/signoff/<sha>/`, and leaves branch protection and rulesets unchanged.
+
+Use `signoff revoke --job verify --reason <text>` to publish a failing status for the same context and replace the local receipt state. Use `--force --no-run` only for an explicit manual signoff without a Pipeline run; the receipt records that no run was required and that force was used.
+
 ## Inspect A Run
 
 After `async-pipeline run verify`, inspect `.async/runs`:
@@ -129,6 +142,7 @@ The execution record includes:
 - errors
 - source metadata
 - task metadata
+- git SHA, branch, upstream, cleanliness, and pushed-state metadata when the run starts in a Git checkout
 
 Use `async-pipeline explain --run latest` to read the latest execution record, graph snapshot, cache receipts, logs, and failure context packs together.
 

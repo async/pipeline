@@ -393,6 +393,7 @@ async function runJobLocked(
 ): Promise<ExecutionRecord> {
   const plan = await createRunPlan(pipeline, context.cwd, store);
   const schedule = executionScheduleForJob(plan.pipeline, options.id);
+  const git = await readGitRecord(context.cwd);
   const record: ExecutionRecord = {
     schemaVersion: 1,
     id: `${new Date().toISOString().replaceAll(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`,
@@ -404,6 +405,7 @@ async function runJobLocked(
     status: "running",
     mode: options.mode ?? (context.env.CI ? "ci" : "manual"),
     tasks: [],
+    ...(git ? { git } : {}),
     sources: Object.fromEntries(Object.entries(plan.sources).map(([sourceId, resolved]) => [sourceId, resolved.record]))
   };
 
@@ -583,6 +585,38 @@ async function runJobLocked(
   record.finishedAt = new Date().toISOString();
   await writeExecution(store, record);
   return record;
+}
+
+async function readGitRecord(cwd: string): Promise<ExecutionRecord["git"] | undefined> {
+  const sha = await gitOutput(cwd, ["rev-parse", "HEAD"]);
+  if (!sha) return undefined;
+  const branch = await gitOutput(cwd, ["branch", "--show-current"]);
+  const upstream = await gitOutput(cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+  const remote = upstream?.includes("/") ? upstream.split("/")[0] : undefined;
+  const status = await gitOutput(cwd, ["status", "--porcelain"]);
+  const dirty = status === undefined ? undefined : status.length > 0;
+  const pushed = upstream ? await gitExit(cwd, ["merge-base", "--is-ancestor", sha, upstream]) : undefined;
+  return {
+    sha,
+    ...(branch ? { branch } : {}),
+    ...(remote ? { remote } : {}),
+    ...(upstream ? { upstream } : {}),
+    ...(dirty === undefined ? {} : { dirty }),
+    ...(pushed === undefined ? {} : { pushed })
+  };
+}
+
+async function gitOutput(cwd: string, args: string[]): Promise<string | undefined> {
+  const result = await runProcess(["git", ...args].map(shellEscape).join(" "), { cwd, env: process.env, echo: false });
+  if (result.code !== 0) return undefined;
+  return result.stdout.trim();
+}
+
+async function gitExit(cwd: string, args: string[]): Promise<boolean | undefined> {
+  const result = await runProcess(["git", ...args].map(shellEscape).join(" "), { cwd, env: process.env, echo: false });
+  if (result.code === 0) return true;
+  if (result.code === 1) return false;
+  return undefined;
 }
 
 export interface TaskPlanEntry {

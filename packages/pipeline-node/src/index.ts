@@ -10,3 +10,4 @@ export * from "./sync.js";
 export * from "./cloudflare.js";
 export * from "./package-lifecycle.js";
 export * from "./lifecycle-audit.js";
+export * from "./signoff.js";

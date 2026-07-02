@@ -60,6 +60,33 @@
       ]
     },
     {
+      "id": "readme.signoff-advisory-status",
+      "source": "README.md",
+      "anchor": "`signoff create` posts an advisory `async/local/<job>` GitHub commit status only after it finds a passed local Pipeline run recorded for the selected commit SHA.",
+      "tests": [
+        "signoff create/status/check/revoke publishes commit statuses from a matching local run",
+        "signoff create requires a run unless force no-run is explicit"
+      ]
+    },
+    {
+      "id": "local-runs.signoff-advisory-status",
+      "source": "docs/local-runs.md",
+      "anchor": "`signoff create` posts an advisory `async/local/<job>` GitHub commit status only after it finds a passed local Pipeline run recorded for the selected commit SHA.",
+      "tests": [
+        "signoff create/status/check/revoke publishes commit statuses from a matching local run",
+        "signoff create requires a run unless force no-run is explicit"
+      ]
+    },
+    {
+      "id": "api.signoff-status-receipts",
+      "source": "docs/api.md",
+      "anchor": "`signoff create` publishes advisory GitHub commit statuses such as `async/local/verify` through the local `gh` CLI.",
+      "tests": [
+        "signoff create/status/check/revoke publishes commit statuses from a matching local run",
+        "signoff create requires a run unless force no-run is explicit"
+      ]
+    },
+    {
       "id": "readme.run-auto-prune",
       "source": "README.md",
       "anchor": "Runs also auto-prune to the newest 50 records; set `ASYNC_PIPELINE_KEEP_RUNS` to change the limit or `0` to disable.",

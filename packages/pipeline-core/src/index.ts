@@ -1046,7 +1046,17 @@ export interface ExecutionRecord {
   status: "running" | "passed" | "failed";
   mode: ExecutionMode;
   tasks: TaskResult[];
+  git?: ExecutionGitRecord;
   sources?: Record<SourceId, ExecutionSourceRecord>;
+}
+
+export interface ExecutionGitRecord {
+  sha: string;
+  branch?: string;
+  remote?: string;
+  upstream?: string;
+  dirty?: boolean;
+  pushed?: boolean;
 }
 
 export interface ExecutionSourceRecord {

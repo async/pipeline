@@ -224,6 +224,10 @@ async-pipeline github generate [--workflow <path>] [--lock <path>]
 async-pipeline github check [--workflow <path>] [--lock <path>]
 async-pipeline github plan [--job <id>] [--event <name>] [--event-action <action>] [--format text|json]
 async-pipeline github run [--job <id>] [--event <name>] [--event-action <action>] [--network mock|deny|allow] [--dry-run] [--format text|json]
+async-pipeline signoff create [context...] [--job <id>] [--run latest|<id>] [--sha <ref>] [--context <name>]
+async-pipeline signoff status [context...] [--job <id>] [--sha <ref>] [--local-only|--remote-only] [--format text|json]
+async-pipeline signoff revoke [context...] [--job <id>] [--sha <ref>] [--reason <text>]
+async-pipeline signoff check [context...] [--job <id>] [--sha <ref>] [--local-only|--remote-only] [--format text|json]
 async-pipeline lifecycle audit [--package <path>] [--format text|json]
 async-pipeline cache clear
 async-pipeline gc [--keep <n>] [--cache-days <n>]
@@ -233,6 +237,8 @@ async-pipeline doctor
 The scheduler starts ready tasks in deterministic graph order and runs independent tasks in parallel up to the configured concurrency. Use `--concurrency 1` when a run needs strict sequential execution. `--force` re-runs tasks while still recording fresh cache entries, `--dry-run` prints the plan with predicted cache hits without executing, `cache clear` resets the task cache, and `gc` prunes old run records and cache entries unused for `--cache-days` days (20 run records and 30 cache days by default). Runs also auto-prune to the newest 50 records; set `ASYNC_PIPELINE_KEEP_RUNS` to change the limit or `0` to disable. Task output buffers cap at 8 MiB per stream (`ASYNC_PIPELINE_MAX_LOG_BYTES`, `0` = unlimited); stored logs keep the tail. The CLI finds `pipeline.ts`, `pipeline.js`, `pipeline.mjs`, or `pipeline.mts` from any subdirectory by walking up.
 
 Use `async-pipeline` as the explicit command in docs and CI. Short aliases and smart runner dispatch belong in `@async/run`, not this package.
+
+`signoff create` posts an advisory `async/local/<job>` GitHub commit status only after it finds a passed local Pipeline run recorded for the selected commit SHA. It refuses dirty or unpushed commits by default, writes a bounded local receipt under `.async/signoff/<sha>/`, and leaves branch protection and rulesets unchanged.
 
 Use `lifecycle audit` before migrating a repo's release or publish flow. It reads package manifests, Pipeline config and locks, lifecycle-looking package scripts, generated or custom workflow filenames, release config files, and lifecycle-looking files under `scripts/` without executing repo commands or mutating files. Text output is designed for quick review; `--format json` is stable enough for ADR receipts and migration dashboards.
 

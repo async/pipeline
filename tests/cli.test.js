@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -238,6 +238,132 @@ export default definePipeline({
     assert.equal(existsSync(join(dir, ".async/github-local/jobs/verify/receipt.json")), true);
   } finally {
     rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("signoff create/status/check/revoke publishes commit statuses from a matching local run", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "async-pipeline-signoff-"));
+  const remote = mkdtempSync(join(tmpdir(), "async-pipeline-signoff-remote-"));
+  const bin = join(dir, "bin");
+  const ghLog = join(dir, "gh.log");
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, GH_LOG: ghLog };
+  try {
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "gh"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_LOG"
+case "$*" in
+  *"/commits/"*"/status"*) printf '%s\\n' '{"statuses":[{"context":"async/local/verify","state":"success","description":"Pipeline verify signed off"}]}' ;;
+  *) printf '%s\\n' '{"state":"success"}' ;;
+esac
+`, "utf8");
+    chmodSync(join(bin, "gh"), 0o755);
+
+    spawnSync("git", ["init", "--bare"], { cwd: remote, encoding: "utf8" });
+    assert.equal(spawnSync("git", ["init", "-b", "main"], { cwd: dir, encoding: "utf8" }).status, 0);
+    spawnSync("git", ["config", "user.name", "Pipeline Test"], { cwd: dir, encoding: "utf8" });
+    spawnSync("git", ["config", "user.email", "pipeline-test@example.com"], { cwd: dir, encoding: "utf8" });
+    writeFileSync(join(dir, ".gitignore"), ".async\nbin\n*.log\n", "utf8");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module", private: true }), "utf8");
+    writeFileSync(join(dir, "pipeline.js"), `
+import { definePipeline, job, sh, task } from ${JSON.stringify(packageUrl)};
+
+export default definePipeline({
+  name: "fixture",
+  tasks: { verify: task({ cache: false, run: sh\`true\` }) },
+  jobs: { verify: job({ target: "verify" }) }
+});
+`, "utf8");
+    assert.equal(spawnSync("git", ["add", ".gitignore", "package.json", "pipeline.js"], { cwd: dir, encoding: "utf8" }).status, 0);
+    assert.equal(spawnSync("git", ["commit", "-m", "initial"], { cwd: dir, encoding: "utf8" }).status, 0);
+    assert.equal(spawnSync("git", ["remote", "add", "origin", remote], { cwd: dir, encoding: "utf8" }).status, 0);
+    assert.equal(spawnSync("git", ["push", "-u", "origin", "main"], { cwd: dir, encoding: "utf8" }).status, 0);
+    const sha = spawnSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).stdout.trim();
+
+    let result = await runPipelineCli({ args: ["run", "verify", "--force"], cwd: dir, env, stdout() {}, stderr() {} });
+    assert.equal(result.code, 0, result.stderr);
+    const runMatch = result.stdout.match(/Pipeline passed: (.+)\n/);
+    assert.ok(runMatch);
+    const run = JSON.parse(readFileSync(join(dir, ".async/runs", runMatch[1], "execution.json"), "utf8"));
+    assert.equal(run.git.sha, sha);
+
+    result = await runPipelineCli({ args: ["signoff", "create", "--job", "verify"], cwd: dir, env, stdout() {}, stderr() {} });
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /signed off async\/local\/verify/);
+    const receiptPath = join(dir, ".async/signoff", sha, "async_local_verify.json");
+    assert.equal(existsSync(receiptPath), true);
+    const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+    assert.equal(receipt.context, "async/local/verify");
+    assert.equal(receipt.state, "success");
+    assert.equal(receipt.runId, run.id);
+    assert.equal(receipt.tree.clean, true);
+    assert.equal(receipt.tree.pushed, true);
+    assert.equal(receipt.tree.force, false);
+
+    result = await runPipelineCli({ args: ["signoff", "status", "--job", "verify", "--local-only", "--format", "json"], cwd: dir, env, stdout() {}, stderr() {} });
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).local[0].receipt.state, "success");
+
+    result = await runPipelineCli({ args: ["signoff", "check", "--job", "verify"], cwd: dir, env, stdout() {}, stderr() {} });
+    assert.equal(result.code, 0, result.stderr);
+
+    result = await runPipelineCli({ args: ["signoff", "revoke", "--job", "verify", "--reason", "superseded"], cwd: dir, env, stdout() {}, stderr() {} });
+    assert.equal(result.code, 0, result.stderr);
+    const revoked = JSON.parse(readFileSync(receiptPath, "utf8"));
+    assert.equal(revoked.state, "failure");
+    assert.equal(revoked.reason, "superseded");
+
+    const ghCalls = readFileSync(ghLog, "utf8");
+    assert.match(ghCalls, new RegExp(`repos/.+/.+/statuses/${sha}`));
+    assert.match(ghCalls, /context=async\/local\/verify/);
+    assert.match(ghCalls, /state=success/);
+    assert.match(ghCalls, /state=failure/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(remote, { recursive: true, force: true });
+  }
+});
+
+test("signoff create requires a run unless force no-run is explicit", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "async-pipeline-signoff-no-run-"));
+  const remote = mkdtempSync(join(tmpdir(), "async-pipeline-signoff-no-run-remote-"));
+  const bin = join(dir, "bin");
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` };
+  try {
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "gh"), "#!/bin/sh\nprintf '%s\\n' '{\"state\":\"success\"}'\n", "utf8");
+    chmodSync(join(bin, "gh"), 0o755);
+    spawnSync("git", ["init", "--bare"], { cwd: remote, encoding: "utf8" });
+    spawnSync("git", ["init", "-b", "main"], { cwd: dir, encoding: "utf8" });
+    spawnSync("git", ["config", "user.name", "Pipeline Test"], { cwd: dir, encoding: "utf8" });
+    spawnSync("git", ["config", "user.email", "pipeline-test@example.com"], { cwd: dir, encoding: "utf8" });
+    writeFileSync(join(dir, ".gitignore"), ".async\nbin\n*.log\n", "utf8");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module", private: true }), "utf8");
+    writeFileSync(join(dir, "pipeline.js"), `
+import { definePipeline, job, sh, task } from ${JSON.stringify(packageUrl)};
+export default definePipeline({
+  name: "fixture",
+  tasks: { verify: task({ cache: false, run: sh\`true\` }) },
+  jobs: { verify: job({ target: "verify" }) }
+});
+`, "utf8");
+    spawnSync("git", ["add", ".gitignore", "package.json", "pipeline.js"], { cwd: dir, encoding: "utf8" });
+    spawnSync("git", ["commit", "-m", "initial"], { cwd: dir, encoding: "utf8" });
+    spawnSync("git", ["remote", "add", "origin", remote], { cwd: dir, encoding: "utf8" });
+    spawnSync("git", ["push", "-u", "origin", "main"], { cwd: dir, encoding: "utf8" });
+
+    let result = await runPipelineCli({ args: ["signoff", "create", "--job", "verify"], cwd: dir, env, stdout() {}, stderr() {} });
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /No passed local Pipeline run/);
+
+    result = await runPipelineCli({ args: ["signoff", "create", "--job", "verify", "--force", "--no-run"], cwd: dir, env, stdout() {}, stderr() {} });
+    assert.equal(result.code, 0, result.stderr);
+    const sha = spawnSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).stdout.trim();
+    const receipt = JSON.parse(readFileSync(join(dir, ".async/signoff", sha, "async_local_verify.json"), "utf8"));
+    assert.equal(receipt.runStatus, "not-required");
+    assert.equal(receipt.tree.force, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(remote, { recursive: true, force: true });
   }
 });
 

@@ -587,6 +587,10 @@ async-pipeline github generate [--workflow <path>] [--lock <path>]
 async-pipeline github check [--workflow <path>] [--lock <path>]
 async-pipeline github plan [--job <id>] [--event <name>] [--event-action <action>] [--format text|json]
 async-pipeline github run [--job <id>] [--event <name>] [--event-action <action>] [--network mock|deny|allow] [--dry-run] [--format text|json]
+async-pipeline signoff create [context...] [--job <id>] [--run latest|<id>] [--sha <ref>] [--context <name>]
+async-pipeline signoff status [context...] [--job <id>] [--sha <ref>] [--local-only|--remote-only] [--format text|json]
+async-pipeline signoff revoke [context...] [--job <id>] [--sha <ref>] [--reason <text>]
+async-pipeline signoff check [context...] [--job <id>] [--sha <ref>] [--local-only|--remote-only] [--format text|json]
 async-pipeline cache clear
 async-pipeline gc [--keep <n>] [--cache-days <n>]
 ```
@@ -600,6 +604,8 @@ async-pipeline gc [--keep <n>] [--cache-days <n>]
 `github plan` emits a stable generated job manifest for a GitHub event, including selected jobs, runner matrices, pinned action refs, permissions, artifact contracts, and local action mocks.
 
 `github run` reads the GitHub event context when `--event` is omitted, or simulates the explicit `--event` and `--event-action` you pass. It executes the selected generated job manifest through the local harness and writes manifests, per-step JSON, artifact directories, and receipts under `.async/github-local/`. Networked steps default to `--network mock`; `--network deny` fails before networked actions or shell commands run, and `--network allow` requires the named secret env vars to exist. On `workflow_dispatch` only jobs with a `manual` trigger run implicitly; select others explicitly with `--job <id>` or `--selected-job <id>`. `github run --format json` emits the local manifest run result.
+
+`signoff create` publishes advisory GitHub commit statuses such as `async/local/verify` through the local `gh` CLI. It requires a passed local Pipeline run for the selected commit SHA, refuses dirty or unpushed commits unless `--force` is used, and writes bounded receipts under `.async/signoff/<sha>/`. `signoff status` reads local receipts and GitHub commit status state, `signoff check` exits nonzero when expected contexts are missing or non-success, and `signoff revoke` publishes a failing status for the selected context. These commands do not generate workflows or mutate branch protection.
 
 `run --format json` emits the execution record; `cache clear` resets the task cache; `gc` prunes run records and cache entries unused for `--cache-days` days, and runs auto-prune to `ASYNC_PIPELINE_KEEP_RUNS` (default 50, `0` disables). In-memory task output buffers cap at `ASYNC_PIPELINE_MAX_LOG_BYTES` (default 8 MiB per stream, `0` = unlimited); stored logs keep the tail with a truncation marker.
 

@@ -15,6 +15,7 @@ import { computeTaskInputManifest, createStore, diffInputManifests, pruneCacheEn
 import { matrixForJob, readPipelineMetadata, resolveSources, sourceContext } from "./sources.js";
 import { checkTaskSync, describeTaskSync, renderTaskSync, writeTaskSync } from "./sync.js";
 import { checkCloudflareSync, describeCloudflareSync, planCloudflareWorkflow, renderCloudflareSync, runCloudflareWorkflowMock, writeCloudflareSync, type CloudflareWorkflowMockMode, type CloudflareWorkflowPlanOptions, type CloudflareWorkflowPlanResult } from "./cloudflare.js";
+import { handleSignoffCommand } from "./signoff.js";
 
 export interface PipelineCliOptions {
   args: string[];
@@ -286,6 +287,10 @@ async function dispatchCommand(commandName: string, args: string[], context: Pip
       return result.status === "skipped" || result.status === "passed" || result.status === "planned" ? 0 : 1;
     }
     throw new Error(`Unknown cloudflare command "${subcommand}".`);
+  }
+
+  if (commandName === "signoff") {
+    return handleSignoffCommand(args, context, program);
   }
 
   if (commandName === "list") {
@@ -1136,6 +1141,10 @@ function printHelp(program: string): string {
   ${program} release ensure --package <path>
   ${program} release doctor --package <path>
   ${program} release sync-descriptions --package <path> [--check]
+  ${program} signoff create [context...] [--job <id>] [--run latest|<id>] [--sha <ref>] [--context <name>] [--force] [--no-run] [--dry-run] [--format text|json]
+  ${program} signoff status [context...] [--job <id>] [--sha <ref>] [--context <name>] [--local-only|--remote-only] [--format text|json]
+  ${program} signoff revoke [context...] [--job <id>] [--sha <ref>] [--context <name>] [--reason <text>] [--dry-run] [--format text|json]
+  ${program} signoff check [context...] [--job <id>] [--sha <ref>] [--context <name>] [--local-only|--remote-only] [--format text|json]
   ${program} lifecycle audit [--package <path>] [--format text|json]
   ${program} sync list
   ${program} sync generate
